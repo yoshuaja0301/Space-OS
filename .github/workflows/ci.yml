@@ -38,12 +38,15 @@ jobs:
       - name: fmt, clippy, build, boot scenarios
         run: cargo xtask ci
       - name: Upload serial logs
+        # Diagnostics only: an artifact-storage quota must never fail a green run.
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: qemu-logs
           path: build/logs/
           if-no-files-found: ignore
+          retention-days: 7
 
   soak:
     name: K01 soak (100 cold boots)
@@ -62,8 +65,10 @@ jobs:
         run: cargo xtask soak --boots ${{ github.event.inputs.boots || '100' }}
       - name: Upload soak logs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: soak-logs
           path: build/logs/soak/
           if-no-files-found: ignore
+          retention-days: 7
