@@ -10,8 +10,11 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - **Tidak ada timeout** pada `recv`/`wait`; `send` tidak pernah memblokir (antrean 64 → `WouldBlock`).
 - **Stack user tetap 64 KiB**, dipetakan penuh saat spawn; tidak ada demand paging atau pertumbuhan stack.
 - **Heap kernel tetap 16 MiB**; kehabisan heap = panic (alloc error), bukan penolakan bertahap.
-- **Kuota menghitung halaman user saja**; frame page-table dan objek kernel (thread, channel) belum dibebankan ke proses → resource exhaustion oleh proses jahat masih mungkin lewat objek kernel (ancaman PRD §5 "resource exhaustion" belum ditutup).
-- Thread yang di-`kill` saat menunggu di channel tetap tercatat di wait queue channel sampai wake berikutnya (Arc lepas terlambat, bukan bocor permanen).
+- **Kuota menghitung halaman user saja**; frame page-table dan objek kernel (thread, channel) belum dibebankan ke proses. Headroom heap kernel dan `try_reserve` mengubah kehabisan heap menjadi error syscall (`NoMemory`), tetapi satu proses masih dapat menghabiskan headroom bersama (ancaman PRD §5 "resource exhaustion" baru ditutup sebagian).
+- Thread yang di-`kill` saat menunggu `wait` pada proses yang belum keluar tetap tercatat di wait queue proses itu sampai proses tersebut keluar (Arc lepas terlambat, bukan bocor permanen).
+- Siklus referensi antar-channel (endpoint A dikirim lewat channel B dan endpoint B dikirim lewat channel A) tidak dideteksi dan bocor; siklus satu channel ditolak (`Invalid`).
+- NMI bersarang (NMI kedua saat handler NMI belum selesai) merusak frame di stack IST NMI.
+- Headroom heap kernel 1 MiB menolak alokasi yang dipicu user, tetapi fragmentasi ekstrem masih dapat membuat alokasi internal kernel gagal (panic).
 - Hanya **PIC + PIT**; belum ada ACPI/LAPIC/IOAPIC/HPET; RSDP hanya diteruskan.
 - Framebuffer dipetakan write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
 - Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).

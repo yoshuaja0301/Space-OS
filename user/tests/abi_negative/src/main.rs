@@ -77,6 +77,16 @@ pub extern "C" fn space_main() -> i32 {
     let (a, b) = sys::channel_create().expect("channel");
     check("oversized message", sys::send(a, &big, None), Error::MsgSize);
     check("transfer the sending handle itself", sys::send(a, b"x", Some(a)), Error::Invalid);
+    check("transfer the peer endpoint through its own channel", sys::send(a, b"x", Some(b)), Error::Invalid);
+    let a2 = sys::handle_dup(a, rights::CHANNEL_ALL).expect("dup a");
+    check("transfer a duplicate of the sending endpoint", sys::send(a, b"x", Some(a2)), Error::Invalid);
+    if sys::handle_info(a2).is_err() {
+        println!("[abi]   FAIL rejected transfer must leave the handle in place");
+        unsafe { FAILS += 1 };
+    } else {
+        println!("[abi]   ok   rejected transfer leaves the handle in place");
+    }
+    sys::handle_close(a2).expect("close a2");
 
     // Capability attenuation: a RECV-only duplicate cannot send and cannot be widened.
     let ro = check_ok("dup with RECV only", sys::handle_dup(a, rights::RECV)).unwrap_or(handle::INVALID);

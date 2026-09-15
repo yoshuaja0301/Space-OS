@@ -59,7 +59,21 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
     };
     arch::disable_interrupts();
     proc::check_pending_kill();
+    // Defence in depth for the Intel `sysret` hazard: returning to a non-canonical
+    // rip raises #GP in ring 0. User mappings never reach the top of the lower half,
+    // but a process whose return address is not user space is terminated instead.
+    if frame.rip >= crate::mm::USER_SPACE_END {
+        proc::exit_current(ExitStatus::killed(kill_reason::GENERAL_PROTECTION, frame.rip));
+    }
     encode(r)
+}
+
+/// Rough kernel-heap cost of the objects a syscall may create.
+mod cost {
+    pub const MESSAGE: usize = 1024;
+    pub const HANDLE: usize = 128;
+    pub const CHANNEL: usize = 4096;
+    pub const PROCESS: usize = 256 * 1024;
 }
 
 fn current() -> Arc<Process> {
@@ -166,6 +180,7 @@ fn sys_mem_map(len: u64, flags: u32) -> Result<usize, Error> {
     if flags != map_flags::NONE || len == 0 || len > (1u64 << 30) {
         return Err(Error::Invalid);
     }
+    heap::reserve(cost::HANDLE)?;
     let pages = len.div_ceil(PAGE_SIZE) as usize;
     let p = current();
     let mut space = p.space.lock();
@@ -190,6 +205,7 @@ fn sys_mem_unmap(addr: u64, len: u64) -> Result<usize, Error> {
 fn sys_channel_create(out: u64) -> Result<usize, Error> {
     // Validate the output pointer before creating anything.
     user_bytes(out, 8, true)?;
+    heap::reserve(cost::CHANNEL)?;
     let (a, b) = Endpoint::pair();
     let p = current();
     let (ha, hb) = {
@@ -215,21 +231,41 @@ fn sys_send(h: Handle, ptr: u64, len: u64, transfer: Handle) -> Result<usize, Er
     if transfer != handle::INVALID && transfer == h {
         return Err(Error::Invalid);
     }
-    let data = user_bytes(ptr, len, false)?.to_vec();
+    heap::reserve(cost::MESSAGE)?;
+    let src = user_bytes(ptr, len, false)?;
+    let mut data = alloc::vec::Vec::new();
+    data.try_reserve_exact(src.len()).map_err(|_| Error::NoMemory)?;
+    data.extend_from_slice(src);
     let p = current();
-    let moved = if transfer != handle::INVALID {
+    // Validate everything before taking the transferred handle out of the table.
+    let (ep, moved) = {
         let mut t = p.handles.lock();
-        let e = t.get(transfer)?;
-        if !e.has(rights::TRANSFER) {
-            return Err(Error::Denied);
-        }
-        Some(t.take(transfer)?)
-    } else {
-        None
+        let e = t.get(h)?;
+        let ep = match &e.object {
+            Object::Channel(ep) if e.has(rights::SEND) => ep.clone(),
+            _ => return Err(Error::Denied),
+        };
+        let moved = if transfer != handle::INVALID {
+            let te = t.get(transfer)?;
+            if !te.has(rights::TRANSFER) {
+                return Err(Error::Denied);
+            }
+            // An endpoint of this very channel travelling through it would create a
+            // reference cycle nobody can ever receive: refuse it.
+            if let Object::Channel(other) = &te.object
+                && other.same_channel(&ep)
+            {
+                return Err(Error::Invalid);
+            }
+            Some(t.take(transfer)?)
+        } else {
+            None
+        };
+        (ep, moved)
     };
     // If the send fails the message (and any handle moved into it) is dropped: the
     // handle is consumed either way, which keeps transfer semantics simple (ADR-0004).
-    with_channel(h, rights::SEND, |ep| ep.send(Message { data, handle: moved }))?;
+    ep.send(Message { data, handle: moved })?;
     Ok(0)
 }
 
@@ -237,6 +273,7 @@ fn sys_recv(h: Handle, args_ptr: u64) -> Result<usize, Error> {
     // The args block is written back with the result, so it must be writable up
     // front: a message must never be dequeued and then lost on a late Fault.
     user_bytes(args_ptr, core::mem::size_of::<RecvArgs>() as u64, true)?;
+    heap::reserve(cost::HANDLE)?;
     let args: RecvArgs = read_user(args_ptr)?;
     if args.buf_cap > MSG_MAX as u64 * 4 {
         return Err(Error::Invalid);
@@ -272,6 +309,7 @@ fn sys_handle_close(h: Handle) -> Result<usize, Error> {
 }
 
 fn sys_handle_dup(h: Handle, mask: u32) -> Result<usize, Error> {
+    heap::reserve(cost::HANDLE)?;
     let p = current();
     let mut t = p.handles.lock();
     let e = t.get(h)?;
@@ -295,6 +333,7 @@ fn sys_handle_info(h: Handle, out: u64) -> Result<usize, Error> {
 
 fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
     require_root(root, rights::SPAWN)?;
+    heap::reserve(cost::PROCESS)?;
     let args: SpawnArgs = read_user(args_ptr)?;
     let name = read_user_str(args.name, args.name_len, MAX_NAME)?;
     let p = current();

@@ -1,30 +1,35 @@
 BdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 180992 bytes, initrd 279552 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 176 KiB at phys 0x7dcde000, entry 0xffffffff8010001c
+spaceboot: kernel 234240 bytes, initrd 355328 bytes, config 73 bytes
+spaceboot: kernel 3 segments, 228 KiB at phys 0x7dcb2000, entry 0xffffffff801037cc
 spaceboot: linear map 0..0x280000000 at 0xffff800000000000, framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 34 memory regions, initrd 279552 bytes, cmdline 14 bytes, rsdp 0x7f77e014
-[kernel] gdt/tss loaded (double-fault IST ready)
+[kernel] boot info ok: 34 memory regions, initrd 355328 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] frames: 2095280 usable (8184 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 0 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2095249 usable (8184 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 0 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
 [kernel] memory: 8184 MiB usable, 8168 MiB free after kernel init
+[kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "selftest=panic"
-[kernel] initrd: 279552 bytes, 8 files
-[kernel]   bin/init (86792 bytes)
+[kernel] initrd: 355328 bytes, 12 files
+[kernel]   bin/init (90888 bytes)
 [kernel]   bin/hello (21064 bytes)
-[kernel]   bin/fault (21072 bytes)
+[kernel]   bin/fault (25168 bytes)
 [kernel]   bin/abi_negative (45680 bytes)
 [kernel]   bin/ipc_echo (21064 bytes)
 [kernel]   bin/quota (25160 bytes)
 [kernel]   bin/spin (21064 bytes)
 [kernel]   bin/worker (29296 bytes)
+[kernel]   fixtures/bad_entry (21064 bytes)
+[kernel]   fixtures/bad_magic (21064 bytes)
+[kernel]   fixtures/truncated (600 bytes)
+[kernel]   fixtures/huge_segment (21064 bytes)
 [kernel] pic remapped to vectors 32..47
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
@@ -35,8 +40,7 @@ at kernel/src/selftest.rs:94:26
 message: deliberate kernel panic (cmdline selftest=panic)
 current: idle
 backtrace (frame pointers):
-  #00 0xffffffff8011748c
-  #01 0xffffffff8010c3e3
-  #02 0xffffffff801009df
-  #03 0xffffffff80100028
+  #00 0xffffffff8011814c
+  #01 0xffffffff80106039
+  #02 0xffffffff801089b9
 spacekernel: halted after panic (uptime 0 ms)

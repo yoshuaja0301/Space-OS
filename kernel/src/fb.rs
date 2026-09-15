@@ -114,15 +114,28 @@ pub fn init(bi: &BootInfo) {
         return;
     }
     let glyph_w = get_raster_width(FontWeight::Regular, RasterHeight::Size16);
+    // Never address beyond what the firmware reported (and the bootloader mapped):
+    // the drawable width is bounded by the stride and the rows by `size`.
+    let stride = f.stride as usize;
+    let width = (f.width as usize).min(stride);
+    let rows_in_buffer = if stride == 0 { 0 } else { (f.size as usize / 4) / stride };
+    let height = (f.height as usize).min(rows_in_buffer);
+    if width == 0 || height < FONT_H || stride == 0 {
+        println!(
+            "[kernel] framebuffer: geometry unusable ({}x{}, stride {}, {} bytes)",
+            f.width, f.height, f.stride, f.size
+        );
+        return;
+    }
     let mut fb = Fb {
         ptr: phys_to_virt(f.phys_addr).as_mut_ptr::<u32>(),
-        width: f.width as usize,
-        height: f.height as usize,
-        stride: f.stride as usize,
+        width,
+        height,
+        stride,
         bgr: f.format == fb_format::BGRX,
         glyph_w,
-        cols: f.width as usize / glyph_w,
-        rows: f.height as usize / FONT_H,
+        cols: width / glyph_w,
+        rows: height / FONT_H,
         col: 0,
         row: 0,
     };

@@ -44,7 +44,7 @@ spacekernel 0.1.0: Space OS kernel booting
 ...
 [init] frames free before=2089056 after=2089056 ; heap used before=1208 after=1208
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
-[init] ALL TESTS PASSED (18/18)
+[init] ALL TESTS PASSED (25/25)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 491 ms, 147 context switches)
 ```
 

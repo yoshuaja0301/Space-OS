@@ -51,6 +51,11 @@ impl Endpoint {
         (Arc::new(Endpoint { chan: chan.clone(), side: 0 }), Arc::new(Endpoint { chan, side: 1 }))
     }
 
+    /// True when both endpoints belong to the same channel (either side).
+    pub fn same_channel(&self, other: &Endpoint) -> bool {
+        Arc::ptr_eq(&self.chan, &other.chan)
+    }
+
     /// Queue a message for the peer. Never blocks: a full queue yields `WouldBlock`.
     pub fn send(&self, msg: Message) -> Result<(), Error> {
         if msg.data.len() > MSG_MAX {
@@ -65,6 +70,7 @@ impl Endpoint {
             if sides[peer].queue.len() >= MAX_QUEUE {
                 return Err(Error::WouldBlock);
             }
+            sides[peer].queue.try_reserve(1).map_err(|_| Error::NoMemory)?;
             sides[peer].queue.push_back(msg);
         }
         self.chan.waiters[peer].wake_all();
@@ -107,7 +113,13 @@ impl Drop for Endpoint {
         let drained: Vec<Message> = {
             let mut sides = self.chan.sides.lock();
             sides[self.side].open = false;
-            sides[self.side].queue.drain(..).collect()
+            let mut d: Vec<Message> = sides[self.side].queue.drain(..).collect();
+            if !sides[1 - self.side].open {
+                // Nobody can receive on either side any more: release everything
+                // still queued so objects inside messages (handles) do not leak.
+                d.extend(sides[1 - self.side].queue.drain(..));
+            }
+            d
         };
         drop(drained); // may release transferred handles
         // Wake the peer so it observes PeerClosed, and drain our own side's waiter

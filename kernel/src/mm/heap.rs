@@ -56,3 +56,13 @@ pub fn stats() -> (usize, usize) {
     let h = HEAP.0.lock();
     (h.0.size(), h.0.used())
 }
+
+/// Free space the kernel keeps for its own bookkeeping; user-driven allocations
+/// are refused before they can eat into it (an OOM in the kernel heap would panic).
+pub const HEADROOM: usize = 1024 * 1024;
+
+/// Check that a user-driven allocation of about `bytes` leaves [`HEADROOM`] free.
+pub fn reserve(bytes: usize) -> Result<(), spaceabi::error::Error> {
+    let h = HEAP.0.lock();
+    if h.0.free() >= bytes.saturating_add(HEADROOM) { Ok(()) } else { Err(spaceabi::error::Error::NoMemory) }
+}

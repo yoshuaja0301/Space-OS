@@ -114,13 +114,14 @@ static SCHED: SpinLock<Scheduler> = SpinLock::new(Scheduler {
     live_threads: 0,
 });
 
-/// Turn the boot context into the idle thread.
-pub fn init() {
+/// Turn the boot context into the idle thread. `idle_stack_top` is the top of the
+/// guarded kernel stack the boot context was moved onto.
+pub fn init(idle_stack_top: u64) {
     let idle = Arc::new(Thread {
         tid: 0,
         process: None,
         _kstack: None,
-        kstack_top: 0,
+        kstack_top: idle_stack_top,
         saved_rsp: UnsafeCell::new(0),
         state: AtomicU8::new(ThreadState::Running as u8),
         user_entry: (0, 0),
@@ -259,7 +260,7 @@ pub fn sleep_ms(ms: u64) {
         {
             let mut s = SCHED.lock();
             let cur = s.current.clone().expect("no current");
-            let wake_at = s.ticks + ms.saturating_mul(TICK_HZ as u64).div_ceil(1000).max(1);
+            let wake_at = s.ticks.saturating_add(ms.saturating_mul(TICK_HZ as u64).div_ceil(1000).max(1));
             cur.set_state(ThreadState::Blocked);
             s.sleepers.push((wake_at, cur));
         }

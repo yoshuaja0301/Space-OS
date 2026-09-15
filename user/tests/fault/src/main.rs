@@ -46,6 +46,57 @@ pub extern "C" fn space_main() -> i32 {
             // SAFETY: privileged instruction in ring 3 -> #GP.
             unsafe { core::arch::asm!("cli") };
         }
+        "int3" => {
+            // SAFETY: breakpoint trap in ring 3; the kernel must report BREAKPOINT.
+            unsafe { core::arch::asm!("int3") };
+        }
+        "tf_syscall" => {
+            // Set TF and immediately execute `syscall`: the single-step trap is then
+            // delivered on the first *kernel* instruction. The kernel must survive
+            // that and terminate this process when the trap re-fires in ring 3.
+            // SAFETY: deliberate.
+            unsafe {
+                core::arch::asm!(
+                    "pushfq",
+                    "or qword ptr [rsp], 0x100",
+                    "popfq",
+                    "syscall",
+                    inout("rax") spaceabi::syscall::nr::TICKS as u64 => _,
+                    out("rcx") _, out("r11") _,
+                )
+            };
+        }
+        "noncanon_rsp_syscall" | "kernel_rsp_syscall" => {
+            // The kernel must never touch the user stack pointer: with rsp pointing
+            // at a non-canonical or kernel address, `syscall` must still return
+            // normally. Exit 0 on success.
+            let bad_rsp: u64 =
+                if mode == "noncanon_rsp_syscall" { 0x8000_0000_0000_0000 } else { 0xFFFF_8000_0000_0000 };
+            let t: u64;
+            // SAFETY: rsp is restored before anything touches the stack again.
+            unsafe {
+                core::arch::asm!(
+                    "mov r12, rsp",
+                    "mov rsp, {bad}",
+                    "syscall",
+                    "mov rsp, r12",
+                    bad = in(reg) bad_rsp,
+                    inout("rax") spaceabi::syscall::nr::TICKS as u64 => t,
+                    out("rcx") _, out("r11") _, out("r12") _,
+                    options(nostack)
+                )
+            };
+            println!("[fault] syscall with a hostile rsp returned ticks={t}");
+            return 0;
+        }
+        "kernel_rip_jump" => {
+            let f: extern "C" fn() = unsafe { core::mem::transmute(0xFFFF_FFFF_8010_0000u64 as *const ()) };
+            f();
+        }
+        "noncanon_rip_jump" => {
+            let f: extern "C" fn() = unsafe { core::mem::transmute(0x8000_0000_0000u64 as *const ()) };
+            f();
+        }
         "kernel_syscall_ptr" => {
             // Not a fault: the kernel must reject the pointer with Error::Fault instead
             // of touching kernel memory. Exit 0 if it does.

@@ -69,6 +69,12 @@ fn expect_killed(mode: &str, st: ExitStatus, reason: u32) -> Result<(), String> 
 }
 
 fn fault_case(mode: &str, reason: u32) -> Result<(), String> {
+    fault_case_any(mode, &[reason])
+}
+
+/// Like `fault_case`, accepting any of `reasons` (some faults are reported
+/// differently by emulators and real CPUs, e.g. a non-canonical jump).
+fn fault_case_any(mode: &str, reasons: &[u32]) -> Result<(), String> {
     let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
     let p = sys::spawn(ROOT, "bin/fault", CHILD_QUOTA, Some(theirs))
         .map_err(|e| alloc::format!("spawn fault: {e}"))?;
@@ -76,7 +82,7 @@ fn fault_case(mode: &str, reason: u32) -> Result<(), String> {
     let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
     sys::handle_close(p).ok();
     sys::handle_close(mine).ok();
-    expect_killed(mode, st, reason)
+    if reasons.iter().any(|&r| st.is_killed_by(r)) { Ok(()) } else { expect_killed(mode, st, reasons[0]) }
 }
 
 fn cycle() -> Result<(), String> {
@@ -179,6 +185,53 @@ pub extern "C" fn space_main() -> i32 {
     r.run("K02", "privileged instruction in ring 3 kills the process (#GP)", || {
         fault_case("cli", kill_reason::GENERAL_PROTECTION)
     });
+    r.run("K02", "int3 in ring 3 kills the process (breakpoint)", || {
+        fault_case("int3", kill_reason::BREAKPOINT)
+    });
+    r.run("K02", "TF set before syscall: kernel survives the ring-0 #DB, process is terminated", || {
+        fault_case("tf_syscall", kill_reason::DEBUG)
+    });
+    r.run("K02", "jump to a kernel address kills the process (page fault)", || {
+        fault_case("kernel_rip_jump", kill_reason::PAGE_FAULT)
+    });
+    r.run("K02", "jump to a non-canonical address kills the process (#GP on hardware, #PF on TCG)", || {
+        fault_case_any("noncanon_rip_jump", &[kill_reason::GENERAL_PROTECTION, kill_reason::PAGE_FAULT])
+    });
+    r.run("K02", "syscall with a non-canonical user rsp returns normally", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let p = sys::spawn(ROOT, "bin/fault", CHILD_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn: {e}"))?;
+        sys::send(mine, b"noncanon_rsp_syscall", None).map_err(|e| alloc::format!("send: {e}"))?;
+        let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(p).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("fault", st, 0)
+    });
+    r.run("K02", "syscall with rsp pointing into the kernel returns normally", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let p = sys::spawn(ROOT, "bin/fault", CHILD_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn: {e}"))?;
+        sys::send(mine, b"kernel_rsp_syscall", None).map_err(|e| alloc::format!("send: {e}"))?;
+        let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(p).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("fault", st, 0)
+    });
+    r.run(
+        "K02",
+        "malformed executables are rejected (bad entry, bad magic, truncated, huge segment)",
+        || {
+            for name in
+                ["fixtures/bad_entry", "fixtures/bad_magic", "fixtures/truncated", "fixtures/huge_segment"]
+            {
+                match sys::spawn(ROOT, name, 4096, None) {
+                    Err(Error::NoExec) | Err(Error::Quota) => {}
+                    other => return Err(alloc::format!("{name}: got {other:?}")),
+                }
+            }
+            Ok(())
+        },
+    );
     r.run("K02", "kernel pointer passed to a syscall is rejected, not dereferenced", || {
         let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
         let p = sys::spawn(ROOT, "bin/fault", CHILD_QUOTA, Some(theirs))

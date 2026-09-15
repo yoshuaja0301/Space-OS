@@ -81,6 +81,15 @@ pub fn spawn(name: &str, quota_pages: usize, bootstrap: Option<HandleEntry>) -> 
     if segs.is_empty() {
         return Err(Error::NoExec);
     }
+    // The entry point must land inside an executable segment: `iretq` to a
+    // non-canonical address would fault in ring 0, and anything outside the image
+    // is not a program we loaded.
+    let entry_ok = segs
+        .iter()
+        .any(|(seg, _, _)| seg.executable() && elf.entry >= seg.vaddr && elf.entry < seg.vaddr + seg.memsz);
+    if !entry_ok || elf.entry >= USER_SPACE_END {
+        return Err(Error::NoExec);
+    }
     if needed > quota_pages {
         return Err(Error::Quota);
     }

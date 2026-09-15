@@ -111,11 +111,11 @@ pub fn run_cmdline_fault_injection() {
             // SAFETY: switches to a freshly mapped stack and never returns.
             unsafe {
                 core::arch::asm!(
-                    "mov rsp, {top}",
-                    "xor rbp, rbp",
+                    "mov rsp, rax",
+                    "xor ebp, ebp",
                     "call {f}",
                     "ud2",
-                    top = in(reg) top,
+                    in("rax") top,
                     f = sym overflow_stack,
                     options(noreturn)
                 )

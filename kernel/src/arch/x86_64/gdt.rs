@@ -18,12 +18,22 @@ use x86_64::structures::tss::TaskStateSegment;
 use crate::sync::StaticCell;
 
 pub const DOUBLE_FAULT_IST: u16 = 1;
+/// NMI can arrive while `rsp` still points at a user stack (syscall entry/exit
+/// window), so it must run on its own stack.
+pub const NMI_IST: u16 = 2;
+/// `#DB` fires on the first kernel instruction after `syscall` when user code set
+/// TF; same stack hazard as NMI.
+pub const DEBUG_IST: u16 = 3;
+pub const MACHINE_CHECK_IST: u16 = 4;
 const IST_STACK_SIZE: usize = 16 * 1024;
 
 #[repr(align(16))]
 struct IstStack(#[allow(dead_code)] [u8; IST_STACK_SIZE]);
 
 static DOUBLE_FAULT_STACK: StaticCell<IstStack> = StaticCell::new(IstStack([0; IST_STACK_SIZE]));
+static NMI_STACK: StaticCell<IstStack> = StaticCell::new(IstStack([0; IST_STACK_SIZE]));
+static DEBUG_STACK: StaticCell<IstStack> = StaticCell::new(IstStack([0; IST_STACK_SIZE]));
+static MACHINE_CHECK_STACK: StaticCell<IstStack> = StaticCell::new(IstStack([0; IST_STACK_SIZE]));
 static TSS: StaticCell<TaskStateSegment> = StaticCell::new(TaskStateSegment::new());
 static GDT: StaticCell<GlobalDescriptorTable> = StaticCell::new(GlobalDescriptorTable::new());
 
@@ -48,8 +58,11 @@ pub fn init() {
     // SAFETY: single CPU, early boot, interrupts disabled.
     unsafe {
         let tss = TSS.get_mut();
-        let df_top = DOUBLE_FAULT_STACK.get() as u64 + IST_STACK_SIZE as u64;
-        tss.interrupt_stack_table[(DOUBLE_FAULT_IST - 1) as usize] = VirtAddr::new(df_top);
+        let top = |s: &StaticCell<IstStack>| VirtAddr::new(s.get() as u64 + IST_STACK_SIZE as u64);
+        tss.interrupt_stack_table[(DOUBLE_FAULT_IST - 1) as usize] = top(&DOUBLE_FAULT_STACK);
+        tss.interrupt_stack_table[(NMI_IST - 1) as usize] = top(&NMI_STACK);
+        tss.interrupt_stack_table[(DEBUG_IST - 1) as usize] = top(&DEBUG_STACK);
+        tss.interrupt_stack_table[(MACHINE_CHECK_IST - 1) as usize] = top(&MACHINE_CHECK_STACK);
 
         let gdt = GDT.get_mut();
         let kernel_code = gdt.append(Descriptor::kernel_code_segment());
@@ -73,7 +86,7 @@ pub fn init() {
         GS::set_reg(SegmentSelector(0));
         load_tss(tss_sel);
     }
-    println!("[kernel] gdt/tss loaded (double-fault IST ready)");
+    println!("[kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)");
 }
 
 /// Stack the CPU switches to on a ring 3 -> ring 0 transition (interrupt/exception).

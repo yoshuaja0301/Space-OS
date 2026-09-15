@@ -211,6 +211,8 @@ impl AddressSpace {
         if self.overlaps(start, pages) {
             return Err(Error::Invalid);
         }
+        // Reserve the bookkeeping slot up front so a failed push cannot leave frames mapped.
+        self.regions.try_reserve(1).map_err(|_| Error::NoMemory)?;
         let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
         if writable {
             flags |= PageTableFlags::WRITABLE;

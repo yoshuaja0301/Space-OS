@@ -111,10 +111,34 @@ fn stripped(path: &Path) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))
 }
 
+/// Deliberately broken executables the kernel must reject without crashing.
+fn bad_elf_fixtures(hello: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let mut bad_entry = hello.to_vec();
+    // e_entry at offset 24: a non-canonical address outside every segment.
+    bad_entry[24..32].copy_from_slice(&0x8000_0000_0000u64.to_le_bytes());
+    let mut bad_magic = hello.to_vec();
+    bad_magic[1] = b'X';
+    let truncated = hello[..hello.len().min(600)].to_vec();
+    let mut huge_segment = hello.to_vec();
+    // First program header at e_phoff (offset 32); p_memsz at +40: claim 8 GiB.
+    let phoff = u64::from_le_bytes(hello[32..40].try_into().unwrap()) as usize;
+    huge_segment[phoff + 40..phoff + 48].copy_from_slice(&(8u64 << 30).to_le_bytes());
+    vec![
+        ("bad_entry".to_string(), bad_entry),
+        ("bad_magic".to_string(), bad_magic),
+        ("truncated".to_string(), truncated),
+        ("huge_segment".to_string(), huge_segment),
+    ]
+}
+
 fn make_initrd(built: &Built) -> Result<Vec<u8>, String> {
     let mut b = tar::Builder::new(Vec::new());
+    let mut extra: Vec<(String, Vec<u8>)> = Vec::new();
     for (name, path) in &built.user_bins {
         let data = stripped(path)?;
+        if name == "hello" {
+            extra = bad_elf_fixtures(&data);
+        }
         let mut h = tar::Header::new_ustar();
         h.set_size(data.len() as u64);
         h.set_mode(0o755);
@@ -122,6 +146,16 @@ fn make_initrd(built: &Built) -> Result<Vec<u8>, String> {
         h.set_mtime(0);
         h.set_cksum();
         b.append_data(&mut h, format!("bin/{name}"), &data[..]).map_err(|e| format!("tar {name}: {e}"))?;
+    }
+    for (name, data) in extra {
+        let mut h = tar::Header::new_ustar();
+        h.set_size(data.len() as u64);
+        h.set_mode(0o644);
+        h.set_entry_type(tar::EntryType::Regular);
+        h.set_mtime(0);
+        h.set_cksum();
+        b.append_data(&mut h, format!("fixtures/{name}"), &data[..])
+            .map_err(|e| format!("tar {name}: {e}"))?;
     }
     b.into_inner().map_err(|e| format!("tar finish: {e}"))
 }
@@ -306,7 +340,7 @@ fn run_qemu_capture(image: &Path, log_path: &Path, done_markers: &[&str]) -> Res
             fs::read_to_string(log_path).map(|s| done_markers.iter().any(|m| s.contains(m))).unwrap_or(false);
         if finished && start.elapsed() > Duration::from_secs(5) {
             // give the debug-exit a moment, then stop
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(Duration::from_millis(3000));
             if child.try_wait().map_err(|e| e.to_string())?.is_none() {
                 child.kill().ok();
                 child.wait().ok();

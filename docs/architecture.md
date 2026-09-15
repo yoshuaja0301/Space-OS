@@ -11,7 +11,7 @@ UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──�
 
 1. OVMF memuat `\EFI\BOOT\BOOTX64.EFI` (= `spaceboot`) dari ESP.
 2. `spaceboot` membaca `spacekernel.elf`, `initrd.tar`, `spaceos.cfg`; memuat segmen kernel; menyalin initrd/cmdline ke memori bertipe KERNEL; membaca GOP dan RSDP; membangun page table (kernel higher-half, linear map RAM, identity sementara); keluar dari boot services; menormalkan memory map; mengaktifkan NXE/WP; melompat ke `_start` dengan `rdi = &BootInfo`.
-3. `spacekernel::kmain`: serial → GDT/TSS (IST untuk double fault) → IDT (256 stub asm) → memori (bitmap frame, PML4 kernel baru, heap 16 MiB, slot kernel stack berguard) → framebuffer → cmdline → initrd → PIC/PIT → MSR syscall → scheduler → selftest kernel → spawn `bin/init` → idle loop.
+3. `spacekernel::kmain`: serial (dengan probe keberadaan UART) → GDT/TSS (IST untuk double fault, NMI, `#DB`, machine check) → IDT (256 stub asm; hanya `int3` berDPL 3) → memori (bitmap frame, PML4 kernel baru, heap 16 MiB, slot kernel stack berguard) → pindah dari stack bootloader ke slot kernel stack berguard → framebuffer → cmdline → initrd → PIC/PIT → MSR syscall → scheduler → selftest kernel → spawn `bin/init` → idle loop.
 4. `init` (user, ring 3) memegang handle Root dan menjalankan/menguji program lain.
 
 ## Layout memori virtual
@@ -44,3 +44,5 @@ Round-robin preemptif, tick 1 ms, kuantum 10 ms, satu CPU. Thread yang mati dire
 - Exception ring 3 → `[kernel] pid N '…' killed: <exception> at rip=… (error=…, addr=…)` → `exit_current` → orang tua menerima `ExitStatus`.
 - Exception ring 0 / panic → `!!! CPU EXCEPTION IN KERNEL MODE …` dump register + `!!! KERNEL PANIC !!!` + backtrace frame pointer + `isa-debug-exit(0x3f)`.
 - Overflow stack kernel → guard page → double fault pada stack IST → dump + panic (diuji oleh `selftest=stack`).
+- `#DB` ring 0 dari `syscall` dengan TF → stack IST debug, TF dibersihkan, lanjut; proses mati saat trap terulang di ring 3. NMI → dicatat, diabaikan.
+- Loader menolak ELF dengan entry di luar segmen executable, magic salah, terpotong, atau segmen melampaui kuota/ruang user (`NoExec`/`Quota`).

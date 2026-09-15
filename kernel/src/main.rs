@@ -28,9 +28,15 @@ mod selftest;
 mod sync;
 mod syscall;
 
-use core::arch::naked_asm;
+use core::arch::{asm, naked_asm};
 
 use spaceabi::boot::BootInfo;
+
+use crate::sync::StaticCell;
+
+/// The BootInfo pointer, stashed so `kmain_on_guarded_stack` can find it after the
+/// stack switch.
+static BOOT_INFO: StaticCell<*const BootInfo> = StaticCell::new(core::ptr::null());
 
 pub const KERNEL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -66,13 +72,46 @@ extern "C" fn kmain(boot_info: *const BootInfo) -> ! {
     arch::gdt::init();
     arch::idt::init();
     mm::init(bi);
+
+    // The bootloader's stack lives inside a 2 MiB page of the linear map and has no
+    // guard page: an overflow there would silently corrupt boot data. Move the boot
+    // context (which becomes the idle thread) onto a guarded kernel-stack slot.
+    let stack = mm::kstack::KernelStack::new().expect("guarded kernel stack for the boot context");
+    let top = stack.top;
+    core::mem::forget(stack); // lives for the whole kernel lifetime
+    // SAFETY: single CPU, early boot; the pointer is read once on the new stack.
+    unsafe { *BOOT_INFO.get_mut() = boot_info };
+    // SAFETY: switches to a freshly mapped stack and never returns; operands are
+    // pinned to explicit registers so nothing in the sequence clobbers them.
+    unsafe {
+        asm!(
+            "mov rsp, rax",
+            "xor ebp, ebp",
+            "call {f}",
+            "ud2",
+            in("rax") top,
+            f = sym kmain_on_guarded_stack,
+            options(noreturn)
+        )
+    }
+}
+
+extern "C" fn kmain_on_guarded_stack() -> ! {
+    // SAFETY: set by `kmain` right before the stack switch.
+    let bi: &'static BootInfo = unsafe { &**BOOT_INFO.get() };
+    let mut rsp: u64;
+    // SAFETY: reading a register.
+    unsafe { asm!("mov {}, rsp", out(reg) rsp, options(nomem, nostack)) };
+    let top = (rsp + mm::kstack::SLOT_SIZE - 1) & !(mm::kstack::SLOT_SIZE - 1);
+    println!("[kernel] boot context moved to a guarded kernel stack (top {top:#x})");
+
     fb::init(bi);
     cmdline::init(bi);
     initrd::init(bi);
     arch::pic::init();
     arch::pit::init(sched::TICK_HZ);
     arch::syscall::init();
-    sched::init();
+    sched::init(top);
     selftest::run_early();
     selftest::run_cmdline_fault_injection();
 

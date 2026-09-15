@@ -60,8 +60,17 @@ pub fn init() {
     unsafe {
         let idt = IDT.get_mut();
         for (v, entry) in idt.0.iter_mut().enumerate() {
-            let ist = if v == 8 { super::gdt::DOUBLE_FAULT_IST as u8 } else { 0 };
-            *entry = Entry::new(ISR_TABLE[v], cs, ist, 0);
+            let ist = match v {
+                1 => super::gdt::DEBUG_IST as u8,
+                2 => super::gdt::NMI_IST as u8,
+                8 => super::gdt::DOUBLE_FAULT_IST as u8,
+                18 => super::gdt::MACHINE_CHECK_IST as u8,
+                _ => 0,
+            };
+            // `int3` from ring 3 is allowed (DPL 3) so a user breakpoint reports as
+            // BREAKPOINT; every other software `int n` from ring 3 raises #GP.
+            let dpl = if v == 3 { 3 } else { 0 };
+            *entry = Entry::new(ISR_TABLE[v], cs, ist, dpl);
         }
         let ptr = Pointer { limit: (core::mem::size_of::<Idt>() - 1) as u16, base: IDT.get() as u64 };
         core::arch::asm!("lidt [{}]", in(reg) &ptr, options(nostack, readonly, preserves_flags));

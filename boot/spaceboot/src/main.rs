@@ -31,7 +31,7 @@ use uefi::mem::memory_map::{MemoryDescriptor, MemoryMap};
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
 use uefi::table::cfg::ACPI2_GUID;
 use uefi::{CStr16, Status, cstr16, println};
-use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr3Flags, Efer, EferFlags};
+use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr3Flags, Cr4, Cr4Flags, Efer, EferFlags};
 use x86_64::structures::paging::{
     FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size2MiB, Size4KiB,
 };
@@ -174,7 +174,9 @@ fn framebuffer_info() -> FramebufferInfo {
     let format = match mode.pixel_format() {
         PixelFormat::Rgb => fb_format::RGBX,
         PixelFormat::Bgr => fb_format::BGRX,
-        _ => fb_format::OTHER,
+        // No linear framebuffer: `frame_buffer()` would assert. Serial console only.
+        PixelFormat::BltOnly => return FramebufferInfo::default(),
+        PixelFormat::Bitmask => fb_format::OTHER,
     };
     let mut fb = gop.frame_buffer();
     FramebufferInfo {
@@ -218,6 +220,14 @@ fn region_kind(ty: MemoryType) -> u32 {
 }
 
 fn run() -> Result<(), &'static str> {
+    // ---- 0. environment checks ---------------------------------------------
+    // The page tables built below are 4-level. If the firmware runs with 5-level
+    // paging (LA57) the CPU would walk our PML4 as a PML5 and triple-fault right
+    // after the CR3 switch, so refuse with a message instead.
+    if Cr4::read().contains(Cr4Flags::L5_PAGING) {
+        return Err("firmware runs with 5-level paging (CR4.LA57); spaceboot supports 4-level paging only");
+    }
+
     // ---- 1. files ---------------------------------------------------------
     let fs_proto =
         boot::get_image_file_system(boot::image_handle()).map_err(|_| "cannot open the boot volume")?;
@@ -376,14 +386,16 @@ fn run() -> Result<(), &'static str> {
         Efer::write(Efer::read() | EferFlags::NO_EXECUTE_ENABLE);
         Cr0::write(Cr0::read() | Cr0Flags::WRITE_PROTECT);
         Cr3::write(pml4_frame, Cr3Flags::empty());
+        // Operands are pinned to explicit registers so that no instruction in the
+        // sequence can clobber another operand (an `in(reg)` could have been
+        // allocated to rdi or rbp).
         asm!(
-            "mov rsp, {stack}",
-            "mov rdi, {bi}",
-            "xor rbp, rbp",
-            "jmp {entry}",
-            stack = in(reg) stack_top,
-            bi = in(reg) bootinfo_virt,
-            entry = in(reg) kernel.entry,
+            "mov rsp, rcx",
+            "xor ebp, ebp",
+            "jmp rax",
+            in("rcx") stack_top,
+            in("rdi") bootinfo_virt,
+            in("rax") kernel.entry,
             options(noreturn)
         );
     }

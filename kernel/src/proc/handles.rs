@@ -61,6 +61,7 @@ impl HandleTable {
         if self.slots.len() >= MAX_HANDLES {
             return Err(Error::TooManyHandles);
         }
+        self.slots.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.slots.push(Some(entry));
         Ok((self.slots.len() - 1) as Handle)
     }

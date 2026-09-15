@@ -4,7 +4,26 @@ use x86_64::instructions::port::Port;
 
 const COM1: u16 = 0x3F8;
 
+/// Set when the UART answered the scratch-register probe. Without a UART every
+/// write would otherwise spin on a status register that never changes.
+static PRESENT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 pub fn init() {
+    // Probe the scratch register (16550): if it does not hold what we wrote there
+    // is no UART at COM1 and the console stays framebuffer-only.
+    // SAFETY: standard COM1 scratch register.
+    let probe_ok = unsafe {
+        let mut scratch = Port::<u8>::new(COM1 + 7);
+        scratch.write(0x5A);
+        let a = scratch.read();
+        scratch.write(0xA5);
+        let b = scratch.read();
+        a == 0x5A && b == 0xA5
+    };
+    PRESENT.store(probe_ok, core::sync::atomic::Ordering::Relaxed);
+    if !probe_ok {
+        return;
+    }
     // SAFETY: standard PC COM1 register programming.
     unsafe {
         Port::<u8>::new(COM1 + 1).write(0x00); // disable interrupts
@@ -33,6 +52,9 @@ fn write_byte(b: u8) {
 }
 
 pub fn write_str(s: &str) {
+    if !PRESENT.load(core::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     for b in s.bytes() {
         if b == b'\n' {
             write_byte(b'\r');

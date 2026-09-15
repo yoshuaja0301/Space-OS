@@ -44,6 +44,8 @@ impl TrapFrame {
     }
 }
 
+static NMI_COUNT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
 pub const IRQ_BASE: u64 = 32;
 pub const IRQ_TIMER: u64 = IRQ_BASE;
 pub const IRQ_KEYBOARD: u64 = IRQ_BASE + 1;
@@ -77,6 +79,8 @@ fn exception_name(v: u64) -> &'static str {
 fn kill_reason_for(v: u64) -> u32 {
     match v {
         0 => kill_reason::DIVIDE_ERROR,
+        1 => kill_reason::DEBUG,
+        3 => kill_reason::BREAKPOINT,
         6 => kill_reason::INVALID_OPCODE,
         13 => kill_reason::GENERAL_PROTECTION,
         14 => kill_reason::PAGE_FAULT,
@@ -130,7 +134,29 @@ extern "C" fn x86_64_trap_handler(frame: &mut TrapFrame) {
     }
 }
 
+const RFLAGS_TF: u64 = 1 << 8;
+
 fn handle_exception(frame: &mut TrapFrame) {
+    match frame.vector {
+        // NMI is a platform event (SERR, watchdog, ...), never the fault of the code
+        // it interrupted. It runs on its own IST stack; log it and resume.
+        2 => {
+            let n = NMI_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+            if n <= 8 {
+                println!("[kernel] NMI #{n} at rip={:#x} (cs={:#x}); ignored", frame.rip, frame.cs);
+            }
+            return;
+        }
+        // #DB in kernel mode: user code set TF and executed `syscall`; the single-step
+        // trap lands on the first kernel instruction (on the debug IST stack, so the
+        // user stack is never touched). Resume; `sysret` restores the user's rflags
+        // and the trap fires again in ring 3, where it terminates the process.
+        1 if !frame.is_user() => {
+            frame.rflags &= !RFLAGS_TF;
+            return;
+        }
+        _ => {}
+    }
     let cr2 = if frame.vector == 14 { super::read_cr2() } else { 0 };
     if frame.is_user() {
         let reason = kill_reason_for(frame.vector);

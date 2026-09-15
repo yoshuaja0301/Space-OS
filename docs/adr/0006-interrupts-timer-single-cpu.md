@@ -12,6 +12,7 @@ Profil lab memakai 4 vCPU, tetapi K01–K03 tidak mensyaratkan SMP. LAPIC/IOAPIC
 - Timer: PIT channel 0 pada 1000 Hz (kuantum scheduler 10 ms); `SYS_TICKS`/`SYS_SLEEP` beresolusi 1 ms.
 - Satu CPU: AP dibiarkan parkir oleh firmware. Penyederhanaan yang bergantung pada asumsi ini dan harus diganti saat SMP: stack kernel untuk `syscall` disimpan di global (`SYSCALL_KERNEL_RSP`, bukan `swapgs`/per-CPU), spinlock = matikan interrupt + deteksi re-entrancy, `schedule()` tanpa lock lintas CPU.
 - RSDP sudah diteruskan di `BootInfo` agar migrasi ke ACPI/APIC tidak mengubah kontrak boot.
+- Stack IST: double fault (1), NMI (2), `#DB` (3), machine check (4). NMI dicatat lalu diabaikan (peristiwa platform, bukan kesalahan konteks yang disela); NMI bersarang (NMI saat handler NMI berjalan) belum ditangani.
 
 ## Konsekuensi
 

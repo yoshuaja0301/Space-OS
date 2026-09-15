@@ -113,6 +113,10 @@ pub mod kill_reason {
     pub const OTHER_EXCEPTION: u32 = 5;
     /// `SYS_KILL` from another process.
     pub const SIGNAL: u32 = 6;
+    /// `#DB` (single-step / hardware breakpoint) raised in ring 3.
+    pub const DEBUG: u32 = 7;
+    /// `int3` raised in ring 3.
+    pub const BREAKPOINT: u32 = 8;
 
     pub const fn name(r: u32) -> &'static str {
         match r {
@@ -123,6 +127,8 @@ pub mod kill_reason {
             DIVIDE_ERROR => "divide error",
             OTHER_EXCEPTION => "cpu exception",
             SIGNAL => "killed",
+            DEBUG => "debug trap",
+            BREAKPOINT => "breakpoint",
             _ => "unknown",
         }
     }
