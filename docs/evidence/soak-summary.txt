@@ -1,0 +1,1 @@
+soak: 100/100 consecutive cold boots passed; per boot min 5.1s mean 5.4s max 6.1s; total 538s
