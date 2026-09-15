@@ -1,0 +1,16 @@
+[package]
+name = "abi_negative"
+description = "Test: invalid handles, bad pointers, denied rights, unknown syscalls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "abi_negative"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

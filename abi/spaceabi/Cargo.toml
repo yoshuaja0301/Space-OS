@@ -1,0 +1,8 @@
+[package]
+name = "spaceabi"
+description = "Shared Space OS ABI definitions: boot protocol, syscall numbers, error codes, handle rights, ELF64 parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

@@ -1,0 +1,413 @@
+//! Syscall dispatch (ABI v0, see `spaceabi::syscall`).
+//!
+//! Every user pointer is validated against the caller's page tables before it is
+//! touched; every handle is checked for existence, object kind and rights.
+
+use alloc::string::String;
+use alloc::sync::Arc;
+
+use spaceabi::error::{Error, encode};
+use spaceabi::handle::{self, Handle, rights};
+use spaceabi::syscall::{
+    ExitStatus, HandleInfo, KernelStats, MSG_MAX, RecvArgs, SelfInfo, SpawnArgs, debug_op, kill_reason,
+    map_flags, nr, qemu_exit, recv_flags,
+};
+
+use crate::arch;
+use crate::arch::syscall::SyscallFrame;
+use crate::ipc::channel::{Endpoint, Message};
+use crate::mm::{PAGE_SIZE, frame, heap};
+use crate::proc::handles::{HandleEntry, Object};
+use crate::proc::{self, Process};
+use crate::sched;
+
+/// Largest single user buffer a syscall will touch.
+const MAX_USER_COPY: u64 = 1024 * 1024;
+const MAX_NAME: u64 = 128;
+
+pub fn dispatch(frame: &mut SyscallFrame) -> isize {
+    arch::enable_interrupts();
+    let a = [frame.arg0, frame.arg1, frame.arg2, frame.arg3, frame.arg4, frame.arg5];
+    let r = match frame.nr as usize {
+        nr::EXIT => proc::exit_current(ExitStatus::exited(a[0] as i32)),
+        nr::LOG => sys_log(a[0], a[1]),
+        nr::YIELD => {
+            sched::yield_now();
+            Ok(0)
+        }
+        nr::SLEEP => {
+            sched::sleep_ms(a[0]);
+            Ok(0)
+        }
+        nr::TICKS => Ok(sched::uptime_ms() as usize),
+        nr::MEM_MAP => sys_mem_map(a[0], a[1] as u32),
+        nr::MEM_UNMAP => sys_mem_unmap(a[0], a[1]),
+        nr::CHANNEL_CREATE => sys_channel_create(a[0]),
+        nr::SEND => sys_send(a[0] as Handle, a[1], a[2], a[3] as Handle),
+        nr::RECV => sys_recv(a[0] as Handle, a[1]),
+        nr::HANDLE_CLOSE => sys_handle_close(a[0] as Handle),
+        nr::HANDLE_DUP => sys_handle_dup(a[0] as Handle, a[1] as u32),
+        nr::SPAWN => sys_spawn(a[0] as Handle, a[1]),
+        nr::WAIT => sys_wait(a[0] as Handle, a[1]),
+        nr::KILL => sys_kill(a[0] as Handle),
+        nr::SELF_INFO => sys_self_info(a[0]),
+        nr::KSTATS => sys_kstats(a[0] as Handle, a[1]),
+        nr::SHUTDOWN => sys_shutdown(a[0] as Handle, a[1] as u32),
+        nr::DEBUG => sys_debug(a[0] as Handle, a[1]),
+        nr::HANDLE_INFO => sys_handle_info(a[0] as Handle, a[1]),
+        _ => Err(Error::NoSys),
+    };
+    arch::disable_interrupts();
+    proc::check_pending_kill();
+    encode(r)
+}
+
+fn current() -> Arc<Process> {
+    proc::current_process().expect("syscall from a kernel thread")
+}
+
+// ---- user memory ------------------------------------------------------------
+
+fn user_bytes<'a>(addr: u64, len: u64, write: bool) -> Result<&'a mut [u8], Error> {
+    if len > MAX_USER_COPY {
+        return Err(Error::Invalid);
+    }
+    let p = current();
+    let ok = p.space.lock().check_user_range(addr, len, write);
+    if !ok {
+        return Err(Error::Fault);
+    }
+    // SAFETY: the range is mapped user memory of the current address space with the
+    // requested access; the process is single-threaded and blocked in this syscall,
+    // so nobody can unmap it underneath us.
+    Ok(unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, len as usize) })
+}
+
+fn read_user<T: Copy>(addr: u64) -> Result<T, Error> {
+    let b = user_bytes(addr, core::mem::size_of::<T>() as u64, false)?;
+    // SAFETY: `b` is size_of::<T>() readable bytes; T is a plain `repr(C)` value type.
+    Ok(unsafe { core::ptr::read_unaligned(b.as_ptr() as *const T) })
+}
+
+fn write_user<T: Copy>(addr: u64, v: T) -> Result<(), Error> {
+    let b = user_bytes(addr, core::mem::size_of::<T>() as u64, true)?;
+    // SAFETY: `b` is size_of::<T>() writable bytes.
+    unsafe { core::ptr::write_unaligned(b.as_mut_ptr() as *mut T, v) };
+    Ok(())
+}
+
+fn read_user_str(addr: u64, len: u64, max: u64) -> Result<String, Error> {
+    if len > max {
+        return Err(Error::Invalid);
+    }
+    let b = user_bytes(addr, len, false)?;
+    core::str::from_utf8(b).map(String::from).map_err(|_| Error::Invalid)
+}
+
+// ---- handles -----------------------------------------------------------------
+
+fn with_channel<R>(
+    h: Handle,
+    need: u32,
+    f: impl FnOnce(&Arc<Endpoint>) -> Result<R, Error>,
+) -> Result<R, Error> {
+    let p = current();
+    let ep = {
+        let t = p.handles.lock();
+        let e = t.get(h)?;
+        match &e.object {
+            Object::Channel(ep) if e.has(need) => ep.clone(),
+            _ => return Err(Error::Denied),
+        }
+    };
+    f(&ep)
+}
+
+fn with_process<R>(
+    h: Handle,
+    need: u32,
+    f: impl FnOnce(&Arc<Process>) -> Result<R, Error>,
+) -> Result<R, Error> {
+    let p = current();
+    let target = {
+        let t = p.handles.lock();
+        let e = t.get(h)?;
+        match &e.object {
+            Object::Process(tp) if e.has(need) => tp.clone(),
+            _ => return Err(Error::Denied),
+        }
+    };
+    f(&target)
+}
+
+fn require_root(h: Handle, need: u32) -> Result<(), Error> {
+    let p = current();
+    let t = p.handles.lock();
+    let e = t.get(h)?;
+    match e.object {
+        Object::Root if e.has(need) => Ok(()),
+        _ => Err(Error::Denied),
+    }
+}
+
+// ---- syscalls ------------------------------------------------------------------
+
+fn sys_log(ptr: u64, len: u64) -> Result<usize, Error> {
+    if len > MSG_MAX as u64 * 4 {
+        return Err(Error::Invalid);
+    }
+    let b = user_bytes(ptr, len, false)?;
+    let s = core::str::from_utf8(b).map_err(|_| Error::Invalid)?;
+    crate::print!("{s}");
+    Ok(len as usize)
+}
+
+fn sys_mem_map(len: u64, flags: u32) -> Result<usize, Error> {
+    if flags != map_flags::NONE || len == 0 || len > (1u64 << 30) {
+        return Err(Error::Invalid);
+    }
+    let pages = len.div_ceil(PAGE_SIZE) as usize;
+    let p = current();
+    let mut space = p.space.lock();
+    if space.used_pages + pages > p.quota_pages {
+        return Err(Error::Quota);
+    }
+    let addr = space.alloc_mmap_addr(pages).ok_or(Error::NoMemory)?;
+    space.map_region(addr, pages, true, false)?;
+    Ok(addr as usize)
+}
+
+fn sys_mem_unmap(addr: u64, len: u64) -> Result<usize, Error> {
+    if len == 0 {
+        return Err(Error::Invalid);
+    }
+    let pages = len.div_ceil(PAGE_SIZE) as usize;
+    let p = current();
+    p.space.lock().unmap_region(addr, pages)?;
+    Ok(0)
+}
+
+fn sys_channel_create(out: u64) -> Result<usize, Error> {
+    // Validate the output pointer before creating anything.
+    user_bytes(out, 8, true)?;
+    let (a, b) = Endpoint::pair();
+    let p = current();
+    let (ha, hb) = {
+        let mut t = p.handles.lock();
+        let ha = t.insert(HandleEntry { object: Object::Channel(a), rights: rights::CHANNEL_ALL })?;
+        let hb = match t.insert(HandleEntry { object: Object::Channel(b), rights: rights::CHANNEL_ALL }) {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = t.take(ha);
+                return Err(e);
+            }
+        };
+        (ha, hb)
+    };
+    write_user(out, [ha, hb])?;
+    Ok(0)
+}
+
+fn sys_send(h: Handle, ptr: u64, len: u64, transfer: Handle) -> Result<usize, Error> {
+    if len > MSG_MAX as u64 {
+        return Err(Error::MsgSize);
+    }
+    if transfer != handle::INVALID && transfer == h {
+        return Err(Error::Invalid);
+    }
+    let data = user_bytes(ptr, len, false)?.to_vec();
+    let p = current();
+    let moved = if transfer != handle::INVALID {
+        let mut t = p.handles.lock();
+        let e = t.get(transfer)?;
+        if !e.has(rights::TRANSFER) {
+            return Err(Error::Denied);
+        }
+        Some(t.take(transfer)?)
+    } else {
+        None
+    };
+    // If the send fails the message (and any handle moved into it) is dropped: the
+    // handle is consumed either way, which keeps transfer semantics simple (ADR-0004).
+    with_channel(h, rights::SEND, |ep| ep.send(Message { data, handle: moved }))?;
+    Ok(0)
+}
+
+fn sys_recv(h: Handle, args_ptr: u64) -> Result<usize, Error> {
+    // The args block is written back with the result, so it must be writable up
+    // front: a message must never be dequeued and then lost on a late Fault.
+    user_bytes(args_ptr, core::mem::size_of::<RecvArgs>() as u64, true)?;
+    let args: RecvArgs = read_user(args_ptr)?;
+    if args.buf_cap > MSG_MAX as u64 * 4 {
+        return Err(Error::Invalid);
+    }
+    let nonblock = args.flags & recv_flags::NONBLOCK != 0;
+    if args.flags & !recv_flags::NONBLOCK != 0 {
+        return Err(Error::Invalid);
+    }
+    // Validate the buffer up front so a message is never dequeued and then lost.
+    user_bytes(args.buf, args.buf_cap, true)?;
+    let msg = with_channel(h, rights::RECV, |ep| ep.recv(args.buf_cap as usize, nonblock))?;
+    let buf = user_bytes(args.buf, args.buf_cap, true)?;
+    buf[..msg.data.len()].copy_from_slice(&msg.data);
+    let handle = match msg.handle {
+        Some(entry) => current().handles.lock().insert(entry)?,
+        None => handle::INVALID,
+    };
+    let out = RecvArgs {
+        buf: args.buf,
+        buf_cap: args.buf_cap,
+        len: msg.data.len() as u64,
+        handle,
+        flags: args.flags,
+    };
+    write_user(args_ptr, out)?;
+    Ok(0)
+}
+
+fn sys_handle_close(h: Handle) -> Result<usize, Error> {
+    let entry = current().handles.lock().take(h)?;
+    drop(entry);
+    Ok(0)
+}
+
+fn sys_handle_dup(h: Handle, mask: u32) -> Result<usize, Error> {
+    let p = current();
+    let mut t = p.handles.lock();
+    let e = t.get(h)?;
+    if !e.has(rights::DUP) {
+        return Err(Error::Denied);
+    }
+    let new = HandleEntry { object: e.object.clone_ref(), rights: e.rights & mask };
+    Ok(t.insert(new)? as usize)
+}
+
+fn sys_handle_info(h: Handle, out: u64) -> Result<usize, Error> {
+    let info = {
+        let p = current();
+        let t = p.handles.lock();
+        let e = t.get(h)?;
+        HandleInfo { kind: e.object.kind(), rights: e.rights }
+    };
+    write_user(out, info)?;
+    Ok(0)
+}
+
+fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
+    require_root(root, rights::SPAWN)?;
+    let args: SpawnArgs = read_user(args_ptr)?;
+    let name = read_user_str(args.name, args.name_len, MAX_NAME)?;
+    let p = current();
+    let bootstrap = if args.pass_handle != handle::INVALID {
+        let mut t = p.handles.lock();
+        let e = t.get(args.pass_handle)?;
+        if !e.has(rights::TRANSFER) {
+            return Err(Error::Denied);
+        }
+        Some(t.take(args.pass_handle)?)
+    } else {
+        None
+    };
+    // A failed spawn drops the bootstrap handle (same consume-on-transfer rule as send).
+    let child = proc::spawn(&name, args.quota_pages as usize, bootstrap)?;
+    let entry = HandleEntry { object: Object::Process(child), rights: rights::PROCESS_ALL };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+fn sys_wait(h: Handle, out: u64) -> Result<usize, Error> {
+    user_bytes(out, core::mem::size_of::<ExitStatus>() as u64, true)?;
+    let status = with_process(h, rights::WAIT, |target| {
+        if Arc::ptr_eq(target, &current()) {
+            return Err(Error::Invalid);
+        }
+        crate::sync::without_interrupts(|| {
+            loop {
+                {
+                    let st = target.status.lock();
+                    if let Some(s) = *st {
+                        return Ok(s);
+                    }
+                    target.exit_waiters.sleep_after(move || drop(st));
+                }
+                if proc::has_pending_kill() {
+                    return Err(Error::Interrupted);
+                }
+            }
+        })
+    })?;
+    write_user(out, status)?;
+    Ok(0)
+}
+
+fn sys_kill(h: Handle) -> Result<usize, Error> {
+    with_process(h, rights::KILL, |target| {
+        proc::kill(target, ExitStatus::killed(kill_reason::SIGNAL, 0))?;
+        Ok(0)
+    })
+}
+
+fn sys_self_info(out: u64) -> Result<usize, Error> {
+    let p = current();
+    let used = p.space.lock().used_pages as u64;
+    let info = SelfInfo {
+        pid: p.pid,
+        quota_pages: p.quota_pages as u64,
+        used_pages: used,
+        abi_version: spaceabi::ABI_VERSION,
+        _pad: 0,
+    };
+    write_user(out, info)?;
+    Ok(0)
+}
+
+pub fn kernel_stats() -> KernelStats {
+    let (frames_total, frames_free) = frame::stats();
+    let (heap_total, heap_used) = heap::stats();
+    let (threads_live, context_switches) = sched::stats();
+    KernelStats {
+        frames_total: frames_total as u64,
+        frames_free: frames_free as u64,
+        heap_total: heap_total as u64,
+        heap_used: heap_used as u64,
+        processes_live: proc::live_count() as u64,
+        threads_live,
+        uptime_ms: sched::uptime_ms(),
+        context_switches,
+    }
+}
+
+fn sys_kstats(root: Handle, out: u64) -> Result<usize, Error> {
+    require_root(root, rights::STATS)?;
+    write_user(out, kernel_stats())?;
+    Ok(0)
+}
+
+fn sys_shutdown(root: Handle, code: u32) -> Result<usize, Error> {
+    require_root(root, rights::SHUTDOWN)?;
+    let (pid, name) = proc::current_identity();
+    let s = kernel_stats();
+    println!(
+        "[kernel] shutdown requested by pid {pid} '{name}' with code {code} (uptime {} ms, {} context switches)",
+        s.uptime_ms, s.context_switches
+    );
+    arch::disable_interrupts();
+    arch::qemu_exit(if code == 0 { qemu_exit::SUCCESS } else { qemu_exit::FAILURE });
+    println!("[kernel] no debug-exit device; halting");
+    arch::halt_forever();
+}
+
+fn sys_debug(root: Handle, op: u64) -> Result<usize, Error> {
+    require_root(root, rights::DEBUG)?;
+    let (pid, _) = proc::current_identity();
+    match op {
+        debug_op::PANIC => panic!("deliberate kernel panic requested by pid {pid} (SYS_DEBUG PANIC)"),
+        debug_op::KERNEL_FAULT => {
+            println!("[kernel] pid {pid} requested a deliberate kernel-mode page fault");
+            let bad = 0xFFFF_F000_DEAD_0000u64 as *const u64;
+            // SAFETY: intentionally unsound: this address is never mapped; the fault is the point.
+            let v = unsafe { core::ptr::read_volatile(bad) };
+            Ok(v as usize)
+        }
+        _ => Err(Error::Invalid),
+    }
+}

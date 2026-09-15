@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      boots:
+        description: "Number of cold boots for the K01 soak job"
+        default: "100"
+  schedule:
+    - cron: "0 3 * * 1" # weekly soak
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: fmt + clippy + QEMU scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+          qemu-system-x86_64 --version
+      - name: Install pinned Rust toolchain
+        run: rustup show # installs the toolchain + targets from rust-toolchain.toml
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+      - name: fmt, clippy, build, boot scenarios
+        run: cargo xtask ci
+      - name: Upload serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-logs
+          path: build/logs/
+          if-no-files-found: ignore
+
+  soak:
+    name: K01 soak (100 cold boots)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+      - name: Install pinned Rust toolchain
+        run: rustup show
+      - name: Soak
+        run: cargo xtask soak --boots ${{ github.event.inputs.boots || '100' }}
+      - name: Upload soak logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-logs
+          path: build/logs/soak/
+          if-no-files-found: ignore

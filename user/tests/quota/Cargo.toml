@@ -1,0 +1,16 @@
+[package]
+name = "quota"
+description = "Test: memory quota enforcement"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "quota"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

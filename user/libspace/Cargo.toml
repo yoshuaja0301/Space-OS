@@ -1,0 +1,12 @@
+[package]
+name = "libspace"
+description = "Space OS user-space runtime: process entry, syscall wrappers, allocator, console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "spaceuser"
+build = "build.rs"
+
+[dependencies]
+spaceabi.workspace = true
+linked_list_allocator.workspace = true
