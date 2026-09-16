@@ -73,27 +73,47 @@ pub fn init_input() -> bool {
 }
 
 /// Drain everything COM2 has received into the console input buffer.
+///
+/// The loop must run until the UART reports empty. The 8259 is edge triggered, so a
+/// handler that returns with the receive interrupt still asserted never sees another
+/// edge: console input would stop for good, silently. The bound below therefore
+/// exists only to catch a device that is lying, and hitting it takes the port
+/// offline with a message instead of leaving the kernel in that state.
 pub fn drain_input() {
     if !INPUT_PRESENT.load(core::sync::atomic::Ordering::Relaxed) {
         return;
     }
+    let mut overrun = false;
     // SAFETY: COM2 line status and receive registers.
     unsafe {
         let mut lsr = Port::<u8>::new(COM2 + 5);
         let mut rx = Port::<u8>::new(COM2);
-        // Bounded: a device that always reports data ready must not wedge the
-        // interrupt handler.
-        for _ in 0..CAPACITY_GUARD {
-            if lsr.read() & 0x01 == 0 {
+        for _ in 0..DRAIN_LIMIT {
+            let status = lsr.read();
+            // Bit 1 is the overrun flag: the UART itself dropped a byte before we
+            // read it. Worth saying once; there is nothing to recover.
+            overrun |= status & 0x02 != 0;
+            if status & 0x01 == 0 {
+                if overrun && !OVERRUN_REPORTED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                    println!("[kernel] console input: COM2 overrun, at least one byte was lost");
+                }
                 return;
             }
             crate::input::push(rx.read());
         }
+        // Still "data ready" after that many reads: this is not a UART we can serve.
+        // Mask its interrupt so the line drops, and stop touching it.
+        Port::<u8>::new(COM2 + 1).write(0x00);
     }
+    INPUT_PRESENT.store(false, core::sync::atomic::Ordering::Relaxed);
+    println!("[kernel] console input: COM2 never went quiet; serial input disabled");
 }
 
-/// Most bytes one interrupt will take from the UART.
-const CAPACITY_GUARD: usize = 64;
+/// Reads one interrupt will take from the UART before declaring it broken. A 16550
+/// FIFO holds 16 bytes, so this is far beyond anything a working device can produce.
+const DRAIN_LIMIT: usize = 4096;
+
+static OVERRUN_REPORTED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 fn write_byte(b: u8) {
     // SAFETY: COM1 line status / transmit registers.

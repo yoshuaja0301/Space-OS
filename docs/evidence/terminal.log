@@ -2,8 +2,8 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 279296 bytes, initrd 980992 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 272 KiB at phys 0x7d76a000, entry 0xffffffff801170bc
+spaceboot: kernel 283392 bytes, initrd 980992 bytes, config 77 bytes
+spaceboot: kernel 3 segments, 276 KiB at phys 0x7d779000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -11,7 +11,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot info ok: 38 memory regions, initrd 980992 bytes, cmdline 18 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] frames: 2095087 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2095086 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -52,7 +52,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] selftest: heap ok, frames ok, paging ok, address-space ok
+[kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400974, 24 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1
 [kernel] entering idle loop; scheduler live
@@ -98,4 +98,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5604 ms, 4432 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5546 ms, 4372 context switches)

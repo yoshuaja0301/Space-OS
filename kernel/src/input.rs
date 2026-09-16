@@ -80,7 +80,10 @@ pub fn scancode(code: u8) -> Option<u8> {
     /// Keypad Enter and keypad `/`: the only extended keys worth a character.
     const EXTENDED_ENTER: u8 = 0x1C;
     const EXTENDED_SLASH: u8 = 0x35;
-    static SHIFT: SpinLock<bool> = SpinLock::new(false);
+    // Both shift keys are tracked separately: releasing one while the other is still
+    // held must not drop out of upper case.
+    static SHIFT_LEFT: SpinLock<bool> = SpinLock::new(false);
+    static SHIFT_RIGHT: SpinLock<bool> = SpinLock::new(false);
     static EXTENDED: SpinLock<bool> = SpinLock::new(false);
 
     if code == 0xE0 {
@@ -101,14 +104,18 @@ pub fn scancode(code: u8) -> Option<u8> {
             _ => None,
         };
     }
-    if key == 0x2A || key == 0x36 {
-        *SHIFT.lock() = !released;
+    if key == 0x2A {
+        *SHIFT_LEFT.lock() = !released;
+        return None;
+    }
+    if key == 0x36 {
+        *SHIFT_RIGHT.lock() = !released;
         return None;
     }
     if released {
         return None;
     }
-    let shifted = *SHIFT.lock();
+    let shifted = *SHIFT_LEFT.lock() || *SHIFT_RIGHT.lock();
     let table = if shifted { &SHIFTED } else { &UNSHIFTED };
     match table.get(key as usize).copied() {
         Some(0) | None => None,

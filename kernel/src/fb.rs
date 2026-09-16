@@ -88,9 +88,16 @@ impl Fb {
         }
         if c == '\u{8}' {
             // Backspace: step back and blank the cell, so a person editing a command
-            // line sees the same thing on the screen as on the serial console.
+            // line sees the same thing on the screen as on the serial console. At the
+            // start of a row the character being erased is at the end of the row
+            // above; at the very top there is nothing to erase.
             if self.col > 0 {
                 self.col -= 1;
+            } else if self.row > 0 {
+                self.row -= 1;
+                self.col = self.cols.saturating_sub(1);
+            } else {
+                return;
             }
             let x0 = self.col * self.glyph_w;
             let y0 = self.row * FONT_H;

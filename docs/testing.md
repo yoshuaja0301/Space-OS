@@ -140,7 +140,7 @@ salah satunya.
 
 ## Selftest kernel (sebelum user-space)
 
-`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang.
+`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang; dekoder scan code diberi urutan sungguhan (tombol biasa, shift, **dua** shift ditekan lalu satu dilepas, tombol panah, tombol panah dengan shift palsu, keypad Enter dan `/`, backspace) dan hasilnya dicocokkan byte demi byte.
 
 ## Soak K01
 

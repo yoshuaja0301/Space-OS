@@ -790,13 +790,17 @@ fn run_qemu_capture_typing(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", qemu_bin()))?;
+    // The typist stops as soon as the guest is gone, so a boot that dies early fails
+    // in seconds instead of waiting out the marker deadline.
+    let guest_gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let typist = match &monitor {
         Some(path) if !type_lines.is_empty() => {
             let path = path.clone();
             let log = log_path.to_path_buf();
             let ready = ready_marker.to_string();
             let lines: Vec<String> = type_lines.iter().map(|l| (*l).to_string()).collect();
-            Some(std::thread::spawn(move || type_on_guest(typing, &path, &log, &ready, &lines)))
+            let gone = guest_gone.clone();
+            Some(std::thread::spawn(move || type_on_guest(typing, &path, &log, &ready, &lines, &gone)))
         }
         _ => None,
     };
@@ -825,7 +829,12 @@ fn run_qemu_capture_typing(
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    let typed = typist.and_then(|t| t.join().ok()).unwrap_or(Ok(()));
+    guest_gone.store(true, std::sync::atomic::Ordering::Relaxed);
+    let typed = match typist.map(|t| t.join()) {
+        None => Ok(()),
+        Some(Ok(r)) => r,
+        Some(Err(_)) => Err("the console typist thread panicked".to_string()),
+    };
     let mut stderr = String::new();
     if let Some(mut e) = child.stderr.take() {
         e.read_to_string(&mut stderr).ok();
@@ -854,9 +863,10 @@ fn type_on_guest(
     log_path: &Path,
     ready_marker: &str,
     lines: &[String],
+    guest_gone: &std::sync::atomic::AtomicBool,
 ) -> Result<(), String> {
-    let mut mon = connect_monitor(monitor)?;
-    wait_for_marker(log_path, ready_marker)?;
+    let mut mon = connect_monitor(monitor, guest_gone)?;
+    wait_for_marker(log_path, ready_marker, guest_gone)?;
     match typing {
         Typing::None => Ok(()),
         Typing::Keyboard => {
@@ -893,12 +903,20 @@ fn type_on_guest(
 /// backs up in the socket, short enough that typing stays fast.
 const KEY_DRAIN: Duration = Duration::from_millis(5);
 
-fn connect_monitor(path: &Path) -> Result<std::os::unix::net::UnixStream, String> {
+fn connect_monitor(
+    path: &Path,
+    guest_gone: &std::sync::atomic::AtomicBool,
+) -> Result<std::os::unix::net::UnixStream, String> {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         if let Ok(s) = std::os::unix::net::UnixStream::connect(path) {
+            // Short, because a keystroke needs no answer; `monitor_cmd` keeps polling
+            // until its own deadline when it does want one.
             s.set_read_timeout(Some(Duration::from_millis(5))).ok();
             return Ok(s);
+        }
+        if guest_gone.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("the guest exited before the monitor socket appeared".into());
         }
         if Instant::now() > deadline {
             return Err("the QEMU monitor socket never appeared".into());
@@ -907,11 +925,18 @@ fn connect_monitor(path: &Path) -> Result<std::os::unix::net::UnixStream, String
     }
 }
 
-fn wait_for_marker(log_path: &Path, marker: &str) -> Result<(), String> {
+fn wait_for_marker(
+    log_path: &Path,
+    marker: &str,
+    guest_gone: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(150);
     loop {
         if fs::read_to_string(log_path).map(|s| s.contains(marker)).unwrap_or(false) {
             return Ok(());
+        }
+        if guest_gone.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(format!("the guest exited without printing {marker:?}"));
         }
         if Instant::now() > deadline {
             return Err(format!("the guest never printed {marker:?}"));
@@ -1028,6 +1053,7 @@ const SCENARIOS: &[Scenario] = &[
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] selftest: heap ok",
+            "input decoding ok",
             "[kernel] virtio-blk: ready",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",

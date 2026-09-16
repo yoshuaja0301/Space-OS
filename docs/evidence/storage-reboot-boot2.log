@@ -2,16 +2,16 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 279296 bytes, initrd 980992 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 272 KiB at phys 0x7d76b000, entry 0xffffffff801170bc
+spaceboot: kernel 283392 bytes, initrd 980992 bytes, config 59 bytes
+spaceboot: kernel 3 segments, 276 KiB at phys 0x7d76b000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 980992 bytes, cmdline 0 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 34 memory regions, initrd 980992 bytes, cmdline 0 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] frames: 2095088 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2095087 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -51,7 +51,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] selftest: heap ok, frames ok, paging ok, address-space ok
+[kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] spawn pid 1 'bin/init': entry=0x423d64, 78 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1
 [kernel] entering idle loop; scheduler live
@@ -138,7 +138,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: syscall with a non-canonical user rsp returns normally
 [kernel] spawn pid 14 'bin/fault': entry=0x400a84, 22 pages mapped, quota 128 pages
 [fault] pid 14 performing 'noncanon_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=119
+[fault] syscall with a hostile rsp returned ticks=118
 [kernel] pid 14 'bin/fault' exited with code 0
 [init] PASS K02: syscall with a non-canonical user rsp returns normally
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
@@ -339,7 +339,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 74 'bin/worker' exited with code 0
 [kernel] spawn pid 75 'bin/worker': entry=0x4002e4, 23 pages mapped, quota 128 pages
 [kernel] pid 75 'bin/worker' exited with code 0
-[init] frames free before=2090829 after=2090829 ; heap used before=1840 after=1840 ; switches=161
+[init] frames free before=2090828 after=2090828 ; heap used before=1840 after=1840 ; switches=161
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [kernel] spawn pid 76 'bin/ipc_echo': entry=0x400824, 21 pages mapped, quota 128 pages
@@ -388,7 +388,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 97 'bin/ipc_echo' killed (killed, addr 0x0)
 [kernel] spawn pid 98 'bin/ipc_echo': entry=0x400824, 21 pages mapped, quota 128 pages
 [kernel] pid 98 'bin/ipc_echo' killed (killed, addr 0x0)
-[init] frames free before=2090829 after=2090829 ; heap used before=1840 after=1840
+[init] frames free before=2090828 after=2090828 ; heap used before=1840 after=1840
 [init] PASS K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [kernel] spawn pid 99 'bin/blocker': entry=0x400954, 22 pages mapped, quota 128 pages
@@ -437,7 +437,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 120 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 121 'bin/blocker': entry=0x400954, 22 pages mapped, quota 128 pages
 [kernel] pid 121 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while sleeping: frames free 2090829 -> 2090829, heap used 1840 -> 1840, live processes 1
+[init] kill while sleeping: frames free 2090828 -> 2090828, heap used 1840 -> 1840, live processes 1
 [init] PASS K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [init] --- K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [kernel] spawn pid 122 'bin/blocker': entry=0x400954, 22 pages mapped, quota 128 pages
@@ -486,7 +486,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 143 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 144 'bin/blocker': entry=0x400954, 22 pages mapped, quota 128 pages
 [kernel] pid 144 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in recv: frames free 2090829 -> 2090829, heap used 1840 -> 1840, live processes 1
+[init] kill while in recv: frames free 2090828 -> 2090828, heap used 1840 -> 1840, live processes 1
 [init] PASS K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [init] --- K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [kernel] spawn pid 145 'bin/spin': entry=0x400374, 21 pages mapped, quota 128 pages
@@ -537,7 +537,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 167 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 168 'bin/blocker': entry=0x400954, 22 pages mapped, quota 128 pages
 [kernel] pid 168 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait: frames free 2090793 -> 2090793, heap used 2376 -> 2376, live processes 2
+[init] kill while in wait: frames free 2090792 -> 2090792, heap used 2376 -> 2376, live processes 2
 [kernel] pid 145 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [init] --- K02: a full handle table refuses spawn instead of orphaning the child
@@ -587,12 +587,12 @@ spacekernel 0.1.0: Space OS kernel booting
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
 [kernel] pid 175 'bin/spacecompute' exited with code 0
-[init] compute cycles: frames free 2090829 -> 2090829, heap used 7792 -> 7792
+[init] compute cycles: frames free 2090828 -> 2090828, heap used 7792 -> 7792
 [init] PASS C01: compute service teardown returns every frame it allocated
 [init] --- A01: native inference: a small model generates 128 tokens matching the pinned baseline
 [kernel] spawn pid 176 'bin/spacecompute': entry=0x404534, 28 pages mapped, quota 4096 pages
-[kernel] spawn pid 177 'bin/spaceai': entry=0x407884, 34 pages mapped, quota 512 pages
 [compute] Space Compute service, ABI v0, CPU backend
+[kernel] spawn pid 177 'bin/spaceai': entry=0x407884, 34 pages mapped, quota 512 pages
 [ai] Space OS AI runtime starting
 [ai] rejected /spaceos/badmagic.slm: not a SpaceLM model
 [ai] rejected /spaceos/baddims.slm: dimensions out of range
@@ -603,7 +603,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [ai] working set: 711 KiB in 4 compute buffers
 [ai] baseline: 10 prompt bytes, 128 tokens to generate
 [ai] generated 128 tokens offline, all matching the pinned baseline
-[ai] metrics: ttft=392 ms, total=5851 ms, 23.447 tokens/s, working set 711 KiB, runtime rss 264 KiB
+[ai] metrics: ttft=382 ms, total=5735 ms, 23.911 tokens/s, working set 711 KiB, runtime rss 264 KiB
 [ai] first tokens: ".Oq..NN..\\..L.:.-..:.6.." ...
 [compute] shutdown requested; exiting
 [kernel] pid 176 'bin/spacecompute' exited with code 0
@@ -671,8 +671,8 @@ space> [kernel] spawn pid 184 'bin/uiworker': entry=0x4006e4, 21 pages mapped, q
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
 [kernel] pid 184 'bin/uiworker' exited with code 0
 [shell] worker 'ok' ended: done
-[shell] session: worker done (ok), commands served 4
-[shell] session closed after 7 commands
+[shell] session: worker done (ok), commands served 5
+[shell] session closed after 8 commands
 [kernel] pid 183 'bin/spaceshell' exited with code 0
 [init] PASS U01: a session cannot exceed the capabilities it was given
 [init] --- U01: console input is a capability of its own and never blocks
@@ -800,4 +800,4 @@ space> [kernel] spawn pid 184 'bin/uiworker': entry=0x4006e4, 21 pages mapped, q
 [kernel] pid 193 'bin/spacepkg' exited with code 0
 [init] PASS P01: rollback returns the previous version, and only as far as the history goes
 [init] ALL TESTS PASSED (52/52, 0 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 9350 ms, 37560 context switches)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 9156 ms, 37561 context switches)

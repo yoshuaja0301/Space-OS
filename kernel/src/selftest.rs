@@ -99,7 +99,38 @@ pub fn run_early() {
     }
     assert_eq!(free4, frame::stats().1, "shared mapping leaked frames");
 
-    println!("[kernel] selftest: heap ok, frames ok, paging ok, address-space ok");
+    // Console input decoding. A pure function, so it can be checked exactly: these
+    // are the sequences a real keyboard produces, including the ones that used to
+    // leave the shift state latched or inject a character that was never typed.
+    decode_ok(&[0x1E, 0x9E], b"a", "a plain key");
+    decode_ok(&[0x2A, 0x1E, 0xAA], b"A", "shifted key");
+    // Both shifts held, one released: still upper case until the second is released.
+    decode_ok(&[0x2A, 0x36, 0xAA, 0x1E, 0xB6, 0x1E], b"Aa", "two shift keys");
+    // Extended keys produce nothing, and their fake shift must not latch.
+    decode_ok(&[0xE0, 0x48, 0xE0, 0xC8, 0x1E], b"a", "an arrow key");
+    decode_ok(
+        &[0xE0, 0x2A, 0xE0, 0x48, 0xE0, 0xC8, 0xE0, 0xAA, 0x1E],
+        b"a",
+        "an arrow key with a fake shift",
+    );
+    decode_ok(&[0xE0, 0x1C, 0xE0, 0x35], b"\n/", "the keypad");
+    decode_ok(&[0x0E, 0x39, 0x1C], b"\x08 \n", "backspace, space and enter");
+
+    println!("[kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok");
+}
+
+/// Feed scan codes to the decoder and check exactly what comes out.
+fn decode_ok(codes: &[u8], want: &[u8], what: &str) {
+    let mut got = [0u8; 16];
+    let mut n = 0usize;
+    for &c in codes {
+        if let Some(b) = crate::input::scancode(c) {
+            assert!(n < got.len(), "selftest: {what} decoded more than expected");
+            got[n] = b;
+            n += 1;
+        }
+    }
+    assert!(&got[..n] == want, "selftest: decoding {what} gave {:?}, expected {:?}", &got[..n], want);
 }
 
 #[inline(never)]
