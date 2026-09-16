@@ -388,13 +388,15 @@ fn link_call(ch: Handle, r: &LinkRequest) -> Result<LinkReply, String> {
     Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const LinkReply) })
 }
 
-/// Start the service and hand it a file capability narrowed to `FS`.
-fn link_start() -> Result<(Handle, Handle), String> {
+/// Start the service, keeping whatever an earlier one revoked.
+fn link_start_keeping() -> Result<(Handle, Handle), String> {
     let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
     let svc = sys::spawn(ROOT, "bin/spacelink", LINK_QUOTA, Some(theirs))
         .map_err(|e| alloc::format!("spawn spacelink: {e}"))?;
-    let root =
-        sys::handle_dup(ROOT, rights::FS | rights::TRANSFER).map_err(|e| alloc::format!("dup root: {e}"))?;
+    // Revocations are kept on the volume, so the service needs to write it -- and
+    // nothing beyond that.
+    let root = sys::handle_dup(ROOT, rights::FS | rights::FS_WRITE | rights::TRANSFER)
+        .map_err(|e| alloc::format!("dup root: {e}"))?;
     let mut hello = LinkRequest::new(lreq::HELLO);
     hello.abi_version = link_abi::ABI_VERSION;
     sys::send(mine, as_link_bytes(&hello), Some(root)).map_err(|e| alloc::format!("hello: {e}"))?;
@@ -404,6 +406,16 @@ fn link_start() -> Result<(Handle, Handle), String> {
         return Err(String::from("spacelink did not answer HELLO"));
     }
     Ok((mine, svc))
+}
+
+/// Start the service with an empty revocation list.
+///
+/// The volume remembers now, so without this each test would inherit what the one
+/// before it revoked.
+fn link_start() -> Result<(Handle, Handle), String> {
+    let (ch, svc) = link_start_keeping()?;
+    link_call(ch, &LinkRequest::new(lreq::FORGET))?;
+    Ok((ch, svc))
 }
 
 fn link_stop(link: Handle, svc: Handle) -> Result<(), String> {
@@ -2172,6 +2184,42 @@ pub extern "C" fn space_main() -> i32 {
             }
             assert_absent(link, "channel", SECRET)?;
             link_stop(link, svc)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "L02",
+        "a revocation outlives the process that made it",
+        || {
+            // Revoking is a promise about a document, not about a process. The test
+            // is therefore a second service: it is told nothing, indexes the corpus
+            // from scratch, and the revoked document must still be gone.
+            let (link, svc) = link_start()?;
+            link_call(link, &LinkRequest::with_path(lreq::INDEX, CORPUS))?
+                .result()
+                .map_err(|e| alloc::format!("index: {e}"))?;
+            link_call(link, &LinkRequest::with_path(lreq::REVOKE, SECRET))?
+                .result()
+                .map_err(|e| alloc::format!("revoke: {e}"))?;
+            assert_absent(link, "channel", SECRET)?;
+            link_stop(link, svc)?;
+
+            let (link2, svc2) = link_start_keeping()?;
+            // A fresh index of the same corpus: if the revocation had not survived,
+            // the document would simply be read back in.
+            link_call(link2, &LinkRequest::with_path(lreq::INDEX, CORPUS))?
+                .result()
+                .map_err(|e| alloc::format!("index after restart: {e}"))?;
+            let stats = link_call(link2, &LinkRequest::new(lreq::STATS))?;
+            if stats.value2 != 1 {
+                return Err(alloc::format!("after restart stats says {} revoked, expected 1", stats.value2));
+            }
+            assert_absent(link2, "channel", SECRET)?;
+            // Leave nothing behind for whatever runs next.
+            link_call(link2, &LinkRequest::new(lreq::FORGET))?;
+            link_stop(link2, svc2)
         },
     );
 

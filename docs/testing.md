@@ -143,6 +143,7 @@ Gigi uji ini terbukti: dengan pemeriksaan scope naif (`path.starts_with(SCOPE)`)
 |---|---|---|
 | L01 | korpus `/spaceos/docs` (4 dokumen) diindeks jadi 7 chunk; kueri `channel` menempatkan `IPC.TXT` di puncak; **setiap** hasil diverifikasi provenance-nya — init membaca ulang rentang byte yang disebut layanan dan menghitung SHA-256-nya sendiri; hasil terurut menurun menurut skor; kueri melewati hasil terakhir → `NotFound` | `bin/spacelink` |
 | L02 | `SECRET.TXT` dicabut: kueri `embargo` (kata yang hanya ada di dokumen itu) → `NotFound`; kueri umum `channel`/`quota` tidak lagi memuatnya; bundle tidak memuatnya; **indeks ulang tidak menghidupkannya kembali** dan statistik menunjukkan 3 dokumen hidup, 1 dicabut | `bin/spacelink` |
+| L02 | revokasi hidup lebih lama daripada prosesnya: layanan pertama mencabut lalu di-`QUIT`, layanan **kedua** mengindeks korpus dari nol tanpa diberi tahu apa pun, dan dokumen itu tetap hilang | `bin/init`, `bin/spacelink` |
 | L03 | bundle untuk `channel quota` dengan anggaran 400 byte: muat anggaran, setiap entri diverifikasi provenance-nya, jumlah panjang entri sama dengan byte yang dilaporkan, dan digest bundle = SHA-256 atas rangkaian digest entri (dihitung ulang oleh init); kueri yang sama menghasilkan bundle identik; anggaran 1 byte → bundle kosong tanpa error; setelah revokasi digest berubah | `bin/spacelink` |
 
 Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehingga

@@ -25,6 +25,10 @@ pub const MAX_CHUNKS: usize = 128;
 /// Entries one bundle may contain.
 pub const MAX_BUNDLE: usize = 8;
 
+/// Where revocations are kept, one path per line, so that revoking a document
+/// outlives the process that revoked it.
+pub const REVOKED_PATH: &str = "/spaceos/var/revoked.txt";
+
 pub mod req {
     /// Negotiate the version; from the operator it carries the file capability.
     pub const HELLO: u32 = 0;
@@ -42,6 +46,9 @@ pub mod req {
     pub const STATS: u32 = 6;
     /// Close the service.
     pub const QUIT: u32 = 7;
+    /// Forget every revocation, on disk as well as in memory. Exists so a test can
+    /// start from a known state on a volume that remembers.
+    pub const FORGET: u32 = 8;
 }
 
 #[repr(C)]

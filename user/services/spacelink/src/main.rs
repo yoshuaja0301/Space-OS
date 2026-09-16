@@ -25,7 +25,8 @@ use alloc::vec::Vec;
 use libspace::sha256;
 use libspace::spaceabi::error::Error;
 use libspace::spaceabi::link::{
-    ABI_VERSION, LinkReply, LinkRequest, MAX_BUNDLE, MAX_CHUNKS, MAX_DOCS, TEXT_MAX, req,
+    self as link_abi, ABI_VERSION, LinkReply, LinkRequest, MAX_BUNDLE, MAX_CHUNKS, MAX_DOCS, PATH_MAX,
+    TEXT_MAX, req,
 };
 use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry};
 use libspace::{Handle, handle, println, sys};
@@ -62,6 +63,8 @@ struct Link {
     /// Paths revoked so far. Kept separately from `docs` so that re-indexing the
     /// corpus cannot resurrect a revoked document.
     revoked: Vec<String>,
+    /// Said once: the list could not be written, so revocations end with this boot.
+    store_warned: bool,
     bundle: Vec<BundleEntry>,
     bundle_bytes: u32,
 }
@@ -102,6 +105,7 @@ impl Link {
             docs: Vec::new(),
             chunks: Vec::new(),
             revoked: Vec::new(),
+            store_warned: false,
             bundle: Vec::new(),
             bundle_bytes: 0,
         }
@@ -287,6 +291,88 @@ impl Link {
         reply
     }
 
+    /// Write the revocation list, one path per line.
+    ///
+    /// A revocation that only lives in this process is a promise that ends when the
+    /// process does, which is not what "revoked" is supposed to mean.
+    fn save_revoked(&mut self) {
+        let Some(root) = self.root else { return };
+        let mut text = String::new();
+        for p in &self.revoked {
+            text.push_str(p);
+            text.push('\n');
+        }
+        let r = sys::fs_create(root, link_abi::REVOKED_PATH).and_then(|h| {
+            let w = sys::fs_write(h, 0, text.as_bytes());
+            sys::handle_close(h).ok();
+            w
+        });
+        if let (Err(e), false) = (r, self.store_warned) {
+            self.store_warned = true;
+            println!("[link] revocations not kept on disk ({e}); they last only for this boot");
+        }
+    }
+
+    /// Read back what an earlier process revoked.
+    fn load_revoked(&mut self) {
+        let Some(root) = self.root else { return };
+        let Ok(file) = sys::fs_open(root, link_abi::REVOKED_PATH) else { return };
+        let mut text = String::new();
+        let mut buf = [0u8; 256];
+        let mut off = 0u64;
+        loop {
+            match sys::fs_read(file, off, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    match core::str::from_utf8(&buf[..n]) {
+                        Ok(part) => text.push_str(part),
+                        Err(_) => {
+                            text.clear();
+                            break;
+                        }
+                    }
+                    off += n as u64;
+                    if text.len() > MAX_DOCS * (PATH_MAX + 1) {
+                        text.clear();
+                        break;
+                    }
+                }
+                Err(_) => {
+                    text.clear();
+                    break;
+                }
+            }
+        }
+        sys::handle_close(file).ok();
+        for line in text.lines() {
+            let line = line.trim();
+            // A line this service could never have written is not one to trust.
+            if line.is_empty() || line.len() > PATH_MAX || !line.is_ascii() {
+                continue;
+            }
+            if self.is_revoked(line) || self.revoked.len() >= MAX_DOCS {
+                continue;
+            }
+            if self.revoked.try_reserve(1).is_err() {
+                break;
+            }
+            let mut p = String::new();
+            p.push_str(line);
+            self.revoked.push(p);
+        }
+        if !self.revoked.is_empty() {
+            println!("[link] {} revocation(s) loaded from disk", self.revoked.len());
+        }
+    }
+
+    /// Drop every revocation, on disk as well as in memory.
+    fn forget(&mut self) -> u32 {
+        self.revoked.clear();
+        self.save_revoked();
+        println!("[link] revocation list cleared");
+        0
+    }
+
     fn revoke(&mut self, path: &str) -> Result<u32, Error> {
         if path.is_empty() {
             return Err(Error::Invalid);
@@ -314,6 +400,7 @@ impl Link {
             if hit { "" } else { " (not in the current index)" },
             self.chunks.len()
         );
+        self.save_revoked();
         Ok(self.revoked.len() as u32)
     }
 
@@ -333,6 +420,8 @@ impl Link {
                         sys::handle_close(old).ok();
                     }
                     println!("[link] operator attached, ABI v{ABI_VERSION}");
+                    // Whatever an earlier process revoked is still revoked.
+                    self.load_revoked();
                     self.reply(&LinkReply { value: ABI_VERSION, ..Default::default() });
                 }
                 other => {
@@ -374,6 +463,10 @@ impl Link {
                 value3: self.chunks.len() as u32,
                 ..Default::default()
             }),
+            req::FORGET => {
+                let value = self.forget();
+                self.reply(&LinkReply { value, ..Default::default() });
+            }
             req::QUIT => {
                 self.reply(&LinkReply::default());
                 return false;
