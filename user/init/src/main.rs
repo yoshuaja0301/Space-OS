@@ -31,9 +31,29 @@ const CYCLES: u32 = 50;
 struct Runner {
     passed: u32,
     failed: Vec<String>,
+    skipped: Vec<String>,
 }
 
 impl Runner {
+    /// Run a test only when the machine has what it needs. A configuration without
+    /// a disk is a supported configuration, not a failure: the test is reported as
+    /// skipped with the reason, and the run still ends green.
+    fn run_if(
+        &mut self,
+        available: bool,
+        why: &str,
+        id: &str,
+        name: &str,
+        f: impl FnOnce() -> Result<(), String>,
+    ) {
+        if available {
+            self.run(id, name, f);
+        } else {
+            println!("[init] SKIP {id}: {name} ({why})");
+            self.skipped.push(alloc::format!("{id} {name}: {why}"));
+        }
+    }
+
     fn run(&mut self, id: &str, name: &str, f: impl FnOnce() -> Result<(), String>) {
         println!("[init] --- {id}: {name}");
         match f() {
@@ -274,7 +294,20 @@ pub extern "C" fn space_main() -> i32 {
         "[init] Space OS init running: pid {}, ABI v{}, quota {} pages ({} used)",
         me.pid, me.abi_version, me.quota_pages, me.used_pages
     );
-    let mut r = Runner { passed: 0, failed: Vec::new() };
+    let mut r = Runner { passed: 0, failed: Vec::new(), skipped: Vec::new() };
+    // Storage is optional hardware. Everything that reads the guest disk is skipped
+    // (not failed) on a machine that has none.
+    let disk = match sys::kstats(ROOT) {
+        Ok(s) => s.volume_sectors != 0,
+        Err(e) => {
+            println!("[init] kstats failed: {e}");
+            false
+        }
+    };
+    println!(
+        "[init] storage: {}",
+        if disk { "FAT32 volume mounted" } else { "none; disk-backed tests will be skipped" }
+    );
 
     r.run("K01", "boot reached init in user space", || {
         let s = stats()?;
@@ -581,81 +614,94 @@ pub extern "C" fn space_main() -> i32 {
         Ok(())
     });
 
-    r.run("D01", "model file read from the guest disk matches the manifest checksum", || {
-        let mut manifest = alloc::string::String::new();
-        stream_file("/spaceos/manifest.txt", |chunk| {
-            manifest.push_str(core::str::from_utf8(chunk).unwrap_or(""));
-        })?;
-        let want_size: u64 = manifest_value(&manifest, "size")
-            .and_then(|v| v.parse().ok())
-            .ok_or_else(|| String::from("manifest has no size"))?;
-        let want_hash =
-            manifest_value(&manifest, "sha256").ok_or_else(|| String::from("manifest has no sha256"))?;
-        let path = manifest_value(&manifest, "path").ok_or_else(|| String::from("manifest has no path"))?;
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D01",
+        "model file read from the guest disk matches the manifest checksum",
+        || {
+            let mut manifest = alloc::string::String::new();
+            stream_file("/spaceos/manifest.txt", |chunk| {
+                manifest.push_str(core::str::from_utf8(chunk).unwrap_or(""));
+            })?;
+            let want_size: u64 = manifest_value(&manifest, "size")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| String::from("manifest has no size"))?;
+            let want_hash =
+                manifest_value(&manifest, "sha256").ok_or_else(|| String::from("manifest has no sha256"))?;
+            let path =
+                manifest_value(&manifest, "path").ok_or_else(|| String::from("manifest has no path"))?;
 
-        let mut hasher = sha256::Sha256::new();
-        let read = stream_file(path, |chunk| hasher.update(chunk))?;
-        let got = sha256::to_hex(&hasher.finish());
-        let got = core::str::from_utf8(&got).unwrap_or("");
-        if read != want_size {
-            return Err(alloc::format!("{path}: {read} bytes read, manifest says {want_size}"));
-        }
-        if got != want_hash {
-            return Err(alloc::format!("{path}: sha256 {got}, manifest says {want_hash}"));
-        }
-        println!("[init] model {path}: {read} bytes, sha256 {got} verified from the guest disk");
-        Ok(())
-    });
-
-    r.run("D01", "file API rejects bad paths, missing rights and bad buffers", || {
-        match sys::fs_open(ROOT, "/spaceos/not_here.bin") {
-            Err(Error::NotFound) => {}
-            other => return Err(alloc::format!("missing file gave {other:?}")),
-        }
-        match sys::fs_open(ROOT, "/spaceos") {
-            Ok(h) => {
-                // A directory has no size and must not be readable as a file.
-                let st = sys::fs_stat(h).map_err(|e| alloc::format!("stat dir: {e}"))?;
-                sys::handle_close(h).ok();
-                if st.size != 0 {
-                    return Err(String::from("directory reported a non-zero size"));
-                }
+            let mut hasher = sha256::Sha256::new();
+            let read = stream_file(path, |chunk| hasher.update(chunk))?;
+            let got = sha256::to_hex(&hasher.finish());
+            let got = core::str::from_utf8(&got).unwrap_or("");
+            if read != want_size {
+                return Err(alloc::format!("{path}: {read} bytes read, manifest says {want_size}"));
             }
-            Err(Error::NotFound) | Err(Error::Invalid) => {}
-            Err(e) => return Err(alloc::format!("opening a directory gave {e}")),
-        }
-        // A regular file is not a directory: the walk must stop there rather than
-        // decode the file's own bytes as directory entries.
-        match sys::fs_open(ROOT, "/spaceos/manifest.txt/anything") {
-            Err(Error::NotFound) => {}
-            other => return Err(alloc::format!("walking through a file gave {other:?}")),
-        }
-        let no_fs = sys::handle_dup(ROOT, rights::STATS).map_err(|e| alloc::format!("dup: {e}"))?;
-        let denied = sys::fs_open(no_fs, "/spaceos/manifest.txt");
-        sys::handle_close(no_fs).ok();
-        match denied {
-            Err(Error::Denied) => {}
-            other => return Err(alloc::format!("open without the FS right gave {other:?}")),
-        }
-        let f = sys::fs_open(ROOT, "/spaceos/manifest.txt").map_err(|e| alloc::format!("open: {e}"))?;
-        let bad = decode(unsafe { sys::raw(nr::FS_READ, f as u64, 0, 0xFFFF_8000_0000_0000, 64, 0, 0) });
-        let past_end = {
-            let mut buf = [0u8; 16];
-            sys::fs_read(f, 1 << 40, &mut buf)
-        };
-        let as_channel = sys::fs_stat(handle::BOOTSTRAP);
-        sys::handle_close(f).ok();
-        if bad != Err(Error::Fault) {
-            return Err(alloc::format!("read into kernel memory gave {bad:?}"));
-        }
-        if past_end != Ok(0) {
-            return Err(alloc::format!("read past end of file gave {past_end:?}"));
-        }
-        if as_channel != Err(Error::Denied) {
-            return Err(alloc::format!("stat on a channel handle gave {as_channel:?}"));
-        }
-        Ok(())
-    });
+            if got != want_hash {
+                return Err(alloc::format!("{path}: sha256 {got}, manifest says {want_hash}"));
+            }
+            println!("[init] model {path}: {read} bytes, sha256 {got} verified from the guest disk");
+            Ok(())
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D01",
+        "file API rejects bad paths, missing rights and bad buffers",
+        || {
+            match sys::fs_open(ROOT, "/spaceos/not_here.bin") {
+                Err(Error::NotFound) => {}
+                other => return Err(alloc::format!("missing file gave {other:?}")),
+            }
+            match sys::fs_open(ROOT, "/spaceos") {
+                Ok(h) => {
+                    // A directory has no size and must not be readable as a file.
+                    let st = sys::fs_stat(h).map_err(|e| alloc::format!("stat dir: {e}"))?;
+                    sys::handle_close(h).ok();
+                    if st.size != 0 {
+                        return Err(String::from("directory reported a non-zero size"));
+                    }
+                }
+                Err(Error::NotFound) | Err(Error::Invalid) => {}
+                Err(e) => return Err(alloc::format!("opening a directory gave {e}")),
+            }
+            // A regular file is not a directory: the walk must stop there rather than
+            // decode the file's own bytes as directory entries.
+            match sys::fs_open(ROOT, "/spaceos/manifest.txt/anything") {
+                Err(Error::NotFound) => {}
+                other => return Err(alloc::format!("walking through a file gave {other:?}")),
+            }
+            let no_fs = sys::handle_dup(ROOT, rights::STATS).map_err(|e| alloc::format!("dup: {e}"))?;
+            let denied = sys::fs_open(no_fs, "/spaceos/manifest.txt");
+            sys::handle_close(no_fs).ok();
+            match denied {
+                Err(Error::Denied) => {}
+                other => return Err(alloc::format!("open without the FS right gave {other:?}")),
+            }
+            let f = sys::fs_open(ROOT, "/spaceos/manifest.txt").map_err(|e| alloc::format!("open: {e}"))?;
+            let bad = decode(unsafe { sys::raw(nr::FS_READ, f as u64, 0, 0xFFFF_8000_0000_0000, 64, 0, 0) });
+            let past_end = {
+                let mut buf = [0u8; 16];
+                sys::fs_read(f, 1 << 40, &mut buf)
+            };
+            let as_channel = sys::fs_stat(handle::BOOTSTRAP);
+            sys::handle_close(f).ok();
+            if bad != Err(Error::Fault) {
+                return Err(alloc::format!("read into kernel memory gave {bad:?}"));
+            }
+            if past_end != Ok(0) {
+                return Err(alloc::format!("read past end of file gave {past_end:?}"));
+            }
+            if as_channel != Err(Error::Denied) {
+                return Err(alloc::format!("stat on a channel handle gave {as_channel:?}"));
+            }
+            Ok(())
+        },
+    );
 
     r.run("C01", "Compute ABI: version negotiation, device query and queue lifetime", || {
         let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
@@ -1079,33 +1125,44 @@ pub extern "C" fn space_main() -> i32 {
         Ok(())
     });
 
-    r.run("A01", "native inference: a small model generates 128 tokens matching the pinned baseline", || {
-        let (svc_client, svc_server) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
-        let compute = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(svc_server))
-            .map_err(|e| alloc::format!("spawn compute: {e}"))?;
-        let (ai_mine, ai_theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
-        let ai = sys::spawn(ROOT, "bin/spaceai", AI_QUOTA, Some(ai_theirs))
-            .map_err(|e| alloc::format!("spawn ai: {e}"))?;
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "A01",
+        "native inference: a small model generates 128 tokens matching the pinned baseline",
+        || {
+            let (svc_client, svc_server) =
+                sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let compute = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(svc_server))
+                .map_err(|e| alloc::format!("spawn compute: {e}"))?;
+            let (ai_mine, ai_theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let ai = sys::spawn(ROOT, "bin/spaceai", AI_QUOTA, Some(ai_theirs))
+                .map_err(|e| alloc::format!("spawn ai: {e}"))?;
 
-        // The runtime gets exactly two capabilities: a compute connection and
-        // read-only file system access. It cannot spawn, kill or inspect anything.
-        sys::send(ai_mine, b"compute", Some(svc_client)).map_err(|e| alloc::format!("pass compute: {e}"))?;
-        let fs = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
-            .map_err(|e| alloc::format!("dup fs: {e}"))?;
-        sys::send(ai_mine, b"fs", Some(fs)).map_err(|e| alloc::format!("pass fs: {e}"))?;
+            // The runtime gets exactly two capabilities: a compute connection and
+            // read-only file system access. It cannot spawn, kill or inspect anything.
+            sys::send(ai_mine, b"compute", Some(svc_client))
+                .map_err(|e| alloc::format!("pass compute: {e}"))?;
+            let fs = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup fs: {e}"))?;
+            sys::send(ai_mine, b"fs", Some(fs)).map_err(|e| alloc::format!("pass fs: {e}"))?;
 
-        let st = sys::wait(ai).map_err(|e| alloc::format!("wait ai: {e}"))?;
-        sys::handle_close(ai).ok();
-        sys::kill(compute).ok();
-        sys::wait(compute).ok();
-        sys::handle_close(compute).ok();
-        sys::handle_close(ai_mine).ok();
-        expect_exit("spaceai", st, 0)
-    });
+            let st = sys::wait(ai).map_err(|e| alloc::format!("wait ai: {e}"))?;
+            sys::handle_close(ai).ok();
+            sys::kill(compute).ok();
+            sys::wait(compute).ok();
+            sys::handle_close(compute).ok();
+            sys::handle_close(ai_mine).ok();
+            expect_exit("spaceai", st, 0)
+        },
+    );
 
     let total = r.passed + r.failed.len() as u32;
+    for skipped in &r.skipped {
+        println!("[init] skipped: {skipped}");
+    }
     if r.failed.is_empty() {
-        println!("[init] ALL TESTS PASSED ({total}/{total})");
+        println!("[init] ALL TESTS PASSED ({total}/{total}, {} skipped)", r.skipped.len());
         let _ = sys::shutdown(ROOT, 0);
     } else {
         println!("[init] TESTS FAILED: {} of {}", r.failed.len(), total);

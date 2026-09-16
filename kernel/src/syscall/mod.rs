@@ -574,6 +574,7 @@ pub fn kernel_stats() -> KernelStats {
         threads_live,
         uptime_ms: sched::uptime_ms(),
         context_switches,
+        volume_sectors: fs::volume_sectors(),
     }
 }
 

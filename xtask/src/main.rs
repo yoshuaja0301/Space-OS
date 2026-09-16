@@ -386,8 +386,140 @@ struct QemuRun {
     timed_out: bool,
 }
 
-/// The pinned lab profile (PRD §6): q35, TCG, 4 vCPU, 8 GiB, OVMF, isa-debug-exit.
+/// A machine the image is expected to boot on. The first entry is the pinned lab
+/// profile of ADR-0003 (PRD §6); the rest are the variations the compatibility
+/// matrix walks, so "it boots here" is a checked claim rather than an assumption.
+struct Machine {
+    name: &'static str,
+    /// `-machine` value.
+    machine: &'static str,
+    cpu: &'static str,
+    smp: &'static str,
+    memory: &'static str,
+    /// `-device` string for the block controller, empty for a machine with no disk.
+    block_device: &'static str,
+    /// Appended verbatim (display and other knobs).
+    extra: &'static [&'static str],
+    /// Markers this configuration must produce on top of the common ones.
+    must_contain: &'static [&'static str],
+}
+
+const LAB: Machine = Machine {
+    name: "lab",
+    machine: "q35,accel=tcg",
+    cpu: "qemu64",
+    smp: "4",
+    memory: "8G",
+    block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+    extra: &[],
+    must_contain: &[],
+};
+
+/// Configurations the acceptance run must survive unchanged.
+const MACHINES: &[Machine] = &[
+    LAB,
+    Machine {
+        name: "q35-1cpu-2g",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "1",
+        memory: "2G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        extra: &[],
+        must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+    },
+    Machine {
+        name: "i440fx",
+        machine: "pc,accel=tcg",
+        cpu: "qemu64",
+        smp: "2",
+        memory: "4G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        extra: &[],
+        must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+    },
+    Machine {
+        name: "cpu-max",
+        machine: "q35,accel=tcg",
+        cpu: "max",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        extra: &[],
+        must_contain: &["[init] ALL TESTS PASSED"],
+    },
+    Machine {
+        name: "virtio-transitional",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        // A transitional device answers to the legacy id 0x1001 and still offers the
+        // modern capabilities; the driver must negotiate VIRTIO_F_VERSION_1 on it.
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=off,disable-modern=off",
+        extra: &[],
+        must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+    },
+    Machine {
+        name: "virtio-small-queue",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        // A device that offers only four descriptors: the driver must take every
+        // ring index modulo the negotiated size and chunk requests to fit it.
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on,queue-size=4",
+        extra: &[],
+        must_contain: &[
+            "[kernel] virtio-blk: pci 00:03.0 queue size 4 (max 4), 2 data pages/request",
+            "[kernel] vfs: FAT32 mounted",
+            "[init] ALL TESTS PASSED",
+        ],
+    },
+    Machine {
+        name: "no-disk",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "",
+        extra: &[],
+        // No storage is a supported configuration: the kernel says so and the
+        // disk-backed tests are skipped instead of failing.
+        must_contain: &[
+            "[kernel] virtio-blk: no device present",
+            "[kernel] vfs: no block device",
+            "[init] storage: none",
+            "[init] SKIP A01",
+            "[init] ALL TESTS PASSED",
+        ],
+    },
+    Machine {
+        name: "no-vga",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        extra: &["-vga", "none"],
+        // Without a GOP the console has to fall back to serial only.
+        must_contain: &["[kernel] framebuffer: none usable; serial console only", "[init] ALL TESTS PASSED"],
+    },
+    Machine {
+        name: "vmware-vga",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        extra: &["-vga", "vmware"],
+        must_contain: &["[kernel] framebuffer:", "[init] ALL TESTS PASSED"],
+    },
+];
+
+/// QEMU command line for `m`, booting `image` with `data_image` attached.
 fn qemu_args(
+    m: &Machine,
     image: &Path,
     data_image: &Path,
     vars_copy: &Path,
@@ -397,29 +529,36 @@ fn qemu_args(
 ) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = vec![
         "-machine".into(),
-        "q35,accel=tcg".into(),
+        m.machine.into(),
         "-cpu".into(),
-        "qemu64".into(),
+        m.cpu.into(),
         "-smp".into(),
-        "4".into(),
+        m.smp.into(),
         "-m".into(),
-        "8G".into(),
+        m.memory.into(),
         "-drive".into(),
         format!("if=pflash,format=raw,readonly=on,file={}", code.display()),
         "-drive".into(),
         format!("if=pflash,format=raw,file={}", vars_copy.display()),
         "-drive".into(),
         format!("format=raw,file={}", image.display()),
-        "-drive".into(),
-        format!("if=none,id=spacedata,format=raw,file={}", data_image.display()),
-        "-device".into(),
-        "virtio-blk-pci,drive=spacedata,disable-legacy=on".into(),
+    ];
+    if !m.block_device.is_empty() {
+        a.extend([
+            "-drive".into(),
+            format!("if=none,id=spacedata,format=raw,file={}", data_image.display()),
+            "-device".into(),
+            m.block_device.into(),
+        ]);
+    }
+    a.extend([
         "-device".into(),
         "isa-debug-exit,iobase=0xf4,iosize=0x04".into(),
         "-no-reboot".into(),
         "-rtc".into(),
         "base=utc".into(),
-    ];
+    ]);
+    a.extend(m.extra.iter().map(|s| (*s).to_string()));
     match serial_path {
         Some(p) => a.extend(["-serial".into(), format!("file:{}", p.display())]),
         None => a.extend(["-serial".into(), "mon:stdio".into()]),
@@ -440,13 +579,23 @@ fn run_qemu_capture(
     log_path: &Path,
     done_markers: &[&str],
 ) -> Result<QemuRun, String> {
+    run_qemu_capture_on(&LAB, image, data_image, log_path, done_markers)
+}
+
+fn run_qemu_capture_on(
+    machine: &Machine,
+    image: &Path,
+    data_image: &Path,
+    log_path: &Path,
+    done_markers: &[&str],
+) -> Result<QemuRun, String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
     if log_path.exists() {
         fs::remove_file(log_path).ok();
     }
-    let args = qemu_args(image, data_image, &vars_copy, &code, false, Some(log_path))?;
+    let args = qemu_args(machine, image, data_image, &vars_copy, &code, false, Some(log_path))?;
     let start = Instant::now();
     let mut child = Command::new(qemu_bin())
         .args(&args)
@@ -656,6 +805,90 @@ fn cmd_test(release: bool) -> Result<(), String> {
     }
 }
 
+/// Boot the acceptance image on every machine of the compatibility matrix.
+///
+/// The lab profile is what the acceptance run uses; this walks the variations a
+/// user is likely to have (another chipset, fewer cores, less memory, a
+/// transitional virtio device, no disk, no display) and checks that the same image
+/// still reaches the end - degrading where hardware is missing, never crashing.
+fn cmd_compat(release: bool) -> Result<(), String> {
+    const COMMON: &[&str] =
+        &["[kernel] selftest: heap ok", "[init] Space OS init running", "[init] ALL TESTS PASSED"];
+    const FORBIDDEN: &[&str] = &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"];
+
+    let built = build(release)?;
+    let logs = root().join("build/logs/compat");
+    fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    let image = root().join("build/esp-compat.img");
+    make_image(&built, "", &image)?;
+    let data_image = root().join("build/data.img");
+    make_data_disk(&data_image)?;
+
+    let mut failures = 0;
+    for m in MACHINES {
+        println!(
+            "== machine {}: -machine {} -cpu {} -smp {} -m {} ({}){}",
+            m.name,
+            m.machine,
+            m.cpu,
+            m.smp,
+            m.memory,
+            if m.block_device.is_empty() { "no block device" } else { m.block_device },
+            if m.extra.is_empty() { String::new() } else { format!(" {}", m.extra.join(" ")) }
+        );
+        let log_path = logs.join(format!("{}.log", m.name));
+        let run = run_qemu_capture_on(
+            m,
+            &image,
+            &data_image,
+            &log_path,
+            &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
+        )?;
+        let mut problems = Vec::new();
+        if run.timed_out {
+            problems.push(format!("timed out after {:?}", run.elapsed));
+        }
+        if run.exit_code != Some(EXIT_SUCCESS) {
+            problems.push(format!("QEMU exit code {:?}, expected {EXIT_SUCCESS}", run.exit_code));
+        }
+        for marker in COMMON.iter().chain(m.must_contain.iter()) {
+            if !run.log.contains(marker) {
+                problems.push(format!("missing marker {marker:?}"));
+            }
+        }
+        for marker in FORBIDDEN {
+            if run.log.contains(marker) {
+                problems.push(format!("unexpected marker {marker:?}"));
+            }
+        }
+        if problems.is_empty() {
+            println!(
+                "   PASS in {:.1}s (exit {:?}), log: {}",
+                run.elapsed.as_secs_f64(),
+                run.exit_code,
+                log_path.display()
+            );
+            continue;
+        }
+        failures += 1;
+        println!("   FAIL in {:.1}s, log: {}", run.elapsed.as_secs_f64(), log_path.display());
+        for p in problems {
+            println!("     - {p}");
+        }
+        println!("----- last 40 log lines -----");
+        for l in run.log.lines().rev().take(40).collect::<Vec<_>>().into_iter().rev() {
+            println!("{l}");
+        }
+        println!("-----------------------------");
+    }
+    if failures == 0 {
+        println!("== all {} machine configurations booted and passed", MACHINES.len());
+        Ok(())
+    } else {
+        Err(format!("{failures} machine configuration(s) failed"))
+    }
+}
+
 fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
     let built = build(release)?;
     let s = &SCENARIOS[0];
@@ -709,7 +942,7 @@ fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
-    let args = qemu_args(&image, &data_image, &vars_copy, &code, gui, None)?;
+    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None)?;
     println!("== {} {}", qemu_bin(), args.join(" "));
     let st = Command::new(qemu_bin()).args(&args).status().map_err(|e| e.to_string())?;
     println!(
@@ -790,7 +1023,7 @@ fn cmd_clippy() -> Result<(), String> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|soak [--boots N]|clippy|fmt|fmt-check|ci> [--debug]"
+        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|clippy|fmt|fmt-check|ci> [--debug]"
     );
     std::process::exit(2)
 }
@@ -814,6 +1047,7 @@ fn main() {
             cmd_run(gui, &cmdline, release)
         }
         "test" => cmd_test(release),
+        "compat" => cmd_compat(release),
         "soak" => {
             let boots = args
                 .iter()
@@ -830,7 +1064,8 @@ fn main() {
         "fmt-check" => sh(cargo().args(["fmt", "--all", "--", "--check"])),
         "ci" => sh(cargo().args(["fmt", "--all", "--", "--check"]))
             .and_then(|_| cmd_clippy())
-            .and_then(|_| cmd_test(true)),
+            .and_then(|_| cmd_test(true))
+            .and_then(|_| cmd_compat(true)),
         _ => usage(),
     };
     if let Err(e) = res {

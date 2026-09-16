@@ -7,16 +7,25 @@ Status memakai label PRD §4: **planned** (belum dikerjakan), **experimental** (
 | K01 | P0 | Boot UEFI ke init di QEMU; 100 cold boot berturut-turut tanpa panic | **verified** | `xtask soak --boots 100` → `docs/evidence/soak-summary.txt` (100/100 pada build tahap 5 lengkap termasuk storage, compute dan inferensi di setiap boot; rata-rata 13,9 s per boot di TCG); skenario `acceptance` (marker `[init] Space OS init running`); diagnosis panic diuji oleh skenario `panic-diagnosis`, `kernel-fault-diagnosis`, `kernel-stack-overflow-diagnosis` |
 | K02 | P0 | User-space, syscall, IPC, timer, isolasi; akses terlarang mematikan proses uji, bukan kernel | **verified** | `init` menjalankan: tulis ke memori kernel, baca NULL, eksekusi stack NX, lompat ke alamat kernel/non-kanonik, `div`, `ud2`, `cli`, `int3`, TF+`syscall` → proses dibunuh dengan alasan yang benar, kernel lanjut; `syscall` dengan `rsp` bermusuhan kembali normal; ELF rusak ditolak; 33 uji negatif ABI (`bin/abi_negative`); IPC echo + transfer handle; `sleep(50 ms)`; proses runaway di-preempt dan di-kill |
 | K03 | P0 | Kuota dan reclamation; siklus berulang tanpa kebocoran yang terus tumbuh | **verified** | `bin/quota`: `mem_map` ditolak `Quota` tepat pada batas dan dapat dipakai ulang; 50 siklus spawn/exit `bin/worker`, 20 siklus kill-saat-blocking `bin/ipc_echo`, dan 3 × 20 siklus kill saat `sleep`/`recv`/`wait` (`bin/blocker`) → jumlah frame bebas dan heap kernel identik sebelum/sesudah |
-| D01 | P0 | VirtIO block dan VFS; baca model dari disk guest, verifikasi checksum setelah reboot | **verified** | Driver virtio-blk 1.0 (PCI modern, polling) + FAT32 read-only + `SYS_FS_OPEN/READ/STAT` di balik hak root `FS`; `init` menghitung SHA-256 di guest (implementasi sendiri, lebih dulu diuji terhadap vektor FIPS) dan mencocokkannya dengan manifest yang dibuat host; skenario `storage-reboot` menuntut verifikasi lulus pada dua boot berturut-turut. ADR-0007 |
+| D01 | P0 | VirtIO block dan VFS; baca model dari disk guest, verifikasi checksum setelah reboot | **verified** | Driver virtio-blk 1.0 (PCI modern, polling) + FAT32 read-only + `SYS_FS_OPEN/READ/STAT` di balik hak root `FS`; `init` menghitung SHA-256 di guest (implementasi sendiri, lebih dulu diuji terhadap vektor FIPS) dan mencocokkannya dengan manifest yang dibuat host; skenario `storage-reboot` menuntut verifikasi lulus pada dua boot berturut-turut; matriks `compat` menambahkan perangkat transisional, antrean 4 deskriptor, dan mesin tanpa disk sama sekali. ADR-0007, ADR-0010 |
 | C01 | P0 | Compute ABI CPU: versi, invalid handle, batas buffer, unsupported op, timeout, cancel | **verified** | Objek memori bersama di kernel (`SYS_VMO_*`) + layanan user-space `bin/spacecompute` (ABI v0, backend CPU). Uji kontrak di `init`: HELLO sebelum permintaan lain, versi salah ditolak, device query, buffer bersama, batas buffer (`BadHandle`/`Invalid`/`MsgSize`), operasi tak didukung (`NoSys`), timeout lalu dilanjutkan, cancel, dan tiga siklus layanan tanpa kebocoran frame. ADR-0008 |
 | A01 | P0 | Model kecil menghasilkan 128 token offline sesuai baseline | **verified (dengan catatan model)** | `bin/spaceai` memuat SpaceLM v0 dari disk guest, memverifikasi SHA-256 terhadap manifest, menolak tiga model rusak, lalu menghasilkan 128 token lewat Compute ABI. Semua token **identik** dengan baseline yang dipatok implementasi referensi host (math dan tata letak dipakai bersama). Metrik dilaporkan: TTFT, token/detik, working set, RSS runtime. **Catatan jujur:** model referensi 115 ribu parameter dan **tidak dilatih**, bukan 100–500 juta parameter seperti saran PRD §6; yang dibuktikan adalah kebenaran pipeline native, bukan kualitas keluaran. ADR-0009 |
 | L01–L03 | P1 | SpaceLink indeks, revokasi, context bundle | planned | Developer Preview; menunggu akses repo SpaceLink (PRD §10) |
 | G01 | P1 | Agent membaca/patch/uji dalam workspace; keluar scope ditolak | planned | Model capability kernel sudah default-deny; Tool Broker belum ada |
 | I01 | P1 | Satu adapter cloud lulus auth/streaming/tool use/timeout/cost cap | planned | Memerlukan jaringan (tahap 3) |
-| U01 | P1 | Desktop/terminal/file manager/Stop tetap hidup saat worker inferensi crash | experimental | Primitive terbukti: worker user-space yang crash/di-kill tidak mengganggu `init` (uji K02); belum ada desktop |
+| U01 | P1 | Desktop/terminal/file manager/Stop tetap hidup saat worker inferensi crash | experimental | Primitive terbukti: worker user-space yang crash/di-kill tidak mengganggu `init` (uji K02), dan layanan compute kini menolak permintaan cacat alih-alih mati (dimensi nol, buffer yang masih dipakai, handle yang ditransfer); belum ada desktop |
 | P01 | P1 | Paket bertanda tangan dan rollback | planned | — |
 | H01 | P2 | PC/GPU referensi | planned | — |
 | H02 | P2 | ARM64 boot/isolasi/inferensi CPU virtual | planned | Batas modul `kernel/src/arch/` disiapkan (ADR-0001) |
+
+## Kompatibilitas (PRD §6 "berjalan pada profil yang didukung")
+
+Bukan persyaratan bernomor, tetapi syarat agar klaim di atas berarti di luar satu
+profil. `cargo xtask compat` mem-boot image yang sama pada sembilan konfigurasi
+QEMU (ADR-0010); hasil sesi ini ada di `docs/evidence/compat-summary.txt`. Mesin
+tanpa perangkat keras yang dibutuhkan melewati uji terkait dan mencatatnya sebagai
+*skipped*, sehingga hitungan lulus tidak pernah membesar karena uji yang tidak
+dijalankan. Perangkat keras fisik tetap di luar cakupan (H01/H02).
 
 ## Pemetaan uji → persyaratan
 

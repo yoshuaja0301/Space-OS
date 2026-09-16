@@ -16,9 +16,9 @@ env:
 
 jobs:
   test:
-    name: fmt + clippy + QEMU scenarios
+    name: fmt + clippy + QEMU scenarios + compatibility matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install QEMU and OVMF
@@ -35,7 +35,7 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-      - name: fmt, clippy, build, boot scenarios
+      - name: fmt, clippy, build, boot scenarios, compatibility matrix
         run: cargo xtask ci
       - name: Upload serial logs
         # Diagnostics only: an artifact-storage quota must never fail a green run.

@@ -1,4 +1,4 @@
-# Keterbatasan dan batas yang diketahui (milestone tahap 1–2)
+# Keterbatasan dan batas yang diketahui (milestone tahap 1–5)
 
 Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti tidak ada kode, bukan "hampir".
 
@@ -6,7 +6,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 - **Satu CPU** (ADR-0006): AP tidak dibangunkan; `SYSCALL_KERNEL_RSP` global; spinlock = interrupt off.
 - **Satu thread per proses**; tidak ada `thread_create`.
-- **Tidak ada shared memory / memory object antarproses**; IPC hanya pesan ≤ 256 byte + 1 handle. Transfer data besar (buffer model) memerlukan memory object pada ABI v1 (tahap 4).
+- **Pesan IPC ≤ 256 byte + 1 handle**; data besar memakai memory object (`VMO_CREATE`/`VMO_MAP`, tahap 4). Belum ada `VMO_UNMAP` khusus: pemetaan dilepas lewat `mem_unmap` dengan alamat dan panjang yang sama.
+- **Memory object tidak dapat diperbesar, dipotong, atau dipetakan sebagian**; satu objek dipetakan utuh pada alamat yang dipilih kernel.
 - **Tidak ada timeout** pada `recv`/`wait`; `send` tidak pernah memblokir (antrean 64 → `WouldBlock`).
 - **Stack user tetap 64 KiB**, dipetakan penuh saat spawn; tidak ada demand paging atau pertumbuhan stack.
 - **Heap kernel tetap 16 MiB**; kehabisan heap = panic (alloc error), bukan penolakan bertahap.
@@ -15,7 +16,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - NMI bersarang (NMI kedua saat handler NMI belum selesai) merusak frame di stack IST NMI.
 - Headroom heap kernel 1 MiB menolak alokasi yang dipicu user, tetapi fragmentasi ekstrem masih dapat membuat alokasi internal kernel gagal (panic).
 - Hanya **PIC + PIT**; belum ada ACPI/LAPIC/IOAPIC/HPET; RSDP hanya diteruskan.
-- Framebuffer dipetakan write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
+- Linear map hanya memuat RAM dan framebuffer; MMIO perangkat dipetakan uncached on demand (ADR-0010). Framebuffer sendiri masih write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
+- Granularitas linear map 2 MiB: satu halaman besar yang sebagian RAM dan sebagian MMIO tetap dipetakan write-back seluruhnya. Pada q35/i440fx batas PCI hole sejajar 2 MiB sehingga tidak terjadi.
 - Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).
 - Keyboard hanya dikuras (IRQ1), tidak diteruskan ke user-space.
 
@@ -24,7 +26,9 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Driver blok dan FAT32 berada **di dalam kernel** (ADR-0007), bukan user-space; tanpa IOMMU, driver DMA tetap komponen tepercaya.
 - FAT32 **read-only**, satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3.
 - VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
-- Hanya perangkat virtio-blk 1.0 modern; perangkat legacy/transitional tanpa kapabilitas modern diabaikan.
+- Hanya perangkat virtio-blk yang menawarkan kapabilitas modern (VIRTIO_F_VERSION_1). Perangkat transisional diterima karena juga menawarkannya; perangkat legacy murni diabaikan dengan pesan, bukan crash.
+- Ukuran antrean yang dipakai adalah hasil negosiasi, maksimum 16, dan satu permintaan dipotong agar muat (`size - 2` halaman data, maksimum 8 = 32 KiB). Antrean < 3 deskriptor membuat perangkat ditolak.
+- Permintaan yang melewati batas polling membuat perangkat di-reset dan dinonaktifkan permanen; tidak ada percobaan ulang atau pemulihan.
 
 ## Komputasi
 
@@ -40,6 +44,12 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Belum ada model terlatih berlisensi, tokenizer sub-word, quantization, batching, atau sampling; dekode greedy dengan KV cache f32 penuh.
 - Satu langkah dekode memakai 54 round trip IPC; cukup untuk model uji, bukan untuk throughput.
 - Angka kecepatan berasal dari QEMU TCG, bukan perangkat fisik.
+
+## Kompatibilitas
+
+- Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), dan filesystem selain FAT32 read-only.
+- Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 
 ## Belum ada (tahap berikutnya)
 

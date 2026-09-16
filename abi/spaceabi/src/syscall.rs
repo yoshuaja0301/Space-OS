@@ -198,6 +198,9 @@ pub struct KernelStats {
     pub threads_live: u64,
     pub uptime_ms: u64,
     pub context_switches: u64,
+    /// Sectors of the mounted volume, 0 when the machine has no usable disk.
+    /// User space uses it to tell "no storage on this machine" from "read failed".
+    pub volume_sectors: u64,
 }
 
 /// Result of `SYS_FS_STAT`.

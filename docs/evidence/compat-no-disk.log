@@ -1,14 +1,13 @@
-[=3h[=3h[=3hBdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/Pci(0x3,0x0): Not Found
-BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
-BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 275200 bytes, initrd 597504 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 268 KiB at phys 0x7d7cb000, entry 0xffffffff8010ed44
+spaceboot: kernel 3 segments, 268 KiB at phys 0x7dc63000, entry 0xffffffff8010ed44
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 597504 bytes, cmdline 0 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 34 memory regions, initrd 597504 bytes, cmdline 0 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] frames: 2095183 usable (8184 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
@@ -35,10 +34,9 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   fixtures/bad_magic (21064 bytes)
 [kernel]   fixtures/truncated (600 bytes)
 [kernel]   fixtures/huge_segment (21064 bytes)
-[kernel] pci: 7 functions present
-[kernel] virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
-[kernel] virtio-blk: ready, 64 MiB (131072 sectors)
-[kernel] vfs: FAT32 mounted from virtio-blk (512 byte clusters, 64 MiB volume)
+[kernel] pci: 6 functions present
+[kernel] virtio-blk: no device present
+[kernel] vfs: no block device; file system unavailable
 [kernel] pic remapped to vectors 32..47
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
@@ -48,9 +46,9 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] init spawned as pid 1
 [kernel] entering idle loop; scheduler live
 [init] Space OS init running: pid 1, ABI v0, quota 2048 pages (58 used)
-[init] storage: FAT32 volume mounted
+[init] storage: none; disk-backed tests will be skipped
 [init] --- K01: boot reached init in user space
-[init] kernel: 8167 MiB frames free of 8184, heap 1 KiB used, uptime 6 ms
+[init] kernel: 8167 MiB frames free of 8184, heap 0 KiB used, uptime 5 ms
 [init] PASS K01: boot reached init in user space
 [init] --- K02: hello world process exits 0
 [kernel] spawn pid 2 'bin/hello': entry=0x4001a8, 21 pages mapped, quota 128 pages
@@ -136,7 +134,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
 [kernel] spawn pid 15 'bin/fault': entry=0x400748, 22 pages mapped, quota 128 pages
 [fault] pid 15 performing 'kernel_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=128
+[fault] syscall with a hostile rsp returned ticks=127
 [kernel] pid 15 'bin/fault' exited with code 0
 [init] PASS K02: syscall with rsp pointing into the kernel returns normally
 [init] --- K02: malformed executables are rejected (bad entry, bad magic, truncated, huge segment)
@@ -331,7 +329,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 74 'bin/worker' exited with code 0
 [kernel] spawn pid 75 'bin/worker': entry=0x4002e4, 23 pages mapped, quota 128 pages
 [kernel] pid 75 'bin/worker' exited with code 0
-[init] frames free before=2090944 after=2090944 ; heap used before=1840 after=1840 ; switches=161
+[init] frames free before=2090956 after=2090956 ; heap used before=1200 after=1200 ; switches=161
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [kernel] spawn pid 76 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
@@ -380,7 +378,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 97 'bin/ipc_echo' killed (killed, addr 0x0)
 [kernel] spawn pid 98 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
 [kernel] pid 98 'bin/ipc_echo' killed (killed, addr 0x0)
-[init] frames free before=2090944 after=2090944 ; heap used before=1840 after=1840
+[init] frames free before=2090956 after=2090956 ; heap used before=1200 after=1200
 [init] PASS K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [kernel] spawn pid 99 'bin/blocker': entry=0x40061c, 22 pages mapped, quota 128 pages
@@ -429,7 +427,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 120 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 121 'bin/blocker': entry=0x40061c, 22 pages mapped, quota 128 pages
 [kernel] pid 121 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while sleeping: frames free 2090944 -> 2090944, heap used 1840 -> 1840, live processes 1
+[init] kill while sleeping: frames free 2090956 -> 2090956, heap used 1200 -> 1200, live processes 1
 [init] PASS K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [init] --- K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [kernel] spawn pid 122 'bin/blocker': entry=0x40061c, 22 pages mapped, quota 128 pages
@@ -478,7 +476,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 143 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 144 'bin/blocker': entry=0x40061c, 22 pages mapped, quota 128 pages
 [kernel] pid 144 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in recv: frames free 2090944 -> 2090944, heap used 1840 -> 1840, live processes 1
+[init] kill while in recv: frames free 2090956 -> 2090956, heap used 1200 -> 1200, live processes 1
 [init] PASS K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [init] --- K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [kernel] spawn pid 145 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages
@@ -529,7 +527,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 167 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 168 'bin/blocker': entry=0x40061c, 22 pages mapped, quota 128 pages
 [kernel] pid 168 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait: frames free 2090908 -> 2090908, heap used 2376 -> 2376, live processes 2
+[init] kill while in wait: frames free 2090920 -> 2090920, heap used 1736 -> 1736, live processes 2
 [kernel] pid 145 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [init] --- K02: a full handle table refuses spawn instead of orphaning the child
@@ -539,11 +537,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS K02: a full handle table refuses spawn instead of orphaning the child
 [init] --- D01: SHA-256 in the guest matches the published test vectors
 [init] PASS D01: SHA-256 in the guest matches the published test vectors
-[init] --- D01: model file read from the guest disk matches the manifest checksum
-[init] model /spaceos/model.slm: 460096 bytes, sha256 a1955def6c7b4e8e0f1299312b1e505f7819422eba762fd89d1d672d2043a2f0 verified from the guest disk
-[init] PASS D01: model file read from the guest disk matches the manifest checksum
-[init] --- D01: file API rejects bad paths, missing rights and bad buffers
-[init] PASS D01: file API rejects bad paths, missing rights and bad buffers
+[init] SKIP D01: model file read from the guest disk matches the manifest checksum (no disk on this machine)
+[init] SKIP D01: file API rejects bad paths, missing rights and bad buffers (no disk on this machine)
 [init] --- C01: Compute ABI: version negotiation, device query and queue lifetime
 [kernel] spawn pid 170 'bin/spacecompute': entry=0x4041fc, 28 pages mapped, quota 4096 pages
 [compute] Space Compute service, ABI v0, CPU backend
@@ -579,28 +574,11 @@ spacekernel 0.1.0: Space OS kernel booting
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
 [kernel] pid 175 'bin/spacecompute' exited with code 0
-[init] compute cycles: frames free 2090944 -> 2090944, heap used 7792 -> 7792
+[init] compute cycles: frames free 2090956 -> 2090956, heap used 7152 -> 7152
 [init] PASS C01: compute service teardown returns every frame it allocated
-[init] --- A01: native inference: a small model generates 128 tokens matching the pinned baseline
-[kernel] spawn pid 176 'bin/spacecompute': entry=0x4041fc, 28 pages mapped, quota 4096 pages
-[kernel] spawn pid 177 'bin/spaceai': entry=0x4079e8, 34 pages mapped, quota 512 pages
-[compute] Space Compute service, ABI v0, CPU backend
-[ai] Space OS AI runtime starting
-[ai] rejected /spaceos/badmagic.slm: not a SpaceLM model
-[ai] rejected /spaceos/baddims.slm: dimensions out of range
-[ai] rejected /spaceos/trunc.slm: file size does not match the declared tensors
-[ai] compute backend 1, ABI v0
-[ai] model: 2 layers, d_model 64, 4 heads x 16, d_ff 128, vocab 256, 115008 params (449 KiB)
-[ai] model verified: sha256 a1955def6c7b4e8e0f1299312b1e505f7819422eba762fd89d1d672d2043a2f0
-[ai] working set: 711 KiB in 4 compute buffers
-[ai] baseline: 10 prompt bytes, 128 tokens to generate
-[ai] generated 128 tokens offline, all matching the pinned baseline
-[ai] metrics: ttft=377 ms, total=5694 ms, 24.073 tokens/s, working set 711 KiB, runtime rss 264 KiB
-[ai] first tokens: ".Oq..NN..\\..L.:.-..:.6.." ...
-[compute] shutdown requested; exiting
-[kernel] pid 176 'bin/spacecompute' exited with code 0
-[ai] result=PASS
-[kernel] pid 177 'bin/spaceai' exited with code 0
-[init] PASS A01: native inference: a small model generates 128 tokens matching the pinned baseline
-[init] ALL TESTS PASSED (39/39, 0 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 8533 ms, 37029 context switches)
+[init] SKIP A01: native inference: a small model generates 128 tokens matching the pinned baseline (no disk on this machine)
+[init] skipped: D01 model file read from the guest disk matches the manifest checksum: no disk on this machine
+[init] skipped: D01 file API rejects bad paths, missing rights and bad buffers: no disk on this machine
+[init] skipped: A01 native inference: a small model generates 128 tokens matching the pinned baseline: no disk on this machine
+[init] ALL TESTS PASSED (36/36, 3 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 2504 ms, 1937 context switches)

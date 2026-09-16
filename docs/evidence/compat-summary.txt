@@ -1,0 +1,24 @@
+# cargo xtask compat — matriks kompatibilitas (ADR-0010)
+
+Sesi verifikasi 2026-09-16, QEMU 8.2.2 / OVMF 4M, image yang sama untuk semua mesin.
+
+== machine lab: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=on)
+   PASS in 13.9s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/lab.log
+== machine q35-1cpu-2g: -machine q35,accel=tcg -cpu qemu64 -smp 1 -m 2G (virtio-blk-pci,drive=spacedata,disable-legacy=on)
+   PASS in 13.3s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/q35-1cpu-2g.log
+== machine i440fx: -machine pc,accel=tcg -cpu qemu64 -smp 2 -m 4G (virtio-blk-pci,drive=spacedata,disable-legacy=on)
+   PASS in 14.4s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/i440fx.log
+== machine cpu-max: -machine q35,accel=tcg -cpu max -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=on)
+   PASS in 15.5s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/cpu-max.log
+== machine virtio-transitional: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=off,disable-modern=off)
+   PASS in 13.5s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/virtio-transitional.log
+== machine virtio-small-queue: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=on,queue-size=4)
+   PASS in 13.7s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/virtio-small-queue.log
+== machine no-disk: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (no block device)
+   PASS in 7.5s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/no-disk.log
+== machine no-vga: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=on) -vga none
+   PASS in 12.1s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/no-vga.log
+== machine vmware-vga: -machine q35,accel=tcg -cpu qemu64 -smp 4 -m 8G (virtio-blk-pci,drive=spacedata,disable-legacy=on) -vga vmware
+   PASS in 14.2s (exit Some(33)), log: /home/user/Space-OS/build/logs/compat/vmware-vga.log
+== all 9 machine configurations booted and passed
+

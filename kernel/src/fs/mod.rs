@@ -33,6 +33,11 @@ pub fn init() {
     }
 }
 
+/// Sectors of the mounted volume, 0 when nothing is mounted.
+pub fn volume_sectors() -> u64 {
+    if VOLUME.lock().is_some() { virtio_blk::capacity_sectors() } else { 0 }
+}
+
 pub fn open(path: &str) -> Result<FileNode, Error> {
     let mut g = VOLUME.lock();
     let fs = g.as_mut().ok_or(Error::NotFound)?;

@@ -12,6 +12,28 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `kernel-stack-overflow-diagnosis` | `selftest=stack` | `!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!` (guard page kernel stack), lalu panic; exit 127 |
 | `storage-reboot` | — | image yang sama di-boot dua kali; kedua boot harus memuat virtio-blk, mount FAT32, dan lulus D01 (checksum model) |
 
+## Matriks kompatibilitas `cargo xtask compat` (ADR-0010)
+
+Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
+`[init] ALL TESTS PASSED` dan exit 33, tanpa `KERNEL PANIC` atau `[init] FAIL`.
+
+| Mesin | QEMU | Marker tambahan |
+|---|---|---|
+| `lab` | q35, `qemu64`, 4 vCPU, 8 GiB, virtio-blk modern | — (acuan ADR-0003) |
+| `q35-1cpu-2g` | 1 vCPU, 2 GiB | `vfs: FAT32 mounted` |
+| `i440fx` | `-machine pc`, 2 vCPU, 4 GiB | `vfs: FAT32 mounted` |
+| `cpu-max` | `-cpu max` | — |
+| `virtio-transitional` | `disable-legacy=off,disable-modern=off` | `vfs: FAT32 mounted` |
+| `virtio-small-queue` | `queue-size=4` | `virtio-blk: … queue size 4 (max 4), 2 data pages/request` |
+| `no-disk` | tanpa perangkat blok | `virtio-blk: no device present`, `vfs: no block device`, `[init] storage: none`, `[init] SKIP A01` |
+| `no-vga` | `-vga none` | `framebuffer: none usable; serial console only` |
+| `vmware-vga` | `-vga vmware` | `framebuffer:` |
+
+Dua mesin ini punya gigi yang terbukti: dengan driver virtio sebelum perbaikan
+ukuran antrean, `virtio-small-queue` gagal (`read /spaceos/model.slm: bad address`,
+3 uji merah); `no-disk` gagal sebelum `init` bisa membedakan "tidak ada disk" dari
+"pembacaan gagal".
+
 Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menulis `0x10` (sukses, 33), `0x11` (uji gagal, 35), `0x3f` (panic, 127). Time-out 240 detik per boot dihitung sebagai gagal.
 
 ## Uji yang dijalankan `init` (skenario acceptance)
@@ -46,11 +68,15 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | C01 | operasi panjang: `WAIT` singkat → `WouldBlock`+`RUNNING`, `WAIT` lagi → selesai; setelah `CANCEL` → `CANCELLED`, lalu tiket dilupakan | `bin/spacecompute` |
 | C01 | tiga siklus layanan (termasuk satu yang sengaja tidak melepas buffer) → frame bebas dan heap kernel identik | `bin/spacecompute` |
 | C01 | menulis lewat pemetaan memory object read-only → proses dibunuh `PAGE_FAULT` | `bin/fault` |
-| D01 | berkas tidak ada → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
+| C01 | memory object yang masih dipetakan bertahan setelah handle terakhirnya ditutup: pola ditulis, 1 MiB dialokasikan lalu dilepas untuk mendaur ulang frame, isi pemetaan tetap utuh (tanpa perbaikan: `mapping corrupted at byte 0: 0xaa`) | `bin/init` |
+| C01 | dimensi nol pada `SOFTMAX`/`ARGMAX`/`FILL`/`RMSNORM`/`EMBED` → `Invalid` saat submit (tanpa perbaikan: layanan panik saat membaca elemen 0) | `bin/spacecompute` |
+| C01 | `BUFFER_RELEASE` atas buffer yang masih dirujuk tiket tertunda → `WouldBlock`; setelah `CANCEL` buffer boleh dilepas | `bin/spacecompute` |
+| C01 | 512 permintaan yang masing-masing menyertakan handle transfer → layanan menutupnya, tabel handle tidak habis | `bin/spacecompute` |
+| D01 | berkas tidak ada → `NotFound`; menelusuri **melewati** berkas biasa (`/spaceos/manifest.txt/anything`) → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
 
 ## Selftest kernel (sebelum user-space)
 
-`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame.
+`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang.
 
 ## Soak K01
 
