@@ -76,9 +76,10 @@ pub fn init_input() -> bool {
 ///
 /// The loop must run until the UART reports empty. The 8259 is edge triggered, so a
 /// handler that returns with the receive interrupt still asserted never sees another
-/// edge: console input would stop for good, silently. The bound below therefore
-/// exists only to catch a device that is lying, and hitting it takes the port
-/// offline with a message instead of leaving the kernel in that state.
+/// edge: console input would stop for good, silently. The bound below caps how long
+/// one interrupt may spend here — a sender faster than this loop, or a device that
+/// is lying, both trip it — and hitting it *pauses* the port rather than retiring it:
+/// see [`resume_input`].
 pub fn drain_input() {
     if !INPUT_PRESENT.load(core::sync::atomic::Ordering::Relaxed) {
         return;
@@ -101,17 +102,40 @@ pub fn drain_input() {
             }
             crate::input::push(rx.read());
         }
-        // Still "data ready" after that many reads: this is not a UART we can serve.
-        // Mask its interrupt so the line drops, and stop touching it.
+        // Still "data ready" after that many reads. Mask the receive interrupt so the
+        // line drops and this handler can return: an interrupt that never ends is
+        // worse than input that pauses. The port is not written off -- `resume_input`
+        // brings it back as soon as user space reads, and re-enabling the interrupt
+        // with bytes still waiting is itself the edge that restarts delivery.
         Port::<u8>::new(COM2 + 1).write(0x00);
     }
-    INPUT_PRESENT.store(false, core::sync::atomic::Ordering::Relaxed);
-    println!("[kernel] console input: COM2 never went quiet; serial input disabled");
+    if !INPUT_STALLED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        println!("[kernel] console input: COM2 sent more than one interrupt can take; pausing it");
+    }
 }
 
-/// Reads one interrupt will take from the UART before declaring it broken. A 16550
-/// FIFO holds 16 bytes, so this is far beyond anything a working device can produce.
+/// Re-enable COM2's receive interrupt if [`drain_input`] had to pause it.
+///
+/// Called when user space reads the console: whatever filled the ring has been taken,
+/// so there is somewhere to put what comes next. Writing IER with data still waiting
+/// re-asserts the UART's interrupt line, which is a fresh edge, so delivery resumes
+/// without anyone polling.
+pub fn resume_input() {
+    if !INPUT_STALLED.swap(false, core::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    // SAFETY: COM2 interrupt enable register.
+    unsafe { Port::<u8>::new(COM2 + 1).write(0x01) };
+}
+
+/// Reads one interrupt will take from the UART before pausing it. A 16550 FIFO holds
+/// 16 bytes; the rest of the headroom is for a backend that refills the FIFO from
+/// inside the read, which is what a host chardev handing over a paste does.
 const DRAIN_LIMIT: usize = 4096;
+
+/// COM2's receive interrupt is masked because one drain hit [`DRAIN_LIMIT`]. It is a
+/// pause, not a verdict: the next console read lifts it.
+static INPUT_STALLED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 static OVERRUN_REPORTED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 

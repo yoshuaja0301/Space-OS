@@ -21,6 +21,9 @@ struct Fb {
     rows: usize,
     col: usize,
     row: usize,
+    /// The current row was started by running off the end of the previous one, not by
+    /// a newline. Only then does erasing past column 0 belong to the same line.
+    wrapped: bool,
 }
 
 // SAFETY: the framebuffer is only accessed under the lock.
@@ -80,6 +83,7 @@ impl Fb {
     fn put_char(&mut self, c: char) {
         if c == '\n' {
             self.newline();
+            self.wrapped = false;
             return;
         }
         if c == '\r' {
@@ -89,13 +93,16 @@ impl Fb {
         if c == '\u{8}' {
             // Backspace: step back and blank the cell, so a person editing a command
             // line sees the same thing on the screen as on the serial console. At the
-            // start of a row the character being erased is at the end of the row
-            // above; at the very top there is nothing to erase.
+            // start of a row the character being erased is at the end of the row above
+            // -- but only when this row began by wrapping. If the previous row ended
+            // in a newline, its last cell belongs to a different line and erasing it
+            // would scribble on output nobody asked to change.
             if self.col > 0 {
                 self.col -= 1;
-            } else if self.row > 0 {
+            } else if self.row > 0 && self.wrapped {
                 self.row -= 1;
                 self.col = self.cols.saturating_sub(1);
+                self.wrapped = false;
             } else {
                 return;
             }
@@ -111,6 +118,7 @@ impl Fb {
         }
         if self.col >= self.cols {
             self.newline();
+            self.wrapped = true;
         }
         let glyph = get_raster(c, FontWeight::Regular, RasterHeight::Size16)
             .or_else(|| get_raster('?', FontWeight::Regular, RasterHeight::Size16));
@@ -161,6 +169,7 @@ pub fn init(bi: &BootInfo) {
         rows: height / FONT_H,
         col: 0,
         row: 0,
+        wrapped: false,
     };
     fb.clear();
     let cols = fb.cols;

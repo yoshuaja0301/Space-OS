@@ -97,7 +97,15 @@ gagal dengan `read after an overflow gave Ok(32), expected DataLoss`.
 Kedua skenario `terminal` menutup sisi lain U01: perintah datang dari **ketikan**,
 bukan dari channel kontrol. Boot yang sama membuktikan bahwa `stop` yang diketik
 orang menghentikan worker yang tidak pernah memanggil kernel lagi, dan sesi tetap
-menjawab `status` sesudahnya — sekali lewat keyboard, sekali lewat serial.
+menjawab `status` sesudahnya — sekali lewat keyboard, sekali lewat serial. Jawaban
+`status` itu sendiri ikut dituntut (`worker idle`, `worker running (hang)`,
+`worker stopped (hang), last exit code -1`), bukan hanya baris yang dicat sesi
+setelah setiap perintah.
+
+Perintah pertama diketik dengan **koreksi di dalamnya**: `helpp` lalu backspace.
+Kalau penghapusannya tidak bekerja, perintahnya bukan `help` dan jawabannya tidak
+muncul — jadi jalur backspace (decoder kernel, editor baris sesi, dan penghapusan sel
+di konsol framebuffer) diuji oleh perintah biasa, bukan oleh uji yang berdiri sendiri.
 
 Catatan harness: masukan **tidak** boleh dialirkan lewat chardev socket pada port
 serial kedua. OVMF memakai setiap port serial yang ditemukannya sebagai konsol,

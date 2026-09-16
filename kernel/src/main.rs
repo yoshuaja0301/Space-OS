@@ -113,6 +113,10 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     initrd::init(bi);
     dev::init();
     fs::init();
+    // Before the mask comes off IRQ 1: a byte the firmware left in the 8042 holds
+    // the line high, and an edge-triggered PIC never delivers an interrupt for a
+    // line that was already high.
+    arch::ps2::init();
     arch::pic::init();
     println!(
         "[kernel] console input: keyboard (IRQ1){}",

@@ -507,6 +507,10 @@ struct QemuRun {
     exit_code: Option<i32>,
     elapsed: Duration,
     timed_out: bool,
+    /// The typist's own failure, if it had one. Kept apart from the guest log: a
+    /// harness that could not type is not a guest that stopped answering, and
+    /// reporting the first as the second sends the reader looking in the wrong place.
+    input_error: Option<String>,
 }
 
 /// A machine the image is expected to boot on. The first entry is the pinned lab
@@ -845,11 +849,12 @@ fn run_qemu_capture_typing(
         log.push_str(&stderr);
         fs::write(log_path, &log).ok();
     }
-    if let Err(e) = typed {
+    let input_error = typed.err();
+    if let Some(e) = &input_error {
         log.push_str(&format!("\n[harness] console input failed: {e}\n"));
         fs::write(log_path, &log).ok();
     }
-    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out })
+    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error })
 }
 
 /// Wait for the guest to say it is ready, then type each line on its console.
@@ -999,6 +1004,8 @@ fn key_name(ch: char) -> Result<String, String> {
         '/' => Ok("slash".into()),
         '-' => Ok("minus".into()),
         '.' => Ok("dot".into()),
+        // A correction is part of typing, so the harness must be able to make one.
+        '\u{8}' => Ok("backspace".into()),
         _ => Err(format!("no QEMU key name for {ch:?}")),
     }
 }
@@ -1033,14 +1040,21 @@ const TERMINAL_READY: &str = "[shell] terminal ready on the console";
 const TERMINAL_MARKERS: &[&str] = &[
     "[term] Space OS interactive session",
     TERMINAL_READY,
-    // Each typed command is answered.
+    // Each typed command is answered. `help` is typed with a correction in it
+    // (`helpp` then backspace), so this line also proves the erase worked: the
+    // command only resolves if the extra character really went away.
     "[shell] commands: help, status, ls",
     "MODEL.SLM",
+    // `status` answers for itself, before and after Stop -- not just the line the
+    // session paints after every command.
+    "[shell] worker idle (-), last exit code",
     "[shell] started worker 'hang'",
+    "[shell] worker running (hang), last exit code",
     // Stop reaches a worker that never calls the kernel again...
     "[shell] worker 'hang' ended: stopped",
-    // ...and the session is still serving afterwards.
+    // ...and the session is still serving afterwards, and says so when asked.
     "session: worker stopped (hang)",
+    "[shell] worker stopped (hang), last exit code -1",
     "[shell] closing the session",
     "[term] session ended",
 ];
@@ -1176,7 +1190,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "unknown command"],
         runs: 1,
         typing: Typing::Keyboard,
-        type_lines: &["help", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
     },
     Scenario {
@@ -1190,13 +1204,18 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "unknown command"],
         runs: 1,
         typing: Typing::Serial,
-        type_lines: &["help", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
     },
 ];
 
 fn check_run(s: &Scenario, run: &QemuRun) -> Vec<String> {
     let mut problems = Vec::new();
+    // First, because it explains every marker that follows it: if the harness never
+    // managed to type, the missing answers are the harness's fault, not the guest's.
+    if let Some(e) = &run.input_error {
+        problems.push(format!("the harness could not type on the guest console: {e}"));
+    }
     if run.timed_out {
         problems.push(format!("timed out after {:?}", run.elapsed));
     }
@@ -1408,7 +1427,14 @@ fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
+/// Boot the image the way a person would.
+///
+/// A session that can be typed at needs a way in, and there are exactly two:
+/// `--gui` opens a window whose keyboard is the emulated PS/2 controller, and
+/// `--serial-input` adds COM2 as a pty for a headless machine. Without either, the
+/// guest has no input path at all -- COM1 carries the log out and nothing comes back
+/// in -- so a session would sit at its prompt for ever.
+fn cmd_run(gui: bool, serial_input: bool, cmdline: &str, release: bool) -> Result<(), String> {
     let built = build(release)?;
     let image = root().join("build/esp-run.img");
     make_image(&built, cmdline, &image)?;
@@ -1417,8 +1443,16 @@ fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
-    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, Typing::None, None)?;
+    let typing = if serial_input { Typing::Serial } else { Typing::None };
+    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, typing, None)?;
     println!("== {} {}", qemu_bin(), args.join(" "));
+    if serial_input {
+        println!("== COM2 is a pty; QEMU prints its path below. Type into it with e.g. `screen <pty>`");
+    } else if !gui && cmdline.contains("init=bin/space") {
+        println!(
+            "== note: this guest has no input path. Add --gui for a keyboard, or --serial-input for COM2"
+        );
+    }
     let st = Command::new(qemu_bin()).args(&args).status().map_err(|e| e.to_string())?;
     println!(
         "== qemu exited with {:?} (33 = clean shutdown, 35 = tests failed, 127 = kernel panic)",
@@ -1513,13 +1547,14 @@ fn main() {
             .and_then(|()| make_data_disk(&root().join("build/data.img"))),
         "run" => {
             let gui = args.iter().any(|a| a == "--gui");
+            let serial_input = args.iter().any(|a| a == "--serial-input");
             let cmdline = args
                 .iter()
                 .position(|a| a == "--cmdline")
                 .and_then(|i| args.get(i + 1))
                 .cloned()
                 .unwrap_or_default();
-            cmd_run(gui, &cmdline, release)
+            cmd_run(gui, serial_input, &cmdline, release)
         }
         "test" => cmd_test(release),
         "compat" => cmd_compat(release),

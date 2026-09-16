@@ -167,7 +167,11 @@ fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error
         println!("[kernel] console input: {dropped} byte(s) dropped, the buffer was full");
         return Err(Error::DataLoss);
     }
-    Ok(crate::input::read(buf))
+    let n = crate::input::read(buf);
+    // The ring has room again, so a serial port that had to be paused mid-flood can
+    // start delivering once more.
+    crate::arch::serial::resume_input();
+    Ok(n)
 }
 
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {

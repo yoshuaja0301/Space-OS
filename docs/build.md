@@ -11,8 +11,9 @@
 | Perintah | Hasil |
 |---|---|
 | `cargo xtask build` | bootloader (`target/boot/…/spaceboot.efi`), kernel (`target/kernel/…/spacekernel`), program user (`target/user/…`), `build/esp.img` |
-| `cargo xtask run [--gui] [--cmdline "selftest=panic"]` | boot image di QEMU, serial di stdio (`Ctrl-A X` untuk keluar) |
-| `cargo xtask run --cmdline "init=bin/spaceterm"` | boot ke sesi interaktif: ketik `help`, `status`, `ls /spaceos`, `run ok`, `stop`, `quit` langsung di konsol |
+| `cargo xtask run [--gui] [--serial-input] [--cmdline "selftest=panic"]` | boot image di QEMU, log serial di stdio (`Ctrl-A X` untuk keluar). Tanpa `--gui` atau `--serial-input` tamu **tidak punya jalur masukan** sama sekali |
+| `cargo xtask run --gui --cmdline "init=bin/spaceterm"` | boot ke sesi interaktif lewat keyboard jendela QEMU: ketik `help`, `status`, `ls /spaceos`, `run ok`, `stop`, `quit` |
+| `cargo xtask run --serial-input --cmdline "init=bin/spaceterm"` | sesi yang sama tanpa jendela: QEMU mencetak path pty COM2, ketik ke sana (`screen <pty>`) |
 | `cargo xtask test` | sembilan skenario boot + pemeriksaan log/exit code, log di `build/logs/` |
 | `cargo xtask compat` | sembilan konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
 | `cargo xtask soak --boots 100` | 100 cold boot berturut-turut skenario acceptance (K01) |

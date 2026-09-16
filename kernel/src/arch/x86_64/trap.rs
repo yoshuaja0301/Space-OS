@@ -198,12 +198,9 @@ fn handle_irq(frame: &mut TrapFrame) {
             sched::timer_tick();
         }
         IRQ_KEYBOARD => {
-            // SAFETY: reading the PS/2 data port. The controller must be drained
-            // whether or not the key means anything, or it stops interrupting.
-            let scancode = unsafe { x86_64::instructions::port::Port::<u8>::new(0x60).read() };
-            if let Some(byte) = crate::input::scancode(scancode) {
-                crate::input::push(byte);
-            }
+            // Every waiting scan code, not just one: the controller must be left
+            // empty or it stops interrupting (see `ps2::read_scancodes`).
+            super::ps2::read_scancodes();
             pic::eoi(irq);
         }
         IRQ_SERIAL_IN => {

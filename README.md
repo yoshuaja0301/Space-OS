@@ -39,7 +39,8 @@ sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolch
 cargo xtask test                           # build semua target, buat image, 9 skenario boot di QEMU
 cargo xtask compat                         # image yang sama di 9 konfigurasi mesin (ADR-0010)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
-cargo xtask run --cmdline "init=bin/spaceterm"   # boot ke sesi yang bisa diketik: help, status, ls, run, stop, quit
+cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU
+cargo xtask run --serial-input --cmdline "init=bin/spaceterm"  # sama, tanpa jendela: ketik ke pty COM2 yang dicetak QEMU
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
 ```
 

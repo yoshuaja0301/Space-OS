@@ -78,6 +78,30 @@ Jalur ini tidak bisa dipicu dari user space — ring diisi oleh interupsi — ja
 uji U01 memakainya. Jalur galat yang tidak pernah diuji justru jalur tempat
 terminal diam-diam mulai menjalankan perintah yang salah.
 
+**Dua port, satu aturan: jangan pernah kembali dengan garis interupsi masih tinggi.**
+8259 memicu di tepi, jadi handler yang selesai sementara perangkat masih punya byte
+tidak akan pernah mendapat tepi berikutnya — masukannya mati diam-diam. Aturan itu
+berlaku di tiga tempat:
+
+- **Sebelum IRQ 1 dibuka.** Firmware memakai keyboard PS/2 untuk konsolnya sendiri,
+  jadi byte bisa tertinggal di buffer keluaran 8042. Byte itu menahan IRQ 1 tinggi,
+  dan garis yang *sudah* tinggi saat mask dilepas tidak pernah menghasilkan tepi:
+  keyboard tuli sepanjang boot. `arch::ps2::init()` menguras controller lebih dulu.
+- **Di dalam IRQ 1.** Handler mengambil *semua* scan code yang menunggu, bukan satu.
+  Satu bacaan per interupsi hanya cukup selama tombol tidak pernah datang beririsan,
+  dan itu bukan sesuatu yang boleh diasumsikan kernel.
+- **Di dalam IRQ 3.** COM2 dikuras sampai UART diam. Batas 4096 bacaan ada agar satu
+  interupsi tidak berjalan selamanya; ketika batas itu tersentuh — pengirim yang
+  lebih cepat dari pengurasnya, misalnya tempelan besar — interupsi **dijeda**, bukan
+  dipensiunkan: `resume_input()` menyalakannya lagi pada pembacaan konsol berikutnya,
+  dan menyalakan IER selagi byte masih menunggu adalah tepi baru itu sendiri.
+
+**Backspace hanya melintasi baris yang memang melipat.** Konsol framebuffer mencatat
+apakah baris sekarang dimulai karena teks melewati tepi kanan. Jika ya, menghapus di
+kolom 0 memang milik baris yang sama dan kursor mundur ke baris atas; jika baris
+sebelumnya diakhiri newline, tidak ada yang boleh dihapus di sana — sel itu milik
+keluaran lain.
+
 COM2 dipilih, bukan COM1, karena COM1 membawa log keluar dari mana saja termasuk
 handler panic; mencampur masukan ke port yang sama berarti masukan bisa tertahan
 oleh log, atau sebaliknya. Mesin tanpa COM2 (setiap skenario uji selain
