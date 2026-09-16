@@ -32,6 +32,9 @@ const USER_PROGRAMS: &[&str] = &[
     "spaceai",
     "spaceshell",
     "uiworker",
+    "spacebroker",
+    "spaceagent",
+    "spacelink",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -350,14 +353,81 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
         for (name, data) in bad_models(&model) {
             dir.create_file(name).map_err(|e| e.to_string())?.write_all(&data).map_err(|e| e.to_string())?;
         }
+        // Agent workspace (G01): the instruction, the input, and the file the patch
+        // is checked against. Kept tiny and deterministic so the check is exact.
+        let ws = dir.create_dir("WS").map_err(|e| e.to_string())?;
+        for (name, body) in workspace_files() {
+            ws.create_file(name)
+                .map_err(|e| e.to_string())?
+                .write_all(body.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        // SpaceLink corpus (L01-L03): four short documents whose vocabulary is
+        // disjoint enough that a query has one obvious answer.
+        let docs = dir.create_dir("DOCS").map_err(|e| e.to_string())?;
+        for (name, body) in corpus_files() {
+            docs.create_file(name)
+                .map_err(|e| e.to_string())?
+                .write_all(body.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
     }
     disk.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures, FAT32)",
+        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus, FAT32)",
         out.display(),
         model.len() / 1024
     );
     Ok(())
+}
+
+/// Files the agent workspace starts with. `expect.txt` is `input.txt` with the rule
+/// in `task.txt` applied, so the broker's check compares against something the host
+/// computed, not something the guest produced.
+fn workspace_files() -> [(&'static str, String); 3] {
+    const RULE: &str = "TODO => DONE";
+    const INPUT: &str = "space-os workspace\nline 1: TODO review the boot path\nline 2: ok\nline 3: TODO write the ADR\nline 4: TODO and TODO again\n";
+    let expect = INPUT.replace("TODO", "DONE");
+    [
+        ("TASK.TXT", format!("# agent task\n# apply this rule to input.txt and write output.txt\n{RULE}\n")),
+        ("INPUT.TXT", String::from(INPUT)),
+        ("EXPECT.TXT", expect),
+    ]
+}
+
+/// The SpaceLink corpus. `SECRET.TXT` exists to be revoked: `embargo` appears
+/// nowhere else, so a query for it proves the document is really gone rather than
+/// merely ranked lower.
+fn corpus_files() -> [(&'static str, &'static str); 4] {
+    [
+        (
+            "BOOT.TXT",
+            "Space OS boot path\n\
+             The bootloader spaceboot runs under UEFI, loads the kernel image and the initrd,\n\
+             builds the page tables and exits boot services before jumping to the kernel.\n\
+             The linear map covers RAM only; device MMIO is mapped uncached on demand.\n",
+        ),
+        (
+            "IPC.TXT",
+            "Space OS inter-process communication\n\
+             A channel carries fixed-size messages and at most one handle per message.\n\
+             Sending a handle over a channel transfers it: the sender loses the handle.\n\
+             A channel endpoint closes when its last handle is closed, and the peer sees it.\n",
+        ),
+        (
+            "MEMORY.TXT",
+            "Space OS memory model\n\
+             Each process has its own address space and a page quota it cannot exceed.\n\
+             A memory object holds frames several processes can map at once.\n\
+             Frames are freed when the object and every mapping of it are gone.\n",
+        ),
+        (
+            "SECRET.TXT",
+            "Space OS embargo notes\n\
+             This document is under embargo and must not reach a context bundle.\n\
+             It mentions a channel and a quota so that revoking it is visible in results.\n",
+        ),
+    ]
 }
 
 fn find_firmware() -> Result<(PathBuf, PathBuf), String> {

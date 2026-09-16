@@ -442,6 +442,14 @@ name = "spaceabi"
 version = "0.1.0"
 
 [[package]]
+name = "spaceagent"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spaceai"
 version = "0.1.0"
 dependencies = [
@@ -456,6 +464,14 @@ dependencies = [
  "spaceabi",
  "uefi",
  "x86_64",
+]
+
+[[package]]
+name = "spacebroker"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
 ]
 
 [[package]]
@@ -474,6 +490,14 @@ dependencies = [
  "noto-sans-mono-bitmap",
  "spaceabi",
  "x86_64",
+]
+
+[[package]]
+name = "spacelink"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
 ]
 
 [[package]]

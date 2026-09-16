@@ -14,12 +14,14 @@ use alloc::vec::Vec;
 use libspace::compute::Compute;
 use libspace::sha256;
 use libspace::shell::Session;
+use libspace::spaceabi::agent::{self as agent_abi, ToolReply, ToolRequest, tool, verdict};
 use libspace::spaceabi::compute::{
     self as compute_abi, BufferRef as ComputeBufferRef, Op as ComputeOp, Request as ComputeRequest,
     Response as ComputeResponse, op as cop, req as creq,
 };
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::{MAX_HANDLES, rights};
+use libspace::spaceabi::link::{self as link_abi, LinkReply, LinkRequest, req as lreq};
 use libspace::spaceabi::shell::{Reply as ShellReply, job as shell_job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
 use libspace::spaceabi::syscall::nr;
@@ -270,6 +272,178 @@ fn as_request_bytes(r: &ComputeRequest) -> &[u8] {
             core::mem::size_of::<ComputeRequest>(),
         )
     }
+}
+
+/// SpaceLink corpus on the guest volume, and the document that exists to be revoked.
+const CORPUS: &str = "/spaceos/docs";
+const SECRET: &str = "/spaceos/docs/SECRET.TXT";
+/// Quota for the SpaceLink service: the corpus plus its index.
+const LINK_QUOTA: u64 = 256;
+
+fn as_link_bytes(r: &LinkRequest) -> &[u8] {
+    // SAFETY: `LinkRequest` is a `repr(C)` plain-data message.
+    unsafe {
+        core::slice::from_raw_parts(r as *const LinkRequest as *const u8, core::mem::size_of::<LinkRequest>())
+    }
+}
+
+fn link_call(ch: Handle, r: &LinkRequest) -> Result<LinkReply, String> {
+    sys::send(ch, as_link_bytes(r), None).map_err(|e| alloc::format!("send: {e}"))?;
+    let mut buf = [0u8; core::mem::size_of::<LinkReply>()];
+    let (n, transferred) = sys::recv(ch, &mut buf, false).map_err(|e| alloc::format!("recv: {e}"))?;
+    if let Some(h) = transferred {
+        sys::handle_close(h).ok();
+    }
+    if n != buf.len() {
+        return Err(alloc::format!("spacelink replied with {n} bytes"));
+    }
+    // SAFETY: the service replies with exactly one `LinkReply`.
+    Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const LinkReply) })
+}
+
+/// Start the service and hand it a file capability narrowed to `FS`.
+fn link_start() -> Result<(Handle, Handle), String> {
+    let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+    let svc = sys::spawn(ROOT, "bin/spacelink", LINK_QUOTA, Some(theirs))
+        .map_err(|e| alloc::format!("spawn spacelink: {e}"))?;
+    let root =
+        sys::handle_dup(ROOT, rights::FS | rights::TRANSFER).map_err(|e| alloc::format!("dup root: {e}"))?;
+    let mut hello = LinkRequest::new(lreq::HELLO);
+    hello.abi_version = link_abi::ABI_VERSION;
+    sys::send(mine, as_link_bytes(&hello), Some(root)).map_err(|e| alloc::format!("hello: {e}"))?;
+    let mut buf = [0u8; core::mem::size_of::<LinkReply>()];
+    let (n, _) = sys::recv(mine, &mut buf, false).map_err(|e| alloc::format!("hello reply: {e}"))?;
+    if n != buf.len() {
+        return Err(String::from("spacelink did not answer HELLO"));
+    }
+    Ok((mine, svc))
+}
+
+fn link_stop(link: Handle, svc: Handle) -> Result<(), String> {
+    link_call(link, &LinkRequest::new(lreq::QUIT))?;
+    let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+    sys::handle_close(svc).ok();
+    sys::handle_close(link).ok();
+    expect_exit("spacelink", st, 0)
+}
+
+/// Re-read the byte range SpaceLink named and check the digest it reported. This is
+/// the whole point of provenance: the caller does not have to believe the service.
+fn verify_provenance(reply: &LinkReply) -> Result<(), String> {
+    if reply.len == 0 || reply.len as usize > 1024 {
+        return Err(alloc::format!("chunk of {} bytes is not usable", reply.len));
+    }
+    let f = sys::fs_open(ROOT, reply.path()).map_err(|e| alloc::format!("open {}: {e}", reply.path()))?;
+    let mut buf = alloc::vec![0u8; reply.len as usize];
+    let n = sys::fs_read(f, reply.offset as u64, &mut buf).map_err(|e| alloc::format!("read: {e}"));
+    sys::handle_close(f).ok();
+    let n = n?;
+    if n != reply.len as usize {
+        return Err(alloc::format!("chunk claims {} bytes, the file yields {n}", reply.len));
+    }
+    if sha256::digest(&buf) != reply.digest {
+        return Err(alloc::format!(
+            "digest mismatch for {} [{}..{}]",
+            reply.path(),
+            reply.offset,
+            reply.offset + reply.len
+        ));
+    }
+    if !buf.starts_with(reply.text()) {
+        return Err(String::from("the text returned is not the start of the chunk on disk"));
+    }
+    Ok(())
+}
+
+/// Every result for `query` must come from somewhere other than `path`.
+fn assert_absent(link: Handle, query: &str, path: &str) -> Result<(), String> {
+    let first = link_call(link, &LinkRequest::with_query(lreq::QUERY, query))?;
+    let total = if first.status == 0 { first.total } else { 0 };
+    for i in 0..total {
+        let mut q = LinkRequest::with_query(lreq::QUERY, query);
+        q.offset = i;
+        let hit = link_call(link, &q)?;
+        if hit.status == 0 && hit.path().eq_ignore_ascii_case(path) {
+            return Err(alloc::format!("{path} still appears in results for {query:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// The Tool Broker speaks fixed-size messages; these helpers keep the tests
+/// readable without hiding which channel each call travels on.
+fn as_tool_bytes(r: &ToolRequest) -> &[u8] {
+    // SAFETY: `ToolRequest` is a `repr(C)` plain-data message.
+    unsafe {
+        core::slice::from_raw_parts(r as *const ToolRequest as *const u8, core::mem::size_of::<ToolRequest>())
+    }
+}
+
+fn broker_reply(ch: Handle) -> Result<ToolReply, String> {
+    let mut buf = [0u8; core::mem::size_of::<ToolReply>()];
+    let (n, transferred) = sys::recv(ch, &mut buf, false).map_err(|e| alloc::format!("recv: {e}"))?;
+    if let Some(h) = transferred {
+        sys::handle_close(h).ok();
+    }
+    if n != buf.len() {
+        return Err(alloc::format!("broker replied with {n} bytes"));
+    }
+    // SAFETY: the broker replies with exactly one `ToolReply`.
+    Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const ToolReply) })
+}
+
+fn tool_call(ch: Handle, r: &ToolRequest) -> Result<ToolReply, String> {
+    sys::send(ch, as_tool_bytes(r), None).map_err(|e| alloc::format!("send: {e}"))?;
+    broker_reply(ch)
+}
+
+fn broker_hello(op: Handle, root: Handle) -> Result<(), String> {
+    let mut hello = ToolRequest::new(tool::HELLO, "-");
+    hello.abi_version = agent_abi::ABI_VERSION;
+    sys::send(op, as_tool_bytes(&hello), Some(root)).map_err(|e| alloc::format!("hello: {e}"))?;
+    broker_reply(op)?.result().map_err(|e| alloc::format!("hello: {e}"))?;
+    Ok(())
+}
+
+fn broker_quit(op: Handle) -> Result<(), String> {
+    sys::send(op, as_tool_bytes(&ToolRequest::new(tool::QUIT, "-")), None)
+        .map_err(|e| alloc::format!("quit: {e}"))?;
+    broker_reply(op)?;
+    Ok(())
+}
+
+/// Walk the audit log; returns (entries, allowed, refused).
+fn read_audit(op: Handle) -> Result<(u32, u32, u32), String> {
+    let (mut entries, mut allowed, mut denied) = (0u32, 0u32, 0u32);
+    loop {
+        let mut req = ToolRequest::new(tool::AUDIT, "-");
+        req.offset = entries;
+        let reply = tool_call(op, &req)?;
+        if reply.status != 0 {
+            return Ok((entries, allowed, denied));
+        }
+        if reply.verdict == verdict::ALLOWED {
+            allowed += 1;
+        } else {
+            denied += 1;
+        }
+        entries += 1;
+        if entries > 512 {
+            return Err(String::from("the audit log never ended"));
+        }
+    }
+}
+
+fn audit_contains(op: Handle, entries: u32, want_verdict: u32, want: &str) -> Result<bool, String> {
+    for i in 0..entries {
+        let mut req = ToolRequest::new(tool::AUDIT, "-");
+        req.offset = i;
+        let reply = tool_call(op, &req)?;
+        if reply.status == 0 && reply.verdict == want_verdict && reply.text() == want {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Poll the session until its worker leaves the running state. The point of the
@@ -1331,6 +1505,403 @@ pub extern "C" fn space_main() -> i32 {
         }
         Ok(())
     });
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "G01",
+        "agent reads, patches and checks inside its workspace",
+        || {
+            const BROKER_QUOTA: u64 = 256;
+            const AGENT_QUOTA: u64 = 256;
+            let (op, op_broker) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let broker = sys::spawn(ROOT, "bin/spacebroker", BROKER_QUOTA, Some(op_broker))
+                .map_err(|e| alloc::format!("spawn broker: {e}"))?;
+            // The broker is the only process in this picture with a file capability, and
+            // it is narrowed to FS: it cannot spawn, shut down, or read kernel state.
+            let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            broker_hello(op, broker_root)?;
+
+            // The agent is handed one channel and nothing else.
+            let (broker_side, agent_side) =
+                sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let agent = sys::spawn(ROOT, "bin/spaceagent", AGENT_QUOTA, Some(agent_side))
+                .map_err(|e| alloc::format!("spawn agent: {e}"))?;
+            let mut attach = ToolRequest::new(tool::ATTACH, "-");
+            attach.abi_version = agent_abi::ABI_VERSION;
+            sys::send(op, as_tool_bytes(&attach), Some(broker_side))
+                .map_err(|e| alloc::format!("attach: {e}"))?;
+            // The reply arrives only once the agent is finished with the broker.
+            let summary = broker_reply(op)?;
+            summary.result().map_err(|e| alloc::format!("attach: {e}"))?;
+
+            let st = sys::wait(agent).map_err(|e| alloc::format!("wait agent: {e}"))?;
+            sys::handle_close(agent).ok();
+            expect_exit("spaceagent", st, 0)?;
+
+            // The audit log is the operator's record of what the agent actually did.
+            let (entries, allowed, denied) = read_audit(op)?;
+            println!("[init] audit: {entries} entries, {allowed} allowed, {denied} refused");
+            if summary.value != denied as u64 {
+                return Err(alloc::format!(
+                    "broker reported {} refusals, the audit log holds {denied}",
+                    summary.value
+                ));
+            }
+            if denied < 3 {
+                return Err(alloc::format!("expected at least 3 refusals in the audit, found {denied}"));
+            }
+            if !audit_contains(op, entries, verdict::ALLOWED, "read /spaceos/ws/input.txt")? {
+                return Err(String::from("the audit does not record the agent reading its input"));
+            }
+            if !audit_contains(op, entries, verdict::DENIED_SCOPE, "read /spaceos/manifest.txt")? {
+                return Err(String::from("the audit does not record the out-of-scope read"));
+            }
+            if !audit_contains(op, entries, verdict::DENIED_SCOPE, "write /spaceos/ws/../stolen.txt")? {
+                return Err(String::from("the audit does not record the attempted escape"));
+            }
+            if !audit_contains(op, entries, verdict::DENIED_TOOL, "audit -")? {
+                return Err(String::from("the audit does not record the agent reaching for the audit log"));
+            }
+            if !audit_contains(op, entries, verdict::ALLOWED, "check verify")? {
+                return Err(String::from("the audit does not record a passing check"));
+            }
+
+            broker_quit(op)?;
+            let st = sys::wait(broker).map_err(|e| alloc::format!("wait broker: {e}"))?;
+            sys::handle_close(broker).ok();
+            sys::handle_close(op).ok();
+            expect_exit("spacebroker", st, 0)
+        },
+    );
+
+    r.run("G01", "every way out of the workspace is refused and recorded", || {
+        const BROKER_QUOTA: u64 = 256;
+        let (op, op_broker) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let broker = sys::spawn(ROOT, "bin/spacebroker", BROKER_QUOTA, Some(op_broker))
+            .map_err(|e| alloc::format!("spawn broker: {e}"))?;
+        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+            .map_err(|e| alloc::format!("dup root: {e}"))?;
+        broker_hello(op, broker_root)?;
+
+        // Drive the agent side of the protocol directly, so every refusal can be
+        // checked one at a time instead of inferred from an agent's exit code.
+        let (broker_side, mine) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let mut attach = ToolRequest::new(tool::ATTACH, "-");
+        attach.abi_version = agent_abi::ABI_VERSION;
+        sys::send(op, as_tool_bytes(&attach), Some(broker_side))
+            .map_err(|e| alloc::format!("attach: {e}"))?;
+
+        let mut hello = ToolRequest::new(tool::HELLO, "-");
+        hello.abi_version = agent_abi::ABI_VERSION;
+        tool_call(mine, &hello)?.result().map_err(|e| alloc::format!("hello: {e}"))?;
+
+        let escapes: &[(&str, u32)] = &[
+            ("/spaceos/manifest.txt", tool::READ),
+            ("/spaceos/ws/../stolen.txt", tool::WRITE),
+            ("/spaceos/ws/sub/deep.txt", tool::READ),
+            ("/spaceos/ws//double.txt", tool::READ),
+            ("/spaceos/wsx/other.txt", tool::READ),
+            ("spaceos/ws/relative.txt", tool::READ),
+            ("/", tool::LIST),
+            ("/spaceos", tool::LIST),
+        ];
+        for (path, t) in escapes {
+            let mut req = ToolRequest::new(*t, path);
+            req.len = 8;
+            req.set_data(b"x");
+            let reply = tool_call(mine, &req)?;
+            if reply.verdict != verdict::DENIED_SCOPE {
+                return Err(alloc::format!(
+                    "path {path:?} gave verdict {} instead of denied-scope",
+                    reply.verdict
+                ));
+            }
+        }
+
+        // Tools that belong to the operator are refused on the agent channel.
+        for t in [tool::AUDIT, tool::ATTACH, tool::QUIT, 0xDEAD_BEEF] {
+            let reply = tool_call(mine, &ToolRequest::new(t, "-"))?;
+            if reply.verdict != verdict::DENIED_TOOL {
+                return Err(alloc::format!("tool {t} gave verdict {} instead of denied-tool", reply.verdict));
+            }
+        }
+
+        // In scope but impossible: a missing file and an unknown check are failures,
+        // not escapes, and they are recorded as such.
+        let mut missing = ToolRequest::new(tool::READ, "/spaceos/ws/nope.txt");
+        missing.len = 8;
+        let reply = tool_call(mine, &missing)?;
+        if reply.verdict != verdict::FAILED {
+            return Err(alloc::format!("a missing file gave verdict {}", reply.verdict));
+        }
+        let reply = tool_call(mine, &ToolRequest::new(tool::CHECK, "not-a-check"))?;
+        if reply.verdict != verdict::FAILED {
+            return Err(alloc::format!("an unknown check gave verdict {}", reply.verdict));
+        }
+
+        // A malformed message does not end the session.
+        sys::send(mine, b"short", None).map_err(|e| alloc::format!("send short: {e}"))?;
+        let reply = broker_reply(mine)?;
+        expect_status("malformed tool request", reply.status, Error::MsgSize)?;
+        let mut hello = ToolRequest::new(tool::HELLO, "-");
+        hello.abi_version = agent_abi::ABI_VERSION;
+        tool_call(mine, &hello)?.result().map_err(|e| alloc::format!("hello after garbage: {e}"))?;
+
+        tool_call(mine, &ToolRequest::new(tool::DONE, "-"))?;
+        let summary = broker_reply(op)?;
+        summary.result().map_err(|e| alloc::format!("attach: {e}"))?;
+        let (entries, allowed, denied) = read_audit(op)?;
+        println!(
+            "[init] audit after the escape attempts: {entries} entries, {allowed} allowed, {denied} refused"
+        );
+        if denied < escapes.len() as u32 + 4 {
+            return Err(alloc::format!("only {denied} refusals recorded for {} attempts", escapes.len() + 4));
+        }
+        broker_quit(op)?;
+        let st = sys::wait(broker).map_err(|e| alloc::format!("wait broker: {e}"))?;
+        sys::handle_close(broker).ok();
+        sys::handle_close(mine).ok();
+        sys::handle_close(op).ok();
+        expect_exit("spacebroker", st, 0)
+    });
+
+    r.run("G01", "the broker outlives an agent that disappears", || {
+        const BROKER_QUOTA: u64 = 256;
+        let (op, op_broker) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let broker = sys::spawn(ROOT, "bin/spacebroker", BROKER_QUOTA, Some(op_broker))
+            .map_err(|e| alloc::format!("spawn broker: {e}"))?;
+        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+            .map_err(|e| alloc::format!("dup root: {e}"))?;
+        broker_hello(op, broker_root)?;
+        let (broker_side, mine) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let mut attach = ToolRequest::new(tool::ATTACH, "-");
+        attach.abi_version = agent_abi::ABI_VERSION;
+        sys::send(op, as_tool_bytes(&attach), Some(broker_side))
+            .map_err(|e| alloc::format!("attach: {e}"))?;
+        let mut hello = ToolRequest::new(tool::HELLO, "-");
+        hello.abi_version = agent_abi::ABI_VERSION;
+        tool_call(mine, &hello)?.result().map_err(|e| alloc::format!("hello: {e}"))?;
+        // The agent vanishes without saying DONE.
+        sys::handle_close(mine).ok();
+        let summary = broker_reply(op)?;
+        summary.result().map_err(|e| alloc::format!("attach: {e}"))?;
+        // The broker is still there and still answers.
+        let (entries, _, _) = read_audit(op)?;
+        if entries == 0 {
+            return Err(String::from("the audit log is empty after the agent vanished"));
+        }
+        broker_quit(op)?;
+        let st = sys::wait(broker).map_err(|e| alloc::format!("wait broker: {e}"))?;
+        sys::handle_close(broker).ok();
+        sys::handle_close(op).ok();
+        expect_exit("spacebroker", st, 0)
+    });
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "L01",
+        "corpus is indexed and queries return ranked chunks with verifiable provenance",
+        || {
+            let (link, svc) = link_start()?;
+            let indexed = link_call(link, &LinkRequest::with_path(lreq::INDEX, CORPUS))?;
+            let chunks = indexed.result().map_err(|e| alloc::format!("index: {e}"))?;
+            if indexed.value != 4 {
+                return Err(alloc::format!("indexed {} documents, expected 4", indexed.value));
+            }
+            if chunks < 4 {
+                return Err(alloc::format!("indexed {chunks} chunks, expected at least one per document"));
+            }
+
+            let top = link_call(link, &LinkRequest::with_query(lreq::QUERY, "channel"))?;
+            top.result().map_err(|e| alloc::format!("query: {e}"))?;
+            if !top.path().ends_with("IPC.TXT") {
+                return Err(alloc::format!("top hit for 'channel' is {}, expected IPC.TXT", top.path()));
+            }
+            if top.score < 2 {
+                return Err(alloc::format!("top hit scored {}, expected at least 2 occurrences", top.score));
+            }
+            // Provenance is checked, not taken on trust: read the byte range the service
+            // named and hash it here.
+            verify_provenance(&top)?;
+            if !top.text().starts_with(b"Space OS inter-process") {
+                return Err(String::from("the returned text is not the start of the document"));
+            }
+
+            // Every result of a broader query must also be verifiable.
+            let broad = link_call(link, &LinkRequest::with_query(lreq::QUERY, "space os"))?;
+            let n = broad.result().map_err(|e| alloc::format!("query: {e}"))?;
+            if n < 4 {
+                return Err(alloc::format!("'space os' matched {n} chunks, expected at least 4"));
+            }
+            let mut last = u32::MAX;
+            for i in 0..n {
+                let mut q = LinkRequest::with_query(lreq::QUERY, "space os");
+                q.offset = i;
+                let hit = link_call(link, &q)?;
+                hit.result().map_err(|e| alloc::format!("query {i}: {e}"))?;
+                if hit.score > last {
+                    return Err(String::from("results are not ordered by score"));
+                }
+                last = hit.score;
+                verify_provenance(&hit)?;
+            }
+            let mut past = LinkRequest::with_query(lreq::QUERY, "space os");
+            past.offset = n;
+            let reply = link_call(link, &past)?;
+            expect_status("query past the last result", reply.status, Error::NotFound)?;
+
+            let stats = link_call(link, &LinkRequest::new(lreq::STATS))?;
+            stats.result().map_err(|e| alloc::format!("stats: {e}"))?;
+            if stats.value != 4 || stats.value2 != 0 {
+                return Err(alloc::format!("stats says {} documents, {} revoked", stats.value, stats.value2));
+            }
+            link_stop(link, svc)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "L02",
+        "a revoked document leaves every result and does not return on re-index",
+        || {
+            let (link, svc) = link_start()?;
+            link_call(link, &LinkRequest::with_path(lreq::INDEX, CORPUS))?
+                .result()
+                .map_err(|e| alloc::format!("index: {e}"))?;
+
+            // Before revocation the document is findable by a word only it contains.
+            let before = link_call(link, &LinkRequest::with_query(lreq::QUERY, "embargo"))?;
+            before.result().map_err(|e| alloc::format!("query embargo: {e}"))?;
+            if !before.path().ends_with("SECRET.TXT") {
+                return Err(alloc::format!("'embargo' matched {} before revocation", before.path()));
+            }
+
+            let revoked = link_call(link, &LinkRequest::with_path(lreq::REVOKE, SECRET))?;
+            revoked.result().map_err(|e| alloc::format!("revoke: {e}"))?;
+
+            let after = link_call(link, &LinkRequest::with_query(lreq::QUERY, "embargo"))?;
+            expect_status("query for a revoked document", after.status, Error::NotFound)?;
+            if after.total != 0 {
+                return Err(alloc::format!("'embargo' still matches {} chunks", after.total));
+            }
+            // A word the revoked document shares with the rest of the corpus must still
+            // work, and must not surface the revoked document.
+            assert_absent(link, "channel", SECRET)?;
+            assert_absent(link, "quota", SECRET)?;
+
+            // Not in any bundle either.
+            let mut b = LinkRequest::with_query(lreq::BUNDLE, "channel quota");
+            b.budget = 4096;
+            let bundle = link_call(link, &b)?;
+            let entries = bundle.result().map_err(|e| alloc::format!("bundle: {e}"))?;
+            for i in 0..entries {
+                let mut e = LinkRequest::new(lreq::BUNDLE_ENTRY);
+                e.offset = i;
+                let entry = link_call(link, &e)?;
+                entry.result().map_err(|e| alloc::format!("bundle entry {i}: {e}"))?;
+                if entry.path().eq_ignore_ascii_case(SECRET) {
+                    return Err(String::from("a revoked document reached a context bundle"));
+                }
+            }
+
+            // Re-indexing the corpus must not resurrect it.
+            let reindexed = link_call(link, &LinkRequest::with_path(lreq::INDEX, CORPUS))?;
+            reindexed.result().map_err(|e| alloc::format!("re-index: {e}"))?;
+            let after = link_call(link, &LinkRequest::with_query(lreq::QUERY, "embargo"))?;
+            expect_status("query after re-index", after.status, Error::NotFound)?;
+            let stats = link_call(link, &LinkRequest::new(lreq::STATS))?;
+            stats.result().map_err(|e| alloc::format!("stats: {e}"))?;
+            if stats.value != 3 || stats.value2 != 1 {
+                return Err(alloc::format!(
+                    "after re-index stats says {} live documents and {} revoked, expected 3 and 1",
+                    stats.value,
+                    stats.value2
+                ));
+            }
+            assert_absent(link, "channel", SECRET)?;
+            link_stop(link, svc)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "L03",
+        "a context bundle fits its budget, is reproducible and carries provenance",
+        || {
+            let (link, svc) = link_start()?;
+            link_call(link, &LinkRequest::with_path(lreq::INDEX, CORPUS))?
+                .result()
+                .map_err(|e| alloc::format!("index: {e}"))?;
+
+            const BUDGET: u32 = 400;
+            let mut b = LinkRequest::with_query(lreq::BUNDLE, "channel quota");
+            b.budget = BUDGET;
+            let bundle = link_call(link, &b)?;
+            let entries = bundle.result().map_err(|e| alloc::format!("bundle: {e}"))?;
+            if entries == 0 {
+                return Err(String::from("the bundle is empty"));
+            }
+            if bundle.value > BUDGET {
+                return Err(alloc::format!("the bundle is {} bytes, over the {BUDGET} budget", bundle.value));
+            }
+
+            // Walk the bundle: every entry verifiable, the byte count exact, and the
+            // manifest digest reproducible from the entries alone.
+            let mut total_bytes = 0u32;
+            let mut chain = sha256::Sha256::new();
+            for i in 0..entries {
+                let mut e = LinkRequest::new(lreq::BUNDLE_ENTRY);
+                e.offset = i;
+                let entry = link_call(link, &e)?;
+                entry.result().map_err(|e| alloc::format!("bundle entry {i}: {e}"))?;
+                verify_provenance(&entry)?;
+                total_bytes += entry.len;
+                chain.update(&entry.digest);
+            }
+            if total_bytes != bundle.value {
+                return Err(alloc::format!(
+                    "entries add up to {total_bytes} bytes, the bundle claims {}",
+                    bundle.value
+                ));
+            }
+            if chain.finish() != bundle.digest {
+                return Err(String::from("the bundle digest does not match the digests of its entries"));
+            }
+            println!("[init] bundle: {entries} chunk(s), {} of {BUDGET} bytes", bundle.value);
+
+            // The same corpus and the same query give the same bundle.
+            let again = link_call(link, &b)?;
+            again.result().map_err(|e| alloc::format!("bundle again: {e}"))?;
+            if again.digest != bundle.digest || again.value != bundle.value {
+                return Err(String::from("the same query produced a different bundle"));
+            }
+
+            // A budget nothing fits into yields an empty bundle, not an error.
+            let mut tiny = LinkRequest::with_query(lreq::BUNDLE, "channel quota");
+            tiny.budget = 1;
+            let empty = link_call(link, &tiny)?;
+            let n = empty.result().map_err(|e| alloc::format!("tiny bundle: {e}"))?;
+            if n != 0 || empty.value != 0 {
+                return Err(alloc::format!("a 1-byte budget produced {n} entries"));
+            }
+
+            // Revocation changes the bundle, and the change is visible in its digest.
+            link_call(link, &LinkRequest::with_path(lreq::REVOKE, SECRET))?
+                .result()
+                .map_err(|e| alloc::format!("revoke: {e}"))?;
+            let after = link_call(link, &b)?;
+            after.result().map_err(|e| alloc::format!("bundle after revoke: {e}"))?;
+            if after.digest == bundle.digest {
+                return Err(String::from("revoking a document left the bundle digest unchanged"));
+            }
+            link_stop(link, svc)
+        },
+    );
 
     let total = r.passed + r.failed.len() as u32;
     for skipped in &r.skipped {

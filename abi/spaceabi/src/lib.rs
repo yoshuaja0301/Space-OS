@@ -19,11 +19,13 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod agent;
 pub mod boot;
 pub mod compute;
 pub mod elf;
 pub mod error;
 pub mod handle;
+pub mod link;
 pub mod math;
 pub mod model;
 pub mod shell;

@@ -53,6 +53,23 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Belum ada window manager, font selain 8x16 bawaan, atau grafik selain teks di framebuffer.
 - `SYS_FS_LIST` mengembalikan maksimum 64 entri per panggilan dan tidak punya kursor; direktori yang lebih besar terpotong tanpa cara melanjutkan. Entri `.` dan `..` ikut dikembalikan apa adanya.
 
+## Agent dan Tool Broker
+
+- Tambalan agent mendarat di **overlay dalam memori** (4 berkas, 8 KiB per berkas) karena volume ter-mount read-only; tidak bertahan melewati reboot.
+- "Menguji" berarti satu check bawaan (`verify`) yang membandingkan hasil dengan berkas harapan. Belum ada runner uji umum — menjalankan proses atas nama agent berarti memberi broker hak `SPAWN`, dan itu belum dilakukan.
+- Satu agent per broker; broker melayani agent sampai selesai sebelum menjawab operator lagi.
+- Audit log dibatasi 64 entri dan hanya ada di memori: panggilan setelah itu tetap dilayani dan dihitung, tetapi tidak dicatat, dan seluruh log hilang saat broker keluar.
+- Scope adalah satu direktori dengan kedalaman satu; belum ada beberapa scope, pola, atau hak per-berkas.
+
+## SpaceLink
+
+- Peringkat **leksikal**: jumlah kemunculan istilah kueri per chunk, seri dipecah oleh posisi. Tidak ada embedding, TF-IDF, stemming, atau tokenizer.
+- Batas keras: 16 dokumen, 128 chunk, 8 KiB per dokumen, 192 byte per chunk, 8 entri per bundle.
+- Indeks **dan** daftar revokasi hanya ada di memori layanan; keduanya hilang saat layanan keluar. Revokasi yang bertahan melewati reboot memerlukan penyimpanan yang bisa ditulis.
+- Kueri memindai seluruh chunk secara linear; belum ada indeks terbalik.
+- Satu hasil per panggilan (dengan `total`), jadi menelusuri N hasil butuh N round trip; teks per balasan dipotong 128 byte (batas pesan IPC).
+- Repo SpaceLink dari PRD §10 tidak tersedia di lingkungan ini; yang diimplementasikan adalah kontrak L01–L03, bukan mesin retrieval SpaceLink yang dimaksud PRD.
+
 ## Kompatibilitas
 
 - Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
@@ -62,7 +79,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Belum ada (tahap berikutnya)
 
 - VirtIO net/input/display, jaringan (sisa tahap 3).
-- SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, package service, tanda tangan paket (5A).
+- Space Guard sebagai layanan, package service, tanda tangan paket (5A).
 - GPU, ARM64 (6–7).
 
 ## Verifikasi

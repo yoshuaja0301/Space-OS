@@ -4,38 +4,38 @@ Sesi verifikasi 2026-09-16, QEMU 8.2.2 / OVMF 4M. Image yang sama untuk semua me
 kesembilan konfigurasi boot dan lulus (exit QEMU 33).
 
 == lab
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == q35-1cpu-2g
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == i440fx
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:04.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == cpu-max
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == virtio-transitional
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == virtio-small-queue
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 4 (max 4), 2 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == no-disk
-   init : ALL TESTS PASSED (38/38, 4 skipped)
+   init : ALL TESTS PASSED (40/40, 8 skipped)
    blok : virtio-blk: no device present
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == no-vga
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: none usable; serial console only
 == vmware-vga
-   init : ALL TESTS PASSED (42/42, 0 skipped)
+   init : ALL TESTS PASSED (48/48, 0 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50

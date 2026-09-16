@@ -86,6 +86,30 @@ Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
 `wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena
 time-out, bukan gagal dengan rapi.
 
+### Uji G01 (agent dan Tool Broker)
+
+| ID | Uji | Program |
+|---|---|---|
+| G01 | agent tanpa kapabilitas apa pun selain satu channel: `fs_open` miliknya ditolak kernel, lalu ia membaca `task.txt`/`input.txt`, menambal, menulis `output.txt` ke overlay, membacanya kembali, dan check `verify` lulus terhadap `expect.txt` buatan host | `bin/spacebroker`, `bin/spaceagent` |
+| G01 | audit operator mencatat pembacaan yang diizinkan, pembacaan di luar scope, percobaan keluar lewat `..`, akses agent ke audit, dan check yang lulus; jumlah penolakan yang dilaporkan broker sama dengan isi audit | `bin/spacebroker` |
+| G01 | delapan bentuk jalan keluar ditolak `denied-scope`: `/spaceos/manifest.txt`, `..`, subdirektori, `//`, awalan mirip (`/spaceos/wsx`), path relatif, `/`, `/spaceos`. Tool operator (`AUDIT`, `ATTACH`, `QUIT`) dan tool tak dikenal ditolak `denied-tool` dari sisi agent. Berkas hilang dan check tak dikenal → `failed` (bukan `denied`). Pesan cacat dijawab `MsgSize` dan sesi berlanjut | `bin/spacebroker` |
+| G01 | broker bertahan saat agent menghilang tanpa `DONE` (channel tertutup) dan masih melayani audit serta quit | `bin/spacebroker` |
+
+Gigi uji ini terbukti: dengan pemeriksaan scope naif (`path.starts_with(SCOPE)`),
+`/spaceos/ws/../stolen.txt` lolos sebagai `allowed` dan dua uji G01 merah.
+
+### Uji L01–L03 (SpaceLink)
+
+| ID | Uji | Program |
+|---|---|---|
+| L01 | korpus `/spaceos/docs` (4 dokumen) diindeks jadi 7 chunk; kueri `channel` menempatkan `IPC.TXT` di puncak; **setiap** hasil diverifikasi provenance-nya — init membaca ulang rentang byte yang disebut layanan dan menghitung SHA-256-nya sendiri; hasil terurut menurun menurut skor; kueri melewati hasil terakhir → `NotFound` | `bin/spacelink` |
+| L02 | `SECRET.TXT` dicabut: kueri `embargo` (kata yang hanya ada di dokumen itu) → `NotFound`; kueri umum `channel`/`quota` tidak lagi memuatnya; bundle tidak memuatnya; **indeks ulang tidak menghidupkannya kembali** dan statistik menunjukkan 3 dokumen hidup, 1 dicabut | `bin/spacelink` |
+| L03 | bundle untuk `channel quota` dengan anggaran 400 byte: muat anggaran, setiap entri diverifikasi provenance-nya, jumlah panjang entri sama dengan byte yang dilaporkan, dan digest bundle = SHA-256 atas rangkaian digest entri (dihitung ulang oleh init); kueri yang sama menghasilkan bundle identik; anggaran 1 byte → bundle kosong tanpa error; setelah revokasi digest berubah | `bin/spacelink` |
+
+Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehingga
+`INDEX` ulang membaca kembali dokumen yang dicabut), L02 merah pada langkah
+"query after re-index".
+
 ## Selftest kernel (sebelum user-space)
 
 `kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang.
