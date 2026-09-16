@@ -7,7 +7,7 @@
 | 3 Perangkat virtual | VirtIO block, VFS, network, input, display | **sebagian**: PCI, virtio-blk 1.0 (polling), FAT32 read-only dan ABI file selesai (D01 verified); network, input, display belum |
 | 4 Compute ABI | Kontrak v0, CPU backend, handle dan quota | **selesai**: objek memori bersama di kernel, layanan `spacecompute` user-space, backend CPU, uji kontrak C01 lulus |
 | 5 Inferensi native | Model kecil, tokenizer, generation, benchmark offline | **selesai untuk model referensi**: format SpaceLM v0, validasi + checksum, runtime `spaceai`, 128 token offline cocok dengan baseline; model terlatih berlisensi belum |
-| 5A Developer Preview | SpaceLink, Tool Broker, agent, desktop, adapter | **sebagian**: `spaceshell` (sesi yang bertahan melewati worker crash, U01), `spacebroker` + `spaceagent` (scope workspace dan audit, G01), `spacelink` (indeks, revokasi, context bundle, L01–L03). Adapter cloud (I01) terhalang jaringan; paket bertanda tangan (P01) terhalang penyimpanan yang bisa ditulis |
+| 5A Developer Preview | SpaceLink, Tool Broker, agent, desktop, adapter | **sebagian**: `spaceshell` (sesi yang bertahan melewati worker crash, U01), `spacebroker` + `spaceagent` (scope workspace dan audit, G01), `spacelink` (indeks, revokasi, context bundle, L01–L03). `spacepkg` (paket terautentikasi dan rollback, P01). Adapter cloud (I01) terhalang jaringan dan TLS |
 | 6 GPU terpilih | Studi kelayakan, driver | belum |
 | 7 Hardware Preview | Installer, recovery, matriks hardware, ARM64 | **sebagian**: matriks konfigurasi mesin virtual (`cargo xtask compat`, ADR-0010) berjalan di CI; perangkat keras fisik, installer, recovery dan ARM64 belum |
 

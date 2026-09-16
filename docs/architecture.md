@@ -1,6 +1,6 @@
-# Arsitektur yang diimplementasikan (tahap 1–2)
+# Arsitektur yang diimplementasikan (tahap 1–5 dan sebagian 5A)
 
-Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)** dan fondasi untuk **Layanan OS**; lapisan lain belum ada.
+Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
 
 ```
 UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──► bin/init (user/init) ──► program uji (user/tests/*)
@@ -41,6 +41,29 @@ Kernel menambahkan satu objek: *memory object* (kumpulan frame yang dapat dipeta
 
 `bin/spaceai` memuat model SpaceLM v0 dari disk guest, memverifikasi checksum-nya, lalu menjalankan dekode greedy: runtime memegang tata letak (cache KV, transposisi V, potongan buffer) sementara seluruh aritmetika berjalan lewat Compute ABI ke `bin/spacecompute`. Satu langkah dekode adalah 54 operasi Compute. Token yang dihasilkan dibandingkan dengan baseline yang dipatok di `/spaceos/baseline.txt`.
 
+## Layanan Developer Preview (tahap 5A)
+
+Semua berjalan di user space dan hanya memegang kapabilitas yang diserahkan
+kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
+
+- **`bin/spaceshell`** (U01): memiliki sesi konsol, daftar berkas, dan masa hidup
+  worker. Loopnya tidak pernah memblokir pada worker (`recv` non-blocking +
+  `SYS_WAIT` bendera `NONBLOCK`), jadi worker yang crash, tidur, atau macet tanpa
+  syscall tidak bisa menahan sesi. Diberi root yang dipersempit ke `SPAWN|FS`
+  (ADR-0011).
+- **`bin/spacebroker` + `bin/spaceagent`** (G01): agent lahir hanya dengan satu
+  channel — `fs_open` miliknya ditolak kernel. Broker memegang satu-satunya
+  kapabilitas file (`FS`), memeriksa setiap path terhadap workspace
+  komponen-per-komponen, dan mencatat setiap panggilan di audit log operator
+  (ADR-0012).
+- **`bin/spacelink`** (L01–L03): mengindeks korpus, memberi peringkat chunk,
+  mencabut dokumen, dan menyusun context bundle di bawah anggaran byte. Setiap
+  chunk membawa path, rentang byte, dan SHA-256 sehingga pemanggil bisa
+  memverifikasi provenance-nya sendiri (ADR-0013).
+- **`bin/spacepkg`** (P01): memasang paket yang terautentikasi HMAC-SHA256,
+  menolak paket rusak/palsu/terpotong dengan alasannya tanpa mengubah apa pun, dan
+  `ROLLBACK` mengembalikan payload versi sebelumnya (ADR-0014).
+
 ## Objek kernel
 
 - **Process**: address space + tabel handle + kuota + status keluar + antrean penunggu `wait`.
@@ -48,7 +71,7 @@ Kernel menambahkan satu objek: *memory object* (kumpulan frame yang dapat dipeta
 - **Channel/Endpoint**: dua sisi, antrean pesan terbatas, wait queue penerima, penutupan sisi membangunkan peer.
 - **File**: berkas terbuka pada volume FAT32 (hak `READ`).
 - **Memory**: frame bersama yang dapat dipetakan beberapa proses (hak `READ|WRITE|MAP`).
-- **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection, akses berkas).
+- **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection, akses berkas). Setiap layanan menerima turunan yang **sudah dipersempit**: `spaceshell` hanya `SPAWN|FS`, `spacebroker`/`spacelink`/`spacepkg` hanya `FS`, `spaceagent` tidak menerima root sama sekali.
 
 ## Scheduler
 

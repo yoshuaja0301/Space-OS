@@ -21,7 +21,9 @@ use libspace::spaceabi::compute::{
 };
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::{MAX_HANDLES, rights};
+use libspace::spaceabi::hmac::{hmac_sha256, verify as hmac_verify};
 use libspace::spaceabi::link::{self as link_abi, LinkReply, LinkRequest, req as lreq};
+use libspace::spaceabi::pkg::{PkgReply, PkgRequest, reject_code, req as preq};
 use libspace::spaceabi::shell::{Reply as ShellReply, job as shell_job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
 use libspace::spaceabi::syscall::nr;
@@ -272,6 +274,75 @@ fn as_request_bytes(r: &ComputeRequest) -> &[u8] {
             core::mem::size_of::<ComputeRequest>(),
         )
     }
+}
+
+/// Quota for the package service: the image it reads plus the versions it holds.
+const PKG_QUOTA: u64 = 256;
+
+fn as_pkg_bytes(r: &PkgRequest) -> &[u8] {
+    // SAFETY: `PkgRequest` is a `repr(C)` plain-data message.
+    unsafe {
+        core::slice::from_raw_parts(r as *const PkgRequest as *const u8, core::mem::size_of::<PkgRequest>())
+    }
+}
+
+fn pkg_reply(ch: Handle) -> Result<PkgReply, String> {
+    let mut buf = [0u8; core::mem::size_of::<PkgReply>()];
+    let (n, transferred) = sys::recv(ch, &mut buf, false).map_err(|e| alloc::format!("recv: {e}"))?;
+    if let Some(h) = transferred {
+        sys::handle_close(h).ok();
+    }
+    if n != buf.len() {
+        return Err(alloc::format!("spacepkg replied with {n} bytes"));
+    }
+    // SAFETY: the service replies with exactly one `PkgReply`.
+    Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const PkgReply) })
+}
+
+fn pkg_call(ch: Handle, r: &PkgRequest) -> Result<PkgReply, String> {
+    sys::send(ch, as_pkg_bytes(r), None).map_err(|e| alloc::format!("send: {e}"))?;
+    pkg_reply(ch)
+}
+
+fn pkg_start() -> Result<(Handle, Handle), String> {
+    let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+    let svc = sys::spawn(ROOT, "bin/spacepkg", PKG_QUOTA, Some(theirs))
+        .map_err(|e| alloc::format!("spawn spacepkg: {e}"))?;
+    let root =
+        sys::handle_dup(ROOT, rights::FS | rights::TRANSFER).map_err(|e| alloc::format!("dup root: {e}"))?;
+    let hello = PkgRequest { kind: preq::HELLO, abi_version: 0, ..Default::default() };
+    sys::send(mine, as_pkg_bytes(&hello), Some(root)).map_err(|e| alloc::format!("hello: {e}"))?;
+    pkg_reply(mine)?.result().map_err(|e| alloc::format!("hello: {e}"))?;
+    Ok((mine, svc))
+}
+
+fn pkg_stop(ch: Handle, svc: Handle) -> Result<(), String> {
+    pkg_call(ch, &PkgRequest::new(preq::QUIT))?;
+    let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+    sys::handle_close(svc).ok();
+    sys::handle_close(ch).ok();
+    expect_exit("spacepkg", st, 0)
+}
+
+/// Read the whole payload of the active package, one reply at a time.
+fn pkg_payload(ch: Handle, len: u32) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut offset = 0u32;
+    while offset < len {
+        let mut r = PkgRequest::new(preq::READ);
+        r.offset = offset;
+        let reply = pkg_call(ch, &r)?;
+        reply.result().map_err(|e| alloc::format!("read payload: {e}"))?;
+        if reply.len == 0 {
+            break;
+        }
+        out.extend_from_slice(reply.data());
+        offset += reply.len;
+    }
+    if out.len() != len as usize {
+        return Err(alloc::format!("payload is {} bytes, the service reported {len}", out.len()));
+    }
+    Ok(out)
 }
 
 /// SpaceLink corpus on the guest volume, and the document that exists to be revoked.
@@ -1900,6 +1971,204 @@ pub extern "C" fn space_main() -> i32 {
                 return Err(String::from("revoking a document left the bundle digest unchanged"));
             }
             link_stop(link, svc)
+        },
+    );
+
+    r.run("P01", "HMAC-SHA256 matches the RFC 4231 test vectors", || {
+        // The package MAC is only worth anything if the primitive under it is right,
+        // and "the host and the guest agree" would not catch a shared mistake.
+        let cases: &[(&[u8], &[u8], &str)] = &[
+            (&[0x0b; 20], b"Hi There", "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"),
+            (
+                b"Jefe",
+                b"what do ya want for nothing?",
+                "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+            ),
+            (&[0xaa; 20], &[0xdd; 50], "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"),
+            (
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First",
+                "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
+            ),
+        ];
+        for (i, (key, data, want)) in cases.iter().enumerate() {
+            let got = hmac_sha256(key, data);
+            let hex = sha256::to_hex(&got);
+            let hex = core::str::from_utf8(&hex).unwrap_or("");
+            if hex != *want {
+                return Err(alloc::format!("RFC 4231 case {}: got {hex}, expected {want}", i + 1));
+            }
+        }
+        // The comparison used on MACs must still be a comparison.
+        let a = hmac_sha256(b"k", b"m");
+        let mut b = a;
+        b[31] ^= 1;
+        if !hmac_verify(&a, &a) || hmac_verify(&a, &b) {
+            return Err(String::from("the constant-time MAC comparison is wrong"));
+        }
+        Ok(())
+    });
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "P01",
+        "packages install only when they authenticate, and a refusal changes nothing",
+        || {
+            let (svc_ch, svc) = pkg_start()?;
+
+            // Nothing installed yet.
+            let st = pkg_call(svc_ch, &PkgRequest::new(preq::STATUS))?;
+            st.result().map_err(|e| alloc::format!("status: {e}"))?;
+            if st.version != 0 || st.history != 0 {
+                return Err(String::from("the service starts with something installed"));
+            }
+
+            // Version 1, then version 2.
+            let one = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo1.spk"))?;
+            one.result().map_err(|e| alloc::format!("install v1: {e}"))?;
+            if one.version != 1 || one.name() != "demo" || one.previous != 0 {
+                return Err(alloc::format!(
+                    "after v1: name {:?} version {} previous {}",
+                    one.name(),
+                    one.version,
+                    one.previous
+                ));
+            }
+            let payload_v1 = pkg_payload(svc_ch, one.len)?;
+            if sha256::digest(&payload_v1) != one.digest {
+                return Err(String::from(
+                    "the installed payload does not match the digest the package carried",
+                ));
+            }
+
+            let two = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo2.spk"))?;
+            two.result().map_err(|e| alloc::format!("install v2: {e}"))?;
+            if two.version != 2 || two.previous != 1 || two.history != 2 {
+                return Err(alloc::format!(
+                    "after v2: version {} previous {} history {}",
+                    two.version,
+                    two.previous,
+                    two.history
+                ));
+            }
+
+            // Three packages that must be refused, each for its own reason, and none of
+            // them may disturb what is installed.
+            let bad: &[(&str, i32, &str)] = &[
+                ("/spaceos/pkg/badpay.spk", reject_code::PAYLOAD, "a flipped payload byte"),
+                ("/spaceos/pkg/forged.spk", reject_code::MAC, "the wrong signing key"),
+                ("/spaceos/pkg/trunc.spk", reject_code::TRUNCATED, "a missing payload"),
+                ("/spaceos/manifest.txt", reject_code::FORMAT, "not a package at all"),
+            ];
+            for (path, want, why) in bad {
+                let reply = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, path))?;
+                if reply.status == 0 {
+                    return Err(alloc::format!("{path} ({why}) was installed"));
+                }
+                if reply.reject != *want {
+                    return Err(alloc::format!(
+                        "{path} ({why}) was refused with reject code {}, expected {want}",
+                        reply.reject
+                    ));
+                }
+                if reply.version != 2 || reply.history != 2 {
+                    return Err(alloc::format!(
+                        "{path} ({why}) changed the installed state to version {} ({} held)",
+                        reply.version,
+                        reply.history
+                    ));
+                }
+            }
+
+            // A missing file is an error, not a package refusal.
+            let missing = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/nope.spk"))?;
+            expect_status("installing a missing package", missing.status, Error::NotFound)?;
+            if missing.reject != reject_code::NONE {
+                return Err(String::from("a missing file was reported as a package refusal"));
+            }
+
+            // Verification without installation leaves the store alone.
+            let checked = pkg_call(svc_ch, &PkgRequest::with_path(preq::VERIFY, "/spaceos/pkg/demo1.spk"))?;
+            checked.result().map_err(|e| alloc::format!("verify: {e}"))?;
+            if checked.version != 1 {
+                return Err(alloc::format!("verify reported version {}", checked.version));
+            }
+            let st = pkg_call(svc_ch, &PkgRequest::new(preq::STATUS))?;
+            if st.version != 2 {
+                return Err(String::from("verify changed what is installed"));
+            }
+            pkg_stop(svc_ch, svc)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "P01",
+        "rollback returns the previous version, and only as far as the history goes",
+        || {
+            let (svc_ch, svc) = pkg_start()?;
+            pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo1.spk"))?
+                .result()
+                .map_err(|e| alloc::format!("install v1: {e}"))?;
+            let v1 = pkg_call(svc_ch, &PkgRequest::new(preq::STATUS))?;
+            let payload_v1 = pkg_payload(svc_ch, v1.len)?;
+
+            pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo2.spk"))?
+                .result()
+                .map_err(|e| alloc::format!("install v2: {e}"))?;
+            let v2 = pkg_call(svc_ch, &PkgRequest::new(preq::STATUS))?;
+            let payload_v2 = pkg_payload(svc_ch, v2.len)?;
+            if payload_v1 == payload_v2 {
+                return Err(String::from("the two versions carry the same payload"));
+            }
+
+            // Installing an older version is not how you go back.
+            let down = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo1.spk"))?;
+            expect_status("installing an older version", down.status, Error::Invalid)?;
+            if down.version != 2 {
+                return Err(String::from("a refused downgrade changed the active version"));
+            }
+
+            let back = pkg_call(svc_ch, &PkgRequest::new(preq::ROLLBACK))?;
+            back.result().map_err(|e| alloc::format!("rollback: {e}"))?;
+            if back.version != 1 || back.previous != 0 || back.history != 1 {
+                return Err(alloc::format!(
+                    "after rollback: version {} previous {} history {}",
+                    back.version,
+                    back.previous,
+                    back.history
+                ));
+            }
+            // The bytes that come back are the ones version 1 was installed with, not a
+            // re-read of a file that could since have changed.
+            let rolled = pkg_payload(svc_ch, back.len)?;
+            if rolled != payload_v1 {
+                return Err(String::from("rollback did not restore the earlier payload"));
+            }
+            if sha256::digest(&rolled) != back.digest {
+                return Err(String::from("the rolled-back payload does not match its digest"));
+            }
+
+            // Nothing earlier is held, so there is nowhere left to go.
+            let none = pkg_call(svc_ch, &PkgRequest::new(preq::ROLLBACK))?;
+            expect_status("rollback with no earlier version", none.status, Error::NotFound)?;
+            if none.version != 1 {
+                return Err(String::from("a refused rollback changed the active version"));
+            }
+
+            // And after rolling back, the newer version installs again.
+            let forward = pkg_call(svc_ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo2.spk"))?;
+            forward.result().map_err(|e| alloc::format!("re-install v2: {e}"))?;
+            if forward.version != 2 || forward.previous != 1 {
+                return Err(alloc::format!(
+                    "re-install left version {} previous {}",
+                    forward.version,
+                    forward.previous
+                ));
+            }
+            pkg_stop(svc_ch, svc)
         },
     );
 

@@ -501,6 +501,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacepkg"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spaceshell"
 version = "0.1.0"
 dependencies = [

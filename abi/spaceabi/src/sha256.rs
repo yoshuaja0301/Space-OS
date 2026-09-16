@@ -1,8 +1,12 @@
-//! SHA-256 (FIPS 180-4), used to verify model files read from the guest disk.
+//! SHA-256 (FIPS 180-4).
 //!
-//! Deliberately a from-scratch implementation in the guest: the host tool computes
-//! the same digest with an independent library, so a mismatch means one of the two
-//! is wrong rather than both sharing a bug.
+//! A from-scratch implementation, shared by the guest and the host build tool. Where
+//! the two must agree independently - the model manifest - the host computes its
+//! digest with the `sha2` crate instead, so a mismatch there means one of the two is
+//! wrong rather than both sharing a bug. Where they must agree by construction -
+//! package authentication - they call this.
+//!
+//! The guest checks it against the FIPS 180-4 vectors at boot (requirement D01).
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

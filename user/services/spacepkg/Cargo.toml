@@ -1,0 +1,16 @@
+[package]
+name = "spacepkg"
+description = "Package service: authenticated install, refusal with a reason, and rollback (P01)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spacepkg"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

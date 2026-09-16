@@ -70,6 +70,14 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Satu hasil per panggilan (dengan `total`), jadi menelusuri N hasil butuh N round trip; teks per balasan dipotong 128 byte (batas pesan IPC).
 - Repo SpaceLink dari PRD §10 tidak tersedia di lingkungan ini; yang diimplementasikan adalah kontrak L01–L03, bukan mesin retrieval SpaceLink yang dimaksud PRD.
 
+## Paket
+
+- Autentikasi memakai **HMAC-SHA256**, bukan tanda tangan kunci publik, dan **kunci rilis ada di dalam image**. Siapa pun yang bisa membaca image bisa membuat paket yang sah; yang diberikan adalah integritas terhadap pihak tanpa kunci, bukan distribusi tepercaya (ADR-0014).
+- Store paket ada di **memori**; instalasi tidak bertahan melewati reboot.
+- Riwayat rollback dibatasi 4 versi; yang tertua dibuang saat penuh.
+- Payload maksimum 64 KiB dan paket tidak punya struktur internal (bukan arsip): "memasang" berarti menyimpan payload terverifikasi, bukan membongkar berkas.
+- Tidak ada dependensi antar paket, batas versi minimum, hook pra/pasca instalasi, atau rotasi kunci.
+
 ## Kompatibilitas
 
 - Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
@@ -79,7 +87,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Belum ada (tahap berikutnya)
 
 - VirtIO net/input/display, jaringan (sisa tahap 3).
-- Space Guard sebagai layanan, package service, tanda tangan paket (5A).
+- Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud I01 (5A).
 - GPU, ARM64 (6–7).
 
 ## Verifikasi

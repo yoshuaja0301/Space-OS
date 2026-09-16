@@ -12,13 +12,16 @@ extern crate alloc;
 pub mod compute;
 pub mod heap;
 pub mod io;
-pub mod sha256;
 pub mod shell;
 pub mod sys;
 
 pub use spaceabi;
 pub use spaceabi::error::Error;
 pub use spaceabi::handle::{self, Handle};
+/// SHA-256 lives in `spaceabi` so the host build tool and the guest share one
+/// implementation; re-exported here because guest code has always called it
+/// `libspace::sha256`.
+pub use spaceabi::sha256;
 pub use spaceabi::syscall::{ExitStatus, FileStat, KernelStats, SelfInfo, exit_kind, kill_reason};
 
 use core::arch::naked_asm;

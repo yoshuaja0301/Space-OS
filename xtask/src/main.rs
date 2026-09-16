@@ -35,6 +35,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spacebroker",
     "spaceagent",
     "spacelink",
+    "spacepkg",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -371,10 +372,19 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
                 .write_all(body.as_bytes())
                 .map_err(|e| e.to_string())?;
         }
+        // Package fixtures (P01): two good versions and three that must be refused,
+        // each for a different reason.
+        let pkgs = dir.create_dir("PKG").map_err(|e| e.to_string())?;
+        for (name, image) in package_files()? {
+            pkgs.create_file(name)
+                .map_err(|e| e.to_string())?
+                .write_all(&image)
+                .map_err(|e| e.to_string())?;
+        }
     }
     disk.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus, FAT32)",
+        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + 5 packages, FAT32)",
         out.display(),
         model.len() / 1024
     );
@@ -428,6 +438,46 @@ fn corpus_files() -> [(&'static str, &'static str); 4] {
              It mentions a channel and a quota so that revoking it is visible in results.\n",
         ),
     ]
+}
+
+/// Package images for P01. The host signs them with the same shared implementation
+/// the guest verifies with (`spaceabi::pkg`), which is what makes the three bad
+/// packages meaningful: each one differs from a good package in exactly one way.
+fn package_files() -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    use spaceabi::pkg;
+
+    fn build(name: &str, version: u32, payload: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
+        let mut out = vec![0u8; core::mem::size_of::<pkg::Header>() + payload.len()];
+        let n = pkg::build(name, version, payload, key, &mut out).ok_or("cannot build package")?;
+        out.truncate(n);
+        Ok(out)
+    }
+
+    let v1 = b"space-os demo package\nversion 1: the first release\n";
+    let v2 = b"space-os demo package\nversion 2: adds a line nobody asked for\n";
+    let good1 = build("demo", 1, v1, pkg::RELEASE_KEY)?;
+    let good2 = build("demo", 2, v2, pkg::RELEASE_KEY)?;
+
+    // Same header, one payload byte flipped: the MAC still checks out because it
+    // covers the header, so this must be caught by the payload digest.
+    let mut tampered = build("demo", 3, b"space-os demo package\nversion 3: tampered\n", pkg::RELEASE_KEY)?;
+    let last = tampered.len() - 1;
+    tampered[last] ^= 0x01;
+
+    // Correctly built, but signed with a key this build does not trust.
+    let forged = build("demo", 4, b"space-os demo package\nversion 4: forged\n", b"not-the-release-key")?;
+
+    // Cut short after the header: the payload the header promises is not there.
+    let mut truncated = build("demo", 5, b"space-os demo package\nversion 5: truncated\n", pkg::RELEASE_KEY)?;
+    truncated.truncate(core::mem::size_of::<pkg::Header>() + 4);
+
+    Ok(vec![
+        ("DEMO1.SPK", good1),
+        ("DEMO2.SPK", good2),
+        ("BADPAY.SPK", tampered),
+        ("FORGED.SPK", forged),
+        ("TRUNC.SPK", truncated),
+    ])
 }
 
 fn find_firmware() -> Result<(PathBuf, PathBuf), String> {

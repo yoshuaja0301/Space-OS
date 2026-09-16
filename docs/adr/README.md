@@ -17,3 +17,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0011](0011-session-service-and-supervision.md) | Layanan sesi `spaceshell` dan aturan supervisi | Diterima |
 | [0012](0012-tool-broker-and-agent-scope.md) | Tool Broker, scope workspace, dan audit agent | Diterima |
 | [0013](0013-spacelink-index-revocation-bundle.md) | SpaceLink: indeks, revokasi, dan context bundle | Diterima |
+| [0014](0014-package-format-and-rollback.md) | Format paket, autentikasi HMAC, dan rollback | Diterima |
