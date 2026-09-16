@@ -13,12 +13,15 @@ use alloc::vec::Vec;
 
 use libspace::compute::Compute;
 use libspace::sha256;
+use libspace::shell::Session;
 use libspace::spaceabi::compute::{
     self as compute_abi, BufferRef as ComputeBufferRef, Op as ComputeOp, Request as ComputeRequest,
     Response as ComputeResponse, op as cop, req as creq,
 };
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::{MAX_HANDLES, rights};
+use libspace::spaceabi::shell::{Reply as ShellReply, job as shell_job, worker_state};
+use libspace::spaceabi::syscall::DirEntry;
 use libspace::spaceabi::syscall::nr;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
@@ -266,6 +269,27 @@ fn as_request_bytes(r: &ComputeRequest) -> &[u8] {
             r as *const ComputeRequest as *const u8,
             core::mem::size_of::<ComputeRequest>(),
         )
+    }
+}
+
+/// Poll the session until its worker leaves the running state. The point of the
+/// poll is the assertion: the session has to answer every single one of these
+/// while the worker is crashing, spinning or sleeping.
+fn wait_for_worker(s: &Session, want: u32, timeout_ms: u64) -> Result<ShellReply, String> {
+    let deadline = sys::ticks_ms().saturating_add(timeout_ms);
+    loop {
+        let st = s.status().map_err(|e| alloc::format!("status while waiting: {e}"))?;
+        st.result().map_err(|e| alloc::format!("status while waiting: {e}"))?;
+        if st.state == want {
+            return Ok(st);
+        }
+        if st.state != worker_state::RUNNING {
+            return Err(alloc::format!("worker reached state {}, expected {want}", st.state));
+        }
+        if sys::ticks_ms() >= deadline {
+            return Err(alloc::format!("worker still running after {timeout_ms} ms"));
+        }
+        sys::sleep_ms(2);
     }
 }
 
@@ -1156,6 +1180,157 @@ pub extern "C" fn space_main() -> i32 {
             expect_exit("spaceai", st, 0)
         },
     );
+
+    r.run(
+        "U01",
+        "session service survives a crashed worker and keeps serving Stop and the file manager",
+        || {
+            const SHELL_QUOTA: u64 = 192;
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+            // The session gets exactly two powers: start jobs and list files. No
+            // shutdown, no kernel stats, no debug - a crashed session cannot take the
+            // machine down even if it wanted to.
+            let shell_root = sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
+
+            let check_alive = |what: &str| -> Result<(), String> {
+                let st = s.status().map_err(|e| alloc::format!("status after {what}: {e}"))?;
+                st.result().map_err(|e| alloc::format!("status after {what}: {e}"))?;
+                if disk {
+                    let l = s.list("/spaceos").map_err(|e| alloc::format!("list after {what}: {e}"))?;
+                    let n = l.result().map_err(|e| alloc::format!("list after {what}: {e}"))?;
+                    if n == 0 {
+                        return Err(alloc::format!("file manager listed nothing after {what}"));
+                    }
+                }
+                Ok(())
+            };
+
+            check_alive("startup")?;
+
+            // 1. The worker faults. The kernel kills it; the session must report the
+            //    reason and carry on.
+            s.run(shell_job::CRASH).and_then(|r| r.result()).map_err(|e| alloc::format!("run crash: {e}"))?;
+            let st = wait_for_worker(&s, worker_state::CRASHED, 5_000)?;
+            if st.reason != kill_reason::PAGE_FAULT {
+                return Err(alloc::format!(
+                    "crashed worker reported reason {} ({}), expected PAGE_FAULT",
+                    st.reason,
+                    kill_reason::name(st.reason)
+                ));
+            }
+            check_alive("a crashed worker")?;
+
+            // 2. A worker wedged in a loop that never enters the kernel again. The
+            //    session has to answer while it spins, and Stop has to end it.
+            s.run(shell_job::HANG).and_then(|r| r.result()).map_err(|e| alloc::format!("run hang: {e}"))?;
+            sys::sleep_ms(50);
+            let during = s.status().map_err(|e| alloc::format!("status during hang: {e}"))?;
+            during.result().map_err(|e| alloc::format!("status during hang: {e}"))?;
+            if during.state != worker_state::RUNNING {
+                return Err(alloc::format!(
+                    "wedged worker reported state {}, expected running",
+                    during.state
+                ));
+            }
+            check_alive("a wedged worker")?;
+            let stopped = s.stop().map_err(|e| alloc::format!("stop hang: {e}"))?;
+            stopped.result().map_err(|e| alloc::format!("stop hang: {e}"))?;
+            if stopped.state != worker_state::STOPPED {
+                return Err(alloc::format!("stop left state {}, expected stopped", stopped.state));
+            }
+            check_alive("stopping a wedged worker")?;
+
+            // 3. A worker blocked in a syscall is just as stoppable.
+            s.run(shell_job::SLOW).and_then(|r| r.result()).map_err(|e| alloc::format!("run slow: {e}"))?;
+            sys::sleep_ms(20);
+            let stopped = s.stop().map_err(|e| alloc::format!("stop slow: {e}"))?;
+            stopped.result().map_err(|e| alloc::format!("stop slow: {e}"))?;
+            if stopped.state != worker_state::STOPPED {
+                return Err(alloc::format!("stop of a sleeping worker left state {}", stopped.state));
+            }
+
+            // 4. Stop with nothing running is refused, not a crash.
+            let idle_stop = s.stop().map_err(|e| alloc::format!("stop idle: {e}"))?;
+            expect_status("stop with no worker", idle_stop.status, Error::NotFound)?;
+
+            // 5. A job that simply finishes still finishes.
+            s.run(shell_job::OK).and_then(|r| r.result()).map_err(|e| alloc::format!("run ok: {e}"))?;
+            let done = wait_for_worker(&s, worker_state::DONE, 10_000)?;
+            if done.reason != 0 {
+                return Err(alloc::format!("a clean job reported kill reason {}", done.reason));
+            }
+            check_alive("a completed job")?;
+
+            let final_status = s.status().map_err(|e| alloc::format!("final status: {e}"))?;
+            println!("[init] session served {} commands and outlived 4 workers", final_status.served);
+            s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+            let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+            sys::handle_close(shell).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spaceshell", st, 0)
+        },
+    );
+
+    r.run("U01", "a session cannot exceed the capabilities it was given", || {
+        const SHELL_QUOTA: u64 = 192;
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+        // Without the FS right the file manager is refused; jobs still run. The
+        // shell has no way to widen what it was handed.
+        let narrow = sys::handle_dup(ROOT, rights::SPAWN | rights::TRANSFER)
+            .map_err(|e| alloc::format!("dup root: {e}"))?;
+        let s = Session::open(mine, narrow).map_err(|e| alloc::format!("open session: {e}"))?;
+        let denied = s.list("/spaceos").map_err(|e| alloc::format!("list: {e}"))?;
+        expect_status("list without the FS right", denied.status, Error::Denied)?;
+        s.run(shell_job::OK).and_then(|r| r.result()).map_err(|e| alloc::format!("run ok: {e}"))?;
+        wait_for_worker(&s, worker_state::DONE, 10_000)?;
+        let unknown = s.call(0xFFFF_FFFF, "").map_err(|e| alloc::format!("unknown command: {e}"))?;
+        expect_status("unknown session command", unknown.status, Error::NoSys)?;
+        s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+        let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+        sys::handle_close(shell).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("spaceshell", st, 0)
+    });
+
+    r.run_if(disk, "no disk on this machine", "U01", "the file manager lists the guest volume", || {
+        let mut entries = [DirEntry::default(); 16];
+        let n = sys::fs_list(ROOT, "/", &mut entries).map_err(|e| alloc::format!("list /: {e}"))?;
+        if !entries.iter().take(n).any(|e| e.is_dir != 0 && e.name() == "SPACEOS") {
+            return Err(String::from("the volume root does not contain SPACEOS/"));
+        }
+        let n = sys::fs_list(ROOT, "/spaceos", &mut entries).map_err(|e| alloc::format!("list: {e}"))?;
+        let model = entries
+            .iter()
+            .take(n)
+            .find(|e| e.name() == "MODEL.SLM")
+            .ok_or_else(|| String::from("model.slm missing from the listing"))?;
+        let f = sys::fs_open(ROOT, "/spaceos/model.slm").map_err(|e| alloc::format!("open: {e}"))?;
+        let stat = sys::fs_stat(f).map_err(|e| alloc::format!("stat: {e}"))?;
+        sys::handle_close(f).ok();
+        if model.size != stat.size {
+            return Err(alloc::format!("listing says {} bytes, stat says {}", model.size, stat.size));
+        }
+        // Listing is a directory operation: a file is not a directory, and the right
+        // is still required.
+        match sys::fs_list(ROOT, "/spaceos/model.slm", &mut entries) {
+            Err(Error::Invalid) => {}
+            other => return Err(alloc::format!("listing a file gave {other:?}")),
+        }
+        let no_fs = sys::handle_dup(ROOT, rights::STATS).map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::fs_list(no_fs, "/spaceos", &mut entries);
+        sys::handle_close(no_fs).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("listing without the FS right gave {other:?}")),
+        }
+        Ok(())
+    });
 
     let total = r.passed + r.failed.len() as u32;
     for skipped in &r.skipped {

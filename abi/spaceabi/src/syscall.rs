@@ -36,7 +36,7 @@ pub mod nr {
     pub const HANDLE_DUP: usize = 11;
     /// `spawn(root_handle, args: *const SpawnArgs) -> process_handle`
     pub const SPAWN: usize = 12;
-    /// `wait(process_handle, out: *mut ExitStatus) -> 0`
+    /// `wait(process_handle, out: *mut ExitStatus, flags) -> 0`, see [`wait_flags`].
     pub const WAIT: usize = 13;
     /// `kill(process_handle) -> 0`
     pub const KILL: usize = 14;
@@ -62,8 +62,10 @@ pub mod nr {
     pub const VMO_MAP: usize = 24;
     /// `vmo_size(memory_handle) -> len`
     pub const VMO_SIZE: usize = 25;
+    /// `fs_list(root_handle, path_ptr, path_len, out: *mut DirEntry, cap) -> entries`
+    pub const FS_LIST: usize = 26;
 
-    pub const COUNT: usize = 26;
+    pub const COUNT: usize = 27;
 }
 
 /// Maximum inline message payload in bytes.
@@ -202,6 +204,37 @@ pub struct KernelStats {
     /// User space uses it to tell "no storage on this machine" from "read failed".
     pub volume_sectors: u64,
 }
+
+/// Flags for `SYS_WAIT`.
+pub mod wait_flags {
+    pub const NONE: u32 = 0;
+    /// Return `WouldBlock` instead of blocking while the process is still alive.
+    /// A single-threaded supervisor needs this: it must stay able to answer its
+    /// control channel while a child runs.
+    pub const NONBLOCK: u32 = 1;
+}
+
+/// One entry of a directory, as returned by `SYS_FS_LIST`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DirEntry {
+    /// 8.3 name, upper case, NUL padded.
+    pub name: [u8; 12],
+    /// 1 when the entry is a directory.
+    pub is_dir: u8,
+    pub _pad: [u8; 3],
+    pub size: u64,
+}
+
+impl DirEntry {
+    pub fn name(&self) -> &str {
+        let end = self.name.iter().position(|b| *b == 0).unwrap_or(self.name.len());
+        core::str::from_utf8(&self.name[..end]).unwrap_or("?")
+    }
+}
+
+/// Most entries `SYS_FS_LIST` returns in one call.
+pub const DIR_ENTRIES_MAX: usize = 64;
 
 /// Result of `SYS_FS_STAT`.
 #[repr(C)]

@@ -13,6 +13,7 @@ pub mod compute;
 pub mod heap;
 pub mod io;
 pub mod sha256;
+pub mod shell;
 pub mod sys;
 
 pub use spaceabi;

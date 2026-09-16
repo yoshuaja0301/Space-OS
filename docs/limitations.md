@@ -45,6 +45,14 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Satu langkah dekode memakai 54 round trip IPC; cukup untuk model uji, bukan untuk throughput.
 - Angka kecepatan berasal dari QEMU TCG, bukan perangkat fisik.
 
+## Sesi dan antarmuka
+
+- `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
+- Loop sesi memakai polling 2 ms karena belum ada `select`, `recv` bertimeout, atau notifikasi exit lewat channel. Itu kompromi yang disengaja (ADR-0011), bukan desain akhir.
+- **Belum ada masukan keyboard ke user space**: IRQ1 dikuras kernel dan tidak diteruskan. Perintah sesi datang lewat channel kontrol, jadi "terminal" belum bisa diketik manusia.
+- Belum ada window manager, font selain 8x16 bawaan, atau grafik selain teks di framebuffer.
+- `SYS_FS_LIST` mengembalikan maksimum 64 entri per panggilan dan tidak punya kursor; direktori yang lebih besar terpotong tanpa cara melanjutkan. Entri `.` dan `..` ikut dikembalikan apa adanya.
+
 ## Kompatibilitas
 
 - Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
@@ -54,7 +62,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Belum ada (tahap berikutnya)
 
 - VirtIO net/input/display, jaringan (sisa tahap 3).
-- SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, Space Shell, package service, tanda tangan paket (5A).
+- SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, package service, tanda tangan paket (5A).
 - GPU, ARM64 (6–7).
 
 ## Verifikasi

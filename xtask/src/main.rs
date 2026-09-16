@@ -30,6 +30,8 @@ const USER_PROGRAMS: &[&str] = &[
     "blocker",
     "spacecompute",
     "spaceai",
+    "spaceshell",
+    "uiworker",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.

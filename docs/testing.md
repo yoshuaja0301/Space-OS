@@ -74,6 +74,18 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | C01 | 512 permintaan yang masing-masing menyertakan handle transfer → layanan menutupnya, tabel handle tidak habis | `bin/spacecompute` |
 | D01 | berkas tidak ada → `NotFound`; menelusuri **melewati** berkas biasa (`/spaceos/manifest.txt/anything`) → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
 
+### Uji U01 (sesi dan supervisi)
+
+| ID | Uji | Program |
+|---|---|---|
+| U01 | sesi bertahan melewati empat worker berturut-turut: `crash` (dibunuh `PAGE_FAULT`), `hang` (macet tanpa syscall), `slow` (tidur), `ok` (selesai normal). Setiap kali sesi harus menjawab `STATUS` dan membuka daftar berkas; `STOP` menghentikan worker yang macet maupun yang tidur; `STOP` tanpa worker → `NotFound` | `bin/spaceshell`, `bin/uiworker` |
+| U01 | sesi tanpa hak `FS` → daftar berkas `Denied` tetapi job tetap jalan; perintah tak dikenal → `NoSys`; sesi tidak bisa memperluas kapabilitas yang diberikan | `bin/spaceshell` |
+| U01 | `fs_list` pada volume guest: `/` memuat `SPACEOS/`, ukuran `MODEL.SLM` cocok dengan `fs_stat`, melist berkas (bukan direktori) → `Invalid`, tanpa hak `FS` → `Denied` | `bin/init` |
+
+Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
+`wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena
+time-out, bukan gagal dengan rapi.
+
 ## Selftest kernel (sebelum user-space)
 
 `kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang.

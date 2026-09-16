@@ -16,6 +16,8 @@ members = [
     "user/tests/quota",
     "user/tests/spin",
     "user/tests/worker",
+    "user/tests/uiworker",
+    "user/services/spaceshell",
     "xtask",
 ]
 # Plain `cargo build` at the root only builds the host-side xtask.

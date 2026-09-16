@@ -44,6 +44,13 @@ pub fn open(path: &str) -> Result<FileNode, Error> {
     fs.open(path)
 }
 
+/// Entries of the directory at `path` (`/` for the volume root), at most `max`.
+pub fn list(path: &str, max: usize) -> Result<alloc::vec::Vec<spaceabi::syscall::DirEntry>, Error> {
+    let mut g = VOLUME.lock();
+    let fs = g.as_mut().ok_or(Error::NotFound)?;
+    fs.list(path, max)
+}
+
 pub fn read(node: &FileNode, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
     let mut g = VOLUME.lock();
     let fs = g.as_mut().ok_or(Error::NotFound)?;

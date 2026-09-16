@@ -14,3 +14,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0008](0008-compute-abi-v0.md) | Objek memori bersama dan Space Compute ABI v0 | Diterima |
 | [0009](0009-spacelm-model-and-inference.md) | Format model SpaceLM v0, runtime inferensi, baseline dipatok | Diterima |
 | [0010](0010-compatibility-matrix.md) | Matriks kompatibilitas mesin dan degradasi anggun | Diterima |
+| [0011](0011-session-service-and-supervision.md) | Layanan sesi `spaceshell` dan aturan supervisi | Diterima |

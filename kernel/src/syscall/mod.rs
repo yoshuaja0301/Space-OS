@@ -9,8 +9,8 @@ use alloc::sync::Arc;
 use spaceabi::error::{Error, encode};
 use spaceabi::handle::{self, Handle, rights};
 use spaceabi::syscall::{
-    ExitStatus, FileStat, HandleInfo, KernelStats, MSG_MAX, PATH_MAX, RecvArgs, SelfInfo, SpawnArgs,
-    debug_op, kill_reason, map_flags, nr, qemu_exit, recv_flags,
+    DIR_ENTRIES_MAX, DirEntry, ExitStatus, FileStat, HandleInfo, KernelStats, MSG_MAX, PATH_MAX, RecvArgs,
+    SelfInfo, SpawnArgs, debug_op, kill_reason, map_flags, nr, qemu_exit, recv_flags, wait_flags,
 };
 
 use crate::arch;
@@ -46,7 +46,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::HANDLE_CLOSE => sys_handle_close(a[0] as Handle),
         nr::HANDLE_DUP => sys_handle_dup(a[0] as Handle, a[1] as u32),
         nr::SPAWN => sys_spawn(a[0] as Handle, a[1]),
-        nr::WAIT => sys_wait(a[0] as Handle, a[1]),
+        nr::WAIT => sys_wait(a[0] as Handle, a[1], a[2] as u32),
         nr::KILL => sys_kill(a[0] as Handle),
         nr::SELF_INFO => sys_self_info(a[0]),
         nr::KSTATS => sys_kstats(a[0] as Handle, a[1]),
@@ -59,6 +59,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::VMO_CREATE => sys_vmo_create(a[0]),
         nr::VMO_MAP => sys_vmo_map(a[0] as Handle, a[1] as u32),
         nr::VMO_SIZE => sys_vmo_size(a[0] as Handle),
+        nr::FS_LIST => sys_fs_list(a[0] as Handle, a[1], a[2], a[3], a[4]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -121,6 +122,30 @@ fn sys_fs_read(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, 
     let buf = user_bytes(buf_ptr, len, true)?;
     buf[..n].copy_from_slice(&tmp[..n]);
     Ok(n)
+}
+
+/// List a directory. `cap` entries fit in the caller's buffer; the return value is
+/// how many were written, capped at [`DIR_ENTRIES_MAX`].
+fn sys_fs_list(root: Handle, path_ptr: u64, path_len: u64, out: u64, cap: u64) -> Result<usize, Error> {
+    require_root(root, rights::FS)?;
+    if cap == 0 {
+        return Err(Error::Invalid);
+    }
+    let want = (cap as usize).min(DIR_ENTRIES_MAX);
+    let bytes = (want * core::mem::size_of::<DirEntry>()) as u64;
+    user_bytes(out, bytes, true)?;
+    let path = read_user_str(path_ptr, path_len, PATH_MAX as u64)?;
+    heap::reserve(want * core::mem::size_of::<DirEntry>())?;
+    let entries = fs::list(&path, want)?;
+    let dst = user_bytes(out, bytes, true)?;
+    for (i, e) in entries.iter().enumerate() {
+        let off = i * core::mem::size_of::<DirEntry>();
+        // SAFETY: `dst` is `want * size_of::<DirEntry>()` writable user bytes and
+        // `i < want`; DirEntry is plain `repr(C)` data with no padding requirements
+        // beyond 8-byte alignment, so an unaligned write is used.
+        unsafe { core::ptr::write_unaligned(dst[off..].as_mut_ptr() as *mut DirEntry, *e) };
+    }
+    Ok(entries.len())
 }
 
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
@@ -515,7 +540,10 @@ fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
     }
 }
 
-fn sys_wait(h: Handle, out: u64) -> Result<usize, Error> {
+fn sys_wait(h: Handle, out: u64, flags: u32) -> Result<usize, Error> {
+    if flags & !wait_flags::NONBLOCK != 0 {
+        return Err(Error::Invalid);
+    }
     user_bytes(out, core::mem::size_of::<ExitStatus>() as u64, true)?;
     let status = with_process(h, rights::WAIT, |target| {
         if Arc::ptr_eq(target, &current()) {
@@ -527,6 +555,9 @@ fn sys_wait(h: Handle, out: u64) -> Result<usize, Error> {
                     let st = target.status.lock();
                     if let Some(s) = *st {
                         return Ok(s);
+                    }
+                    if flags & wait_flags::NONBLOCK != 0 {
+                        return Err(Error::WouldBlock);
                     }
                     target.exit_waiters.sleep_after(move || drop(st))?;
                 }

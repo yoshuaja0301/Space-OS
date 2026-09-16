@@ -477,6 +477,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spaceshell"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spin"
 version = "0.1.0"
 dependencies = [
@@ -574,6 +582,14 @@ name = "uguid"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab14ea9660d240e7865ce9d54ecdbd1cd9fa5802ae6f4512f093c7907e921533"
+
+[[package]]
+name = "uiworker"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
 
 [[package]]
 name = "unicode-ident"

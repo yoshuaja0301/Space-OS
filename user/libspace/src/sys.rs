@@ -5,7 +5,7 @@ use core::arch::asm;
 use spaceabi::error::{Error, decode};
 use spaceabi::handle::{self, Handle};
 use spaceabi::syscall::{
-    ExitStatus, FileStat, HandleInfo, KernelStats, RecvArgs, SelfInfo, SpawnArgs, nr, recv_flags,
+    DirEntry, ExitStatus, FileStat, HandleInfo, KernelStats, RecvArgs, SelfInfo, SpawnArgs, nr, recv_flags,
 };
 
 /// Raw syscall with up to six arguments. Public so tests can probe invalid numbers.
@@ -126,6 +126,24 @@ pub fn wait(h: Handle) -> Result<ExitStatus, Error> {
     Ok(st)
 }
 
+/// Reap `h` if it has already ended; `WouldBlock` while it is still running.
+/// A supervisor polls with this so it never stops serving its control channel.
+pub fn wait_nonblocking(h: Handle) -> Result<ExitStatus, Error> {
+    let mut st = ExitStatus::default();
+    call(
+        nr::WAIT,
+        [
+            h as u64,
+            &mut st as *mut ExitStatus as u64,
+            spaceabi::syscall::wait_flags::NONBLOCK as u64,
+            0,
+            0,
+            0,
+        ],
+    )?;
+    Ok(st)
+}
+
 pub fn kill(h: Handle) -> Result<(), Error> {
     call(nr::KILL, [h as u64, 0, 0, 0, 0, 0]).map(|_| ())
 }
@@ -169,6 +187,14 @@ pub fn fs_open(root: Handle, path: &str) -> Result<Handle, Error> {
 /// Read at `offset`; returns the number of bytes placed in `buf` (0 at end of file).
 pub fn fs_read(file: Handle, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
     call(nr::FS_READ, [file as u64, offset, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0])
+}
+
+/// List a directory into `out`; returns the entries written.
+pub fn fs_list(root: Handle, path: &str, out: &mut [DirEntry]) -> Result<usize, Error> {
+    call(
+        nr::FS_LIST,
+        [root as u64, path.as_ptr() as u64, path.len() as u64, out.as_mut_ptr() as u64, out.len() as u64, 0],
+    )
 }
 
 pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {

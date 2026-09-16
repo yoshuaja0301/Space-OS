@@ -1,0 +1,16 @@
+[package]
+name = "uiworker"
+description = "Test: the job spaceshell supervises; reaches every worker end state on request"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "uiworker"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

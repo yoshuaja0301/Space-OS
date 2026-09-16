@@ -10,6 +10,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use spaceabi::error::Error;
+use spaceabi::syscall::DirEntry;
 
 use crate::dev::virtio_blk::{self, SECTOR_SIZE};
 
@@ -196,37 +197,86 @@ impl Fat32 {
         }
     }
 
-    /// Resolve an absolute path such as `/spaceos/model.slm` (case insensitive).
-    pub fn open(&mut self, path: &str) -> Result<FileNode, Error> {
+    /// Resolve an absolute path such as `/spaceos/model.slm` (case insensitive) to
+    /// `(first cluster, size, is_dir)`. `/` is the volume root.
+    ///
+    /// Only a directory can be walked through: treating a file's data as directory
+    /// entries would hand the caller whatever those bytes happen to decode to.
+    fn resolve(&mut self, path: &str) -> Result<(u32, u64, bool), Error> {
         let mut cluster = self.root_cluster;
-        let mut node = FileNode { first_cluster: cluster, size: 0 };
+        let mut found = (self.root_cluster, 0u64, true);
         let mut components = path.split('/').filter(|c| !c.is_empty()).peekable();
-        if components.peek().is_none() {
-            return Err(Error::Invalid);
-        }
         while let Some(component) = components.next() {
             if component.len() > 12 {
                 return Err(Error::Invalid);
             }
             let upper: String = component.chars().map(|c| c.to_ascii_uppercase()).collect();
             let (first, size, is_dir) = self.lookup(cluster, &upper)?;
-            let last = components.peek().is_none();
-            // Only a directory can be walked through, and only a file can be opened:
-            // treating a file's data as directory entries would hand the caller
-            // whatever those bytes happen to decode to.
             if !is_dir {
-                if !last {
+                if components.peek().is_some() {
                     return Err(Error::NotFound);
                 }
-                node = FileNode { first_cluster: first, size };
-                break;
-            }
-            if last {
-                return Err(Error::Invalid);
+                return Ok((first, size, false));
             }
             cluster = if first == 0 { self.root_cluster } else { first };
+            found = (cluster, size, true);
         }
-        Ok(node)
+        Ok(found)
+    }
+
+    /// Open a regular file. A directory is not a file and is refused.
+    pub fn open(&mut self, path: &str) -> Result<FileNode, Error> {
+        let (first, size, is_dir) = self.resolve(path)?;
+        if is_dir {
+            return Err(Error::Invalid);
+        }
+        Ok(FileNode { first_cluster: first, size })
+    }
+
+    /// Entries of a directory, at most `max`.
+    pub fn list(&mut self, path: &str, max: usize) -> Result<Vec<DirEntry>, Error> {
+        let (cluster, _, is_dir) = self.resolve(path)?;
+        if !is_dir {
+            return Err(Error::Invalid);
+        }
+        let cluster_len = self.cluster_bytes() as usize;
+        let mut buf = vec![0u8; cluster_len];
+        let mut out = Vec::new();
+        out.try_reserve(max).map_err(|_| Error::NoMemory)?;
+        let mut cluster = cluster;
+        let mut visited = 0u32;
+        loop {
+            self.read_cluster(cluster, &mut buf)?;
+            for entry in buf.chunks_exact(32) {
+                match entry[0] {
+                    0x00 => return Ok(out), // end of directory
+                    0xE5 => continue,       // deleted
+                    _ => {}
+                }
+                let attr = entry[11];
+                if attr == ATTR_LONG_NAME || attr & ATTR_VOLUME_ID != 0 {
+                    continue;
+                }
+                let name = Self::short_name(entry);
+                let mut e = DirEntry { is_dir: u8::from(attr & ATTR_DIRECTORY != 0), ..Default::default() };
+                let bytes = name.as_bytes();
+                let n = bytes.len().min(e.name.len());
+                e.name[..n].copy_from_slice(&bytes[..n]);
+                e.size = rd32(entry, 28) as u64;
+                out.push(e);
+                if out.len() == max {
+                    return Ok(out);
+                }
+            }
+            visited += 1;
+            if visited > self.total_clusters {
+                return Err(Error::Invalid);
+            }
+            match self.next_cluster(cluster)? {
+                Some(next) => cluster = next,
+                None => return Ok(out),
+            }
+        }
     }
 
     /// Read up to `buf.len()` bytes of `node` starting at `offset`.

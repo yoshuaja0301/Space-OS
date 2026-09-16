@@ -26,6 +26,7 @@ pub mod error;
 pub mod handle;
 pub mod math;
 pub mod model;
+pub mod shell;
 pub mod syscall;
 pub mod tar;
 
