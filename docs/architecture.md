@@ -24,9 +24,14 @@ UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──�
 | `0xFFFF_8000_0000_0000` | linear map memori fisik (`PHYS_OFFSET`), NX |
 | `0xFFFF_9000_0000_0000` | heap kernel |
 | `0xFFFF_A000_0000_0000` | slot kernel stack 64 KiB (32 KiB terpeta + guard) |
+| `0xFFFF_B000_0000_0000` | jendela MMIO perangkat (uncached, NX) |
 | `0xFFFF_FFFF_8000_0000` | image kernel |
 
 Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin dari PML4 kernel (sub-tabel heap dan kernel stack dipra-alokasi agar pemetaan baru terlihat semua proses).
+
+## Penyimpanan (tahap 3)
+
+`pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan dengan polling berbatas; register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca volume FAT32 read-only dari perangkat itu, dan `SYS_FS_OPEN/READ/STAT` memberi user space akses berbasis capability ke berkasnya.
 
 ## Objek kernel
 

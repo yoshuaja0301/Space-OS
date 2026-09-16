@@ -4,7 +4,9 @@ use core::arch::asm;
 
 use spaceabi::error::{Error, decode};
 use spaceabi::handle::{self, Handle};
-use spaceabi::syscall::{ExitStatus, HandleInfo, KernelStats, RecvArgs, SelfInfo, SpawnArgs, nr, recv_flags};
+use spaceabi::syscall::{
+    ExitStatus, FileStat, HandleInfo, KernelStats, RecvArgs, SelfInfo, SpawnArgs, nr, recv_flags,
+};
 
 /// Raw syscall with up to six arguments. Public so tests can probe invalid numbers.
 ///
@@ -142,6 +144,22 @@ pub fn kstats(root: Handle) -> Result<KernelStats, Error> {
 
 pub fn shutdown(root: Handle, code: u32) -> Result<(), Error> {
     call(nr::SHUTDOWN, [root as u64, code as u64, 0, 0, 0, 0]).map(|_| ())
+}
+
+/// Open a file on a mounted volume (requires the root FS right).
+pub fn fs_open(root: Handle, path: &str) -> Result<Handle, Error> {
+    call(nr::FS_OPEN, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0]).map(|v| v as Handle)
+}
+
+/// Read at `offset`; returns the number of bytes placed in `buf` (0 at end of file).
+pub fn fs_read(file: Handle, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+    call(nr::FS_READ, [file as u64, offset, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0])
+}
+
+pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {
+    let mut st = FileStat::default();
+    call(nr::FS_STAT, [file as u64, &mut st as *mut FileStat as u64, 0, 0, 0, 0])?;
+    Ok(st)
 }
 
 pub fn debug(root: Handle, op: u64) -> Result<(), Error> {

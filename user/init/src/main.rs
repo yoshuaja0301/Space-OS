@@ -11,8 +11,10 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libspace::spaceabi::error::Error;
+use libspace::sha256;
+use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::rights;
+use libspace::spaceabi::syscall::nr;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
 
@@ -174,6 +176,36 @@ fn no_leak_over(n: u32, label: &str, mut cycle: impl FnMut() -> Result<(), Strin
         ));
     }
     Ok(())
+}
+
+/// Read a whole file from the guest disk into `sink`, 4 KiB at a time.
+fn stream_file(path: &str, mut sink: impl FnMut(&[u8])) -> Result<u64, String> {
+    let f = sys::fs_open(ROOT, path).map_err(|e| alloc::format!("open {path}: {e}"))?;
+    let st = sys::fs_stat(f).map_err(|e| alloc::format!("stat {path}: {e}"))?;
+    let mut buf = [0u8; 4096];
+    let mut offset = 0u64;
+    loop {
+        let n = sys::fs_read(f, offset, &mut buf).map_err(|e| alloc::format!("read {path}: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        sink(&buf[..n]);
+        offset += n as u64;
+        if offset > st.size {
+            sys::handle_close(f).ok();
+            return Err(alloc::format!("{path} returned more than its {} byte size", st.size));
+        }
+    }
+    sys::handle_close(f).ok();
+    if offset != st.size {
+        return Err(alloc::format!("{path}: read {offset} of {} bytes", st.size));
+    }
+    Ok(offset)
+}
+
+/// Value of `key=` in a `key=value` manifest line set.
+fn manifest_value<'a>(manifest: &'a str, key: &str) -> Option<&'a str> {
+    manifest.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('=').map(str::trim))
 }
 
 fn stats() -> Result<KernelStats, String> {
@@ -470,6 +502,95 @@ pub extern "C" fn space_main() -> i32 {
             return Err(alloc::format!("{} live processes after the refused spawn", s.processes_live));
         }
         expect_exit("hello", spawn_and_wait("bin/hello", CHILD_QUOTA, None)?, 0)
+    });
+
+    r.run("D01", "SHA-256 in the guest matches the published test vectors", || {
+        let empty = sha256::to_hex(&sha256::digest(b""));
+        let abc = sha256::to_hex(&sha256::digest(b"abc"));
+        let million_a = {
+            let mut h = sha256::Sha256::new();
+            for _ in 0..1000 {
+                h.update(&[b'a'; 1000]);
+            }
+            sha256::to_hex(&h.finish())
+        };
+        let want_empty = b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let want_abc = b"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let want_million = b"cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0";
+        if &empty != want_empty || &abc != want_abc || &million_a != want_million {
+            return Err(String::from("SHA-256 implementation disagrees with the FIPS vectors"));
+        }
+        Ok(())
+    });
+
+    r.run("D01", "model file read from the guest disk matches the manifest checksum", || {
+        let mut manifest = alloc::string::String::new();
+        stream_file("/spaceos/manifest.txt", |chunk| {
+            manifest.push_str(core::str::from_utf8(chunk).unwrap_or(""));
+        })?;
+        let want_size: u64 = manifest_value(&manifest, "size")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| String::from("manifest has no size"))?;
+        let want_hash =
+            manifest_value(&manifest, "sha256").ok_or_else(|| String::from("manifest has no sha256"))?;
+        let path = manifest_value(&manifest, "path").ok_or_else(|| String::from("manifest has no path"))?;
+
+        let mut hasher = sha256::Sha256::new();
+        let read = stream_file(path, |chunk| hasher.update(chunk))?;
+        let got = sha256::to_hex(&hasher.finish());
+        let got = core::str::from_utf8(&got).unwrap_or("");
+        if read != want_size {
+            return Err(alloc::format!("{path}: {read} bytes read, manifest says {want_size}"));
+        }
+        if got != want_hash {
+            return Err(alloc::format!("{path}: sha256 {got}, manifest says {want_hash}"));
+        }
+        println!("[init] model {path}: {read} bytes, sha256 {got} verified from the guest disk");
+        Ok(())
+    });
+
+    r.run("D01", "file API rejects bad paths, missing rights and bad buffers", || {
+        match sys::fs_open(ROOT, "/spaceos/not_here.bin") {
+            Err(Error::NotFound) => {}
+            other => return Err(alloc::format!("missing file gave {other:?}")),
+        }
+        match sys::fs_open(ROOT, "/spaceos") {
+            Ok(h) => {
+                // A directory has no size and must not be readable as a file.
+                let st = sys::fs_stat(h).map_err(|e| alloc::format!("stat dir: {e}"))?;
+                sys::handle_close(h).ok();
+                if st.size != 0 {
+                    return Err(String::from("directory reported a non-zero size"));
+                }
+            }
+            Err(Error::NotFound) | Err(Error::Invalid) => {}
+            Err(e) => return Err(alloc::format!("opening a directory gave {e}")),
+        }
+        let no_fs = sys::handle_dup(ROOT, rights::STATS).map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::fs_open(no_fs, "/spaceos/manifest.txt");
+        sys::handle_close(no_fs).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("open without the FS right gave {other:?}")),
+        }
+        let f = sys::fs_open(ROOT, "/spaceos/manifest.txt").map_err(|e| alloc::format!("open: {e}"))?;
+        let bad = decode(unsafe { sys::raw(nr::FS_READ, f as u64, 0, 0xFFFF_8000_0000_0000, 64, 0, 0) });
+        let past_end = {
+            let mut buf = [0u8; 16];
+            sys::fs_read(f, 1 << 40, &mut buf)
+        };
+        let as_channel = sys::fs_stat(handle::BOOTSTRAP);
+        sys::handle_close(f).ok();
+        if bad != Err(Error::Fault) {
+            return Err(alloc::format!("read into kernel memory gave {bad:?}"));
+        }
+        if past_end != Ok(0) {
+            return Err(alloc::format!("read past end of file gave {past_end:?}"));
+        }
+        if as_channel != Err(Error::Denied) {
+            return Err(alloc::format!("stat on a channel handle gave {as_channel:?}"));
+        }
+        Ok(())
     });
 
     let total = r.passed + r.failed.len() as u32;

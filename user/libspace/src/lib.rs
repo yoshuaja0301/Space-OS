@@ -11,12 +11,13 @@ extern crate alloc;
 
 pub mod heap;
 pub mod io;
+pub mod sha256;
 pub mod sys;
 
 pub use spaceabi;
 pub use spaceabi::error::Error;
 pub use spaceabi::handle::{self, Handle};
-pub use spaceabi::syscall::{ExitStatus, KernelStats, SelfInfo, exit_kind, kill_reason};
+pub use spaceabi::syscall::{ExitStatus, FileStat, KernelStats, SelfInfo, exit_kind, kill_reason};
 
 use core::arch::naked_asm;
 

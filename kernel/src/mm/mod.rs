@@ -13,6 +13,7 @@
 pub mod frame;
 pub mod heap;
 pub mod kstack;
+pub mod mmio;
 pub mod paging;
 
 pub use paging::{AddressSpace, phys_to_virt};
@@ -22,6 +23,9 @@ pub const PAGE_SIZE: u64 = 4096;
 pub const HEAP_BASE: u64 = 0xFFFF_9000_0000_0000;
 pub const HEAP_SIZE: usize = 16 * 1024 * 1024;
 pub const KSTACK_BASE: u64 = 0xFFFF_A000_0000_0000;
+/// Window for device MMIO, mapped uncached (PML4 slot 352).
+pub const MMIO_BASE: u64 = 0xFFFF_B000_0000_0000;
+pub const MMIO_WINDOW: u64 = 1 << 30;
 /// Exclusive end of user space (lower canonical half).
 pub const USER_SPACE_END: u64 = 0x0000_8000_0000_0000;
 
@@ -30,6 +34,7 @@ pub fn init(bi: &BootInfo) {
     paging::init(bi);
     heap::init();
     kstack::init();
+    mmio::init();
     let (total, free) = frame::stats();
     println!(
         "[kernel] memory: {} MiB usable, {} MiB free after kernel init",

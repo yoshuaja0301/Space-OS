@@ -19,9 +19,16 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).
 - Keyboard hanya dikuras (IRQ1), tidak diteruskan ke user-space.
 
+## Penyimpanan
+
+- Driver blok dan FAT32 berada **di dalam kernel** (ADR-0007), bukan user-space; tanpa IOMMU, driver DMA tetap komponen tepercaya.
+- FAT32 **read-only**, satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3.
+- VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
+- Hanya perangkat virtio-blk 1.0 modern; perangkat legacy/transitional tanpa kapabilitas modern diabaikan.
+
 ## Belum ada (tahap berikutnya)
 
-- Driver VirtIO block/net/input/display, VFS, jaringan (tahap 3, D01).
+- VirtIO net/input/display, jaringan (sisa tahap 3).
 - Compute ABI v0, backend CPU, tokenizer, inferensi (tahap 4–5, C01, A01).
 - SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, Space Shell, package service, tanda tangan paket (5A).
 - GPU, ARM64 (6–7).

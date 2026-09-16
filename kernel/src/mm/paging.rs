@@ -16,6 +16,7 @@ use crate::sync::{SpinLock, StaticCell};
 
 pub const HEAP_PML4_INDEX: usize = 288;
 pub const KSTACK_PML4_INDEX: usize = 320;
+pub const MMIO_PML4_INDEX: usize = 352;
 
 /// Virtual address of a physical address inside the linear map.
 pub fn phys_to_virt(pa: u64) -> VirtAddr {
@@ -54,7 +55,7 @@ pub fn init(bi: &BootInfo) {
     }
     // Pre-populate the PDPTs of the heap and kernel-stack regions so that every
     // process PML4 (which copies slots 256..512) shares the same sub-tables.
-    for idx in [HEAP_PML4_INDEX, KSTACK_PML4_INDEX] {
+    for idx in [HEAP_PML4_INDEX, KSTACK_PML4_INDEX, MMIO_PML4_INDEX] {
         let pdpt = frame::alloc_zeroed().expect("no frame for kernel PDPT");
         table[idx].set_frame(pdpt, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
     }

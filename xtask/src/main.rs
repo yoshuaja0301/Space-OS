@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 const USER_PROGRAMS: &[&str] =
     &["init", "hello", "fault", "abi_negative", "ipc_echo", "quota", "spin", "worker", "blocker"];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
+/// Guest data disk (virtio-blk): holds the model and its manifest.
+const DATA_SIZE: u64 = 64 * 1024 * 1024;
+const MODEL_PATH: &str = "/spaceos/model.slm";
 const PART_START: u64 = 1024 * 1024;
 const BOOT_TIMEOUT: Duration = Duration::from_secs(240);
 
@@ -237,6 +240,68 @@ fn make_image(built: &Built, cmdline: &str, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Deterministic model payload. Stage 5 replaces the body with a real SpaceLM
+/// model; the bytes only have to be reproducible for the D01 checksum test.
+fn model_blob() -> Vec<u8> {
+    let mut out = Vec::with_capacity(256 * 1024);
+    let mut x: u64 = 0x5061_6365_4F53_0001; // "SpaceOS" seed
+    while out.len() < 256 * 1024 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Build the guest data disk: a bare FAT32 volume (no partition table) with the
+/// model and a manifest naming its size and SHA-256.
+fn make_data_disk(out: &Path) -> Result<(), String> {
+    let model = model_blob();
+    let manifest = format!(
+        "# Space OS model manifest\npath={MODEL_PATH}\nsize={}\nsha256={}\n",
+        model.len(),
+        sha256_hex(&model)
+    );
+    fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
+    let f = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(out)
+        .map_err(|e| e.to_string())?;
+    f.set_len(DATA_SIZE).map_err(|e| e.to_string())?;
+    let mut disk = fscommon::BufStream::new(f);
+    fatfs::format_volume(
+        &mut disk,
+        fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat32).volume_label(*b"SPACEDATA  "),
+    )
+    .map_err(|e| format!("format data disk: {e}"))?;
+    {
+        let fs = fatfs::FileSystem::new(&mut disk, fatfs::FsOptions::new()).map_err(|e| e.to_string())?;
+        let dir = fs.root_dir().create_dir("SPACEOS").map_err(|e| e.to_string())?;
+        dir.create_file("MODEL.SLM")
+            .map_err(|e| e.to_string())?
+            .write_all(&model)
+            .map_err(|e| e.to_string())?;
+        dir.create_file("MANIFEST.TXT")
+            .map_err(|e| e.to_string())?
+            .write_all(manifest.as_bytes())
+            .map_err(|e| e.to_string())?;
+    }
+    disk.flush().map_err(|e| e.to_string())?;
+    println!("== data disk {} ({} KiB model, FAT32)", out.display(), model.len() / 1024);
+    Ok(())
+}
+
 fn find_firmware() -> Result<(PathBuf, PathBuf), String> {
     if let (Ok(c), Ok(v)) = (std::env::var("SPACEOS_OVMF_CODE"), std::env::var("SPACEOS_OVMF_VARS")) {
         return Ok((c.into(), v.into()));
@@ -268,6 +333,7 @@ struct QemuRun {
 /// The pinned lab profile (PRD §6): q35, TCG, 4 vCPU, 8 GiB, OVMF, isa-debug-exit.
 fn qemu_args(
     image: &Path,
+    data_image: &Path,
     vars_copy: &Path,
     code: &Path,
     gui: bool,
@@ -288,6 +354,10 @@ fn qemu_args(
         format!("if=pflash,format=raw,file={}", vars_copy.display()),
         "-drive".into(),
         format!("format=raw,file={}", image.display()),
+        "-drive".into(),
+        format!("if=none,id=spacedata,format=raw,file={}", data_image.display()),
+        "-device".into(),
+        "virtio-blk-pci,drive=spacedata,disable-legacy=on".into(),
         "-device".into(),
         "isa-debug-exit,iobase=0xf4,iosize=0x04".into(),
         "-no-reboot".into(),
@@ -308,14 +378,19 @@ fn qemu_bin() -> String {
     std::env::var("SPACEOS_QEMU").unwrap_or_else(|_| "qemu-system-x86_64".into())
 }
 
-fn run_qemu_capture(image: &Path, log_path: &Path, done_markers: &[&str]) -> Result<QemuRun, String> {
+fn run_qemu_capture(
+    image: &Path,
+    data_image: &Path,
+    log_path: &Path,
+    done_markers: &[&str],
+) -> Result<QemuRun, String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
     if log_path.exists() {
         fs::remove_file(log_path).ok();
     }
-    let args = qemu_args(image, &vars_copy, &code, false, Some(log_path))?;
+    let args = qemu_args(image, data_image, &vars_copy, &code, false, Some(log_path))?;
     let start = Instant::now();
     let mut child = Command::new(qemu_bin())
         .args(&args)
@@ -368,6 +443,9 @@ struct Scenario {
     expect_exit: i32,
     must_contain: &'static [&'static str],
     must_not_contain: &'static [&'static str],
+    /// Consecutive boots of the same image that must all pass (D01 asks for the
+    /// checksum to hold after a reboot).
+    runs: u32,
 }
 
 /// QEMU exit status = (value << 1) | 1 for isa-debug-exit.
@@ -383,10 +461,13 @@ const SCENARIOS: &[Scenario] = &[
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] selftest: heap ok",
+            "[kernel] virtio-blk: ready",
+            "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
             "[init] ALL TESTS PASSED",
         ],
         must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"],
+        runs: 1,
     },
     Scenario {
         name: "panic-diagnosis",
@@ -399,6 +480,7 @@ const SCENARIOS: &[Scenario] = &[
             "spacekernel: halted after panic",
         ],
         must_not_contain: &["[init] Space OS init running"],
+        runs: 1,
     },
     Scenario {
         name: "kernel-fault-diagnosis",
@@ -410,6 +492,7 @@ const SCENARIOS: &[Scenario] = &[
             "!!! KERNEL PANIC !!!",
         ],
         must_not_contain: &["[init] Space OS init running"],
+        runs: 1,
     },
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
@@ -417,6 +500,20 @@ const SCENARIOS: &[Scenario] = &[
         expect_exit: EXIT_PANIC,
         must_contain: &["!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!", "!!! KERNEL PANIC !!!"],
         must_not_contain: &["[init] Space OS init running"],
+        runs: 1,
+    },
+    Scenario {
+        name: "storage-reboot",
+        cmdline: "",
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "[kernel] virtio-blk: ready",
+            "[kernel] vfs: FAT32 mounted",
+            "[init] PASS D01",
+            "[init] ALL TESTS PASSED",
+        ],
+        must_not_contain: &["KERNEL PANIC", "[init] FAIL"],
+        runs: 2,
     },
 ];
 
@@ -445,28 +542,43 @@ fn cmd_test(release: bool) -> Result<(), String> {
     let built = build(release)?;
     let logs = root().join("build/logs");
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    let data_image = root().join("build/data.img");
+    make_data_disk(&data_image)?;
     let mut failures = 0;
     for s in SCENARIOS {
         let image = root().join(format!("build/esp-{}.img", s.name));
         make_image(&built, s.cmdline, &image)?;
-        let log_path = logs.join(format!("{}.log", s.name));
-        println!("== scenario {} (cmdline {:?})", s.name, s.cmdline);
-        let run = run_qemu_capture(
-            &image,
-            &log_path,
-            &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
-        )?;
-        let problems = check_run(s, &run);
-        if problems.is_empty() {
+        println!("== scenario {} (cmdline {:?}, {} boot(s))", s.name, s.cmdline, s.runs);
+        for run_index in 1..=s.runs {
+            let log_path = if s.runs == 1 {
+                logs.join(format!("{}.log", s.name))
+            } else {
+                logs.join(format!("{}-boot{run_index}.log", s.name))
+            };
+            let run = run_qemu_capture(
+                &image,
+                &data_image,
+                &log_path,
+                &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
+            )?;
+            let problems = check_run(s, &run);
+            if problems.is_empty() {
+                println!(
+                    "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), log: {}",
+                    s.runs,
+                    run.elapsed.as_secs_f64(),
+                    run.exit_code,
+                    log_path.display()
+                );
+                continue;
+            }
+            failures += 1;
             println!(
-                "   PASS in {:.1}s (exit {:?}), log: {}",
+                "   FAIL boot {run_index}/{} in {:.1}s, log: {}",
+                s.runs,
                 run.elapsed.as_secs_f64(),
-                run.exit_code,
                 log_path.display()
             );
-        } else {
-            failures += 1;
-            println!("   FAIL in {:.1}s, log: {}", run.elapsed.as_secs_f64(), log_path.display());
             for p in problems {
                 println!("     - {p}");
             }
@@ -475,6 +587,7 @@ fn cmd_test(release: bool) -> Result<(), String> {
                 println!("{l}");
             }
             println!("-----------------------------");
+            break;
         }
     }
     if failures == 0 {
@@ -490,6 +603,8 @@ fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
     let s = &SCENARIOS[0];
     let image = root().join("build/esp-soak.img");
     make_image(&built, s.cmdline, &image)?;
+    let data_image = root().join("build/data.img");
+    make_data_disk(&data_image)?;
     let logs = root().join("build/logs/soak");
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let mut times = Vec::new();
@@ -498,6 +613,7 @@ fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
         let log_path = logs.join(format!("boot-{i:03}.log"));
         let run = run_qemu_capture(
             &image,
+            &data_image,
             &log_path,
             &["[kernel] shutdown requested", "spacekernel: halted after panic"],
         )?;
@@ -530,10 +646,12 @@ fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
     let built = build(release)?;
     let image = root().join("build/esp-run.img");
     make_image(&built, cmdline, &image)?;
+    let data_image = root().join("build/data.img");
+    make_data_disk(&data_image)?;
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
-    let args = qemu_args(&image, &vars_copy, &code, gui, None)?;
+    let args = qemu_args(&image, &data_image, &vars_copy, &code, gui, None)?;
     println!("== {} {}", qemu_bin(), args.join(" "));
     let st = Command::new(qemu_bin()).args(&args).status().map_err(|e| e.to_string())?;
     println!(
@@ -592,7 +710,9 @@ fn main() {
     let release = !args.iter().any(|a| a == "--debug");
     let cmd = args.first().map(String::as_str).unwrap_or("");
     let res = match cmd {
-        "build" | "image" => build(release).and_then(|b| make_image(&b, "", &root().join("build/esp.img"))),
+        "build" | "image" => build(release)
+            .and_then(|b| make_image(&b, "", &root().join("build/esp.img")))
+            .and_then(|()| make_data_disk(&root().join("build/data.img"))),
         "run" => {
             let gui = args.iter().any(|a| a == "--gui");
             let cmdline = args

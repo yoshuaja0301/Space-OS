@@ -17,7 +17,9 @@ mod console;
 
 mod arch;
 mod cmdline;
+mod dev;
 mod fb;
+mod fs;
 mod initrd;
 mod ipc;
 mod mm;
@@ -108,6 +110,8 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     fb::init(bi);
     cmdline::init(bi);
     initrd::init(bi);
+    dev::init();
+    fs::init();
     arch::pic::init();
     arch::pit::init(sched::TICK_HZ);
     arch::syscall::init();

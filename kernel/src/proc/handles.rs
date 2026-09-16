@@ -7,11 +7,18 @@ use spaceabi::error::Error;
 use spaceabi::handle::{Handle, MAX_HANDLES, kind};
 
 use super::Process;
+use crate::fs::fat32::FileNode;
 use crate::ipc::channel::Endpoint;
+
+/// An open file on a mounted volume.
+pub struct OpenFile {
+    pub node: FileNode,
+}
 
 pub enum Object {
     Channel(Arc<Endpoint>),
     Process(Arc<Process>),
+    File(Arc<OpenFile>),
     Root,
 }
 
@@ -20,6 +27,7 @@ impl Object {
         match self {
             Object::Channel(_) => kind::CHANNEL,
             Object::Process(_) => kind::PROCESS,
+            Object::File(_) => kind::FILE,
             Object::Root => kind::ROOT,
         }
     }
@@ -28,6 +36,7 @@ impl Object {
         match self {
             Object::Channel(e) => Object::Channel(e.clone()),
             Object::Process(p) => Object::Process(p.clone()),
+            Object::File(f) => Object::File(f.clone()),
             Object::Root => Object::Root,
         }
     }

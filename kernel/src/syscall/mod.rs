@@ -9,15 +9,16 @@ use alloc::sync::Arc;
 use spaceabi::error::{Error, encode};
 use spaceabi::handle::{self, Handle, rights};
 use spaceabi::syscall::{
-    ExitStatus, HandleInfo, KernelStats, MSG_MAX, RecvArgs, SelfInfo, SpawnArgs, debug_op, kill_reason,
-    map_flags, nr, qemu_exit, recv_flags,
+    ExitStatus, FileStat, HandleInfo, KernelStats, MSG_MAX, PATH_MAX, RecvArgs, SelfInfo, SpawnArgs,
+    debug_op, kill_reason, map_flags, nr, qemu_exit, recv_flags,
 };
 
 use crate::arch;
 use crate::arch::syscall::SyscallFrame;
+use crate::fs;
 use crate::ipc::channel::{Endpoint, Message};
 use crate::mm::{PAGE_SIZE, frame, heap};
-use crate::proc::handles::{HandleEntry, Object};
+use crate::proc::handles::{HandleEntry, Object, OpenFile};
 use crate::proc::{self, Process};
 use crate::sched;
 
@@ -52,6 +53,9 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::SHUTDOWN => sys_shutdown(a[0] as Handle, a[1] as u32),
         nr::DEBUG => sys_debug(a[0] as Handle, a[1]),
         nr::HANDLE_INFO => sys_handle_info(a[0] as Handle, a[1]),
+        nr::FS_OPEN => sys_fs_open(a[0] as Handle, a[1], a[2]),
+        nr::FS_READ => sys_fs_read(a[0] as Handle, a[1], a[2], a[3]),
+        nr::FS_STAT => sys_fs_stat(a[0] as Handle, a[1]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -63,6 +67,61 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         proc::exit_current(ExitStatus::killed(kill_reason::GENERAL_PROTECTION, frame.rip));
     }
     encode(r)
+}
+
+fn with_file<R>(
+    h: Handle,
+    need: u32,
+    f: impl FnOnce(&Arc<OpenFile>) -> Result<R, Error>,
+) -> Result<R, Error> {
+    let p = current();
+    let file = {
+        let t = p.handles.lock();
+        let e = t.get(h)?;
+        match &e.object {
+            Object::File(f) if e.has(need) => f.clone(),
+            _ => return Err(Error::Denied),
+        }
+    };
+    f(&file)
+}
+
+fn sys_fs_open(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Error> {
+    require_root(root, rights::FS)?;
+    heap::reserve(cost::HANDLE)?;
+    let path = read_user_str(path_ptr, path_len, PATH_MAX as u64)?;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    let node = fs::open(&path)?;
+    let entry = HandleEntry { object: Object::File(Arc::new(OpenFile { node })), rights: rights::FILE_ALL };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+fn sys_fs_read(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, Error> {
+    if len > MAX_USER_COPY {
+        return Err(Error::Invalid);
+    }
+    // Validate the destination before touching the device so a bad pointer cannot
+    // consume a read.
+    user_bytes(buf_ptr, len, true)?;
+    let node = with_file(h, rights::READ, |f| Ok(f.node))?;
+    let mut tmp = alloc::vec::Vec::new();
+    tmp.try_reserve_exact(len as usize).map_err(|_| Error::NoMemory)?;
+    tmp.resize(len as usize, 0);
+    let n = fs::read(&node, offset, &mut tmp)?;
+    let buf = user_bytes(buf_ptr, len, true)?;
+    buf[..n].copy_from_slice(&tmp[..n]);
+    Ok(n)
+}
+
+fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
+    let stat = with_file(h, rights::READ, |f| {
+        Ok(FileStat { size: f.node.size, block_size: crate::dev::virtio_blk::SECTOR_SIZE })
+    })?;
+    write_user(out, stat)?;
+    Ok(0)
 }
 
 /// Rough kernel-heap cost of the objects a syscall may create.

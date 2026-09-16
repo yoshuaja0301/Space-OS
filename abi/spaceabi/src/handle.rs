@@ -38,10 +38,15 @@ pub mod rights {
     pub const SHUTDOWN: u32 = 1 << 8;
     /// Root capability: kernel debug hooks (fault injection).
     pub const DEBUG: u32 = 1 << 9;
+    /// Root capability: open files on mounted filesystems.
+    pub const FS: u32 = 1 << 10;
+    /// Read from a file handle.
+    pub const READ: u32 = 1 << 11;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
-    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | TRANSFER | DUP;
+    pub const FILE_ALL: u32 = READ | TRANSFER | DUP;
+    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | TRANSFER | DUP;
 }
 
 /// Kind of kernel object behind a handle (returned by `SYS_HANDLE_INFO`).
@@ -49,4 +54,5 @@ pub mod kind {
     pub const CHANNEL: u32 = 1;
     pub const PROCESS: u32 = 2;
     pub const ROOT: u32 = 3;
+    pub const FILE: u32 = 4;
 }

@@ -4,10 +4,11 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 
 | File | Skenario | Hasil |
 |---|---|---|
-| `acceptance.log` | boot normal, `init` menjalankan 29 uji K01–K03 | `ALL TESTS PASSED (29/29)`, exit QEMU 33 |
+| `acceptance.log` | boot normal, `init` menjalankan 32 uji K01–K03 dan D01 | `ALL TESTS PASSED (32/32)`, exit QEMU 33 |
 | `panic-diagnosis.log` | `selftest=panic` | pesan panic + lokasi + backtrace, exit 127 |
 | `kernel-fault-diagnosis.log` | `selftest=kfault` | dump register page fault ring 0 (`cr2=0xfffff000dead0000`) lalu panic, exit 127 |
 | `kernel-stack-overflow-diagnosis.log` | `selftest=stack` | double fault dari guard page kernel stack (stack IST), exit 127 |
+| `storage-reboot-boot1.log`, `storage-reboot-boot2.log` | image yang sama di-boot dua kali (D01 setelah reboot) | virtio-blk siap, FAT32 ter-mount, checksum model cocok pada kedua boot |
 | `soak-summary.txt` | 100 cold boot skenario acceptance (K01) | lihat isi file |
 
 ## Lingkungan host

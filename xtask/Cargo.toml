@@ -10,3 +10,4 @@ publish = false
 fatfs = "0.3.6"
 tar = "0.4"
 fscommon = "0.1"
+sha2 = "0.10"

@@ -50,8 +50,14 @@ pub mod nr {
     pub const DEBUG: usize = 18;
     /// `handle_info(handle, out: *mut HandleInfo) -> 0`
     pub const HANDLE_INFO: usize = 19;
+    /// `fs_open(root_handle, path_ptr, path_len) -> file_handle`
+    pub const FS_OPEN: usize = 20;
+    /// `fs_read(file_handle, offset, buf_ptr, len) -> bytes_read`
+    pub const FS_READ: usize = 21;
+    /// `fs_stat(file_handle, out: *mut FileStat) -> 0`
+    pub const FS_STAT: usize = 22;
 
-    pub const COUNT: usize = 20;
+    pub const COUNT: usize = 23;
 }
 
 /// Maximum inline message payload in bytes.
@@ -185,6 +191,18 @@ pub struct KernelStats {
     pub uptime_ms: u64,
     pub context_switches: u64,
 }
+
+/// Result of `SYS_FS_STAT`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FileStat {
+    pub size: u64,
+    /// Sector size of the backing block device (0 when not block backed).
+    pub block_size: u64,
+}
+
+/// Longest path `SYS_FS_OPEN` accepts.
+pub const PATH_MAX: usize = 255;
 
 /// Result of `SYS_HANDLE_INFO`.
 #[repr(C)]

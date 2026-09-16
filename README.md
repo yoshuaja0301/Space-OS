@@ -15,7 +15,7 @@ capability, user-space dengan syscall/IPC/kuota, dan bukti uji otomatis untuk pe
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
 | `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, page table higher-half, memory map, GOP, lompat ke kernel |
-| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, tabel capability, kuota, crash log |
+| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, tabel capability, kuota, crash log, PCI + virtio-blk + FAT32 read-only |
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!` |
 | `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak uji penerimaan K01–K03 |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/soak/ci`: image FAT (MBR+ESP), QEMU + OVMF, verifikasi log dan exit code |
@@ -44,7 +44,7 @@ spacekernel 0.1.0: Space OS kernel booting
 ...
 [init] frames free before=2089056 after=2089056 ; heap used before=1208 after=1208
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
-[init] ALL TESTS PASSED (29/29)
+[init] ALL TESTS PASSED (32/32)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 491 ms, 147 context switches)
 ```
 
