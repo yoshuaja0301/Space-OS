@@ -24,7 +24,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Penyimpanan
 
 - Driver blok dan FAT32 berada **di dalam kernel** (ADR-0007), bukan user-space; tanpa IOMMU, driver DMA tetap komponen tepercaya.
-- FAT32 **read-only**, satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3.
+- FAT32 satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3. Menulis ada (ADR-0015) tetapi terbatas: **create-atau-kosongkan dan tulis**, tanpa hapus berkas, tanpa buat direktori, tanpa nama panjang, dan **tanpa jurnal** — kehilangan daya di tengah tulisan bisa meninggalkan FAT dan entri direktori tidak sinkron. Yang bisa ditulis hanya disk data; ESP tempat boot bukan perangkat virtio sehingga tidak terjangkau sama sekali.
 - VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
 - Hanya perangkat virtio-blk yang menawarkan kapabilitas modern (VIRTIO_F_VERSION_1). Perangkat transisional diterima karena juga menawarkannya; perangkat legacy murni diabaikan dengan pesan, bukan crash.
 - Ukuran antrean yang dipakai adalah hasil negosiasi, maksimum 16, dan satu permintaan dipotong agar muat (`size - 2` halaman data, maksimum 8 = 32 KiB). Antrean < 3 deskriptor membuat perangkat ditolak.

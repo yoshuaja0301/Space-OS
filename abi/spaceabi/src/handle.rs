@@ -52,12 +52,19 @@ pub mod rights {
     /// keystrokes and nothing else, and nothing that does not own the session should
     /// be able to read them.
     pub const CONSOLE: u32 = 1 << 14;
+    /// Root right: change the mounted volume. Separate from [`FS`] on purpose --
+    /// reading the disk and rewriting it are different powers, and a process that
+    /// needs the first is not thereby entitled to the second.
+    pub const FS_WRITE: u32 = 1 << 15;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
     pub const FILE_ALL: u32 = READ | TRANSFER | DUP;
+    /// A handle from `SYS_FS_CREATE`: the same as [`FILE_ALL`] plus the ability to
+    /// write, which only a create can hand out.
+    pub const FILE_WRITABLE: u32 = READ | WRITE | TRANSFER | DUP;
     pub const MEMORY_ALL: u32 = READ | WRITE | MAP | TRANSFER | DUP;
-    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | CONSOLE | TRANSFER | DUP;
+    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | FS_WRITE | CONSOLE | TRANSFER | DUP;
 }
 
 /// Kind of kernel object behind a handle (returned by `SYS_HANDLE_INFO`).

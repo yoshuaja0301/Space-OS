@@ -67,8 +67,13 @@ pub mod nr {
     /// `console_read(root_handle, buf_ptr, len) -> bytes` – what has been typed.
     /// Never blocks: 0 means nothing is waiting.
     pub const CONSOLE_READ: usize = 27;
+    /// `fs_create(root_handle, path_ptr, path_len) -> file_handle` – create the file
+    /// empty, or empty it if it is already there. Needs root `FS | FS_WRITE`.
+    pub const FS_CREATE: usize = 28;
+    /// `fs_write(file_handle, offset, buf_ptr, len) -> bytes_written`
+    pub const FS_WRITE: usize = 29;
 
-    pub const COUNT: usize = 28;
+    pub const COUNT: usize = 30;
 }
 
 /// Maximum inline message payload in bytes.

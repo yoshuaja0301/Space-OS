@@ -206,6 +206,18 @@ pub fn console_read(root: Handle, buf: &mut [u8]) -> Result<usize, Error> {
     call(nr::CONSOLE_READ, [root as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0])
 }
 
+/// Create `path` empty (or empty it if it is already there) and return a handle
+/// that may be written. Needs the root `FS | FS_WRITE` rights.
+pub fn fs_create(root: Handle, path: &str) -> Result<Handle, Error> {
+    call(nr::FS_CREATE, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0]).map(|h| h as Handle)
+}
+
+/// Write `buf` at `offset`. The handle must carry the `WRITE` right, which only
+/// [`fs_create`] hands out.
+pub fn fs_write(file: Handle, offset: u64, buf: &[u8]) -> Result<usize, Error> {
+    call(nr::FS_WRITE, [file as u64, offset, buf.as_ptr() as u64, buf.len() as u64, 0, 0])
+}
+
 pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {
     let mut st = FileStat::default();
     call(nr::FS_STAT, [file as u64, &mut st as *mut FileStat as u64, 0, 0, 0, 0])?;

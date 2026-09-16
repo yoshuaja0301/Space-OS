@@ -14,7 +14,9 @@ use crate::ipc::channel::Endpoint;
 
 /// An open file on a mounted volume.
 pub struct OpenFile {
-    pub node: FileNode,
+    /// Behind a lock because writing changes it: a file that grew must report its
+    /// new size to the next reader through the same handle.
+    pub node: crate::sync::SpinLock<FileNode>,
 }
 
 /// A block of physical frames several processes can map (the buffers of the

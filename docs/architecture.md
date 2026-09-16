@@ -31,7 +31,7 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 
 ## Penyimpanan (tahap 3)
 
-`pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan dengan polling berbatas; register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca volume FAT32 read-only dari perangkat itu, dan `SYS_FS_OPEN/READ/STAT` memberi user space akses berbasis capability ke berkasnya.
+`pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan **dan penulisan** dengan polling berbatas (`VIRTIO_BLK_F_FLUSH` dinegosiasikan bila ditawarkan, `VIRTIO_BLK_F_RO` dicatat sehingga tulisan ditolak di depan); register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca dan menulis volume FAT32 dari perangkat itu, `SYS_FS_OPEN/READ/STAT` memberi user space akses baca berbasis capability, dan `SYS_FS_CREATE/WRITE` akses tulis di balik hak root `FS_WRITE` yang terpisah (ADR-0015). Hanya disk data yang terjangkau: ESP tempat firmware boot bukan perangkat virtio.
 
 ## Komputasi (tahap 4)
 

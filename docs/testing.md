@@ -77,6 +77,9 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | C01 | `BUFFER_RELEASE` atas buffer yang masih dirujuk tiket tertunda → `WouldBlock`; setelah `CANCEL` buffer boleh dilepas | `bin/spacecompute` |
 | C01 | 512 permintaan yang masing-masing menyertakan handle transfer → layanan menutupnya, tabel handle tidak habis | `bin/spacecompute` |
 | D01 | berkas tidak ada → `NotFound`; menelusuri **melewati** berkas biasa (`/spaceos/manifest.txt/anything`) → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
+| D01 | berkas ditulis dalam tiga bentuk (di dalam satu cluster, melewati batas cluster sehingga harus mengalokasi, lalu ditambal di tengah) lalu dibaca ulang **byte demi byte**; ukuran dari `fs_stat` harus cocok | `bin/init` |
+| D01 | menulis adalah hak tersendiri: `FS` tanpa `FS_WRITE` → `Denied`, handle dari `fs_open` → `Denied`, nama di luar 8.3 → `Invalid`, direktori → `Invalid` | `bin/init` |
+| D01 | satu penghitung dibaca lalu ditulis satu lebih tinggi tiap boot; `storage-reboot` menuntut boot **kedua** menemukan angka yang ditinggalkan boot pertama (bidang `final_boot_markers` pada skenario) | `bin/init` |
 
 ### Uji U01 (sesi dan supervisi)
 
@@ -88,6 +91,10 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | U01 | `console_read` tanpa hak `CONSOLE` → `Denied`, ke memori kernel → `Fault`, dan tidak pernah memblokir | `bin/init` |
 | U01 | satu tombol ditekan oleh controller sendiri (`debug_op::PS2_INJECT`, perintah 8042 0xD2): byte itu harus melewati IRQ 1, pengurasan controller, decoder, ring, lalu sampai ke `console_read` sebagai `a` | `bin/init` |
 | U01 | ring masukan diluapkan dengan sengaja (`debug_op::CONSOLE_FLOOD`, 264 byte ke ring 256 byte): pembacaan berikutnya → `DataLoss` **sebelum** byte apa pun, laporan itu tidak memakan byte, dan byte yang selamat masih berupa potongan pola yang berurutan | `bin/init` |
+
+Gigi uji tulis terbukti: dengan `virtio_blk::write_sectors` diubah menjadi no-op yang
+melaporkan sukses, uji byte-demi-byte gagal dengan `open: not found` — berkas yang
+"berhasil dibuat" tidak pernah ada di disk.
 
 Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
 `wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena

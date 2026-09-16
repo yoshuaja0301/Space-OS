@@ -77,6 +77,15 @@ struct BlkReqHeader {
 }
 
 const BLK_T_IN: u32 = 0;
+const BLK_T_OUT: u32 = 1;
+const BLK_T_FLUSH: u32 = 4;
+
+/// Feature bit 5 (word 0): the device is read-only. Writes must be refused rather
+/// than sent and silently failed.
+const F_BLK_RO: u32 = 1 << 5;
+/// Feature bit 9 (word 0): the device understands a flush request. Without it there
+/// is no way to ask the device to make earlier writes durable.
+const F_BLK_FLUSH: u32 = 1 << 9;
 
 /// One 4 KiB page of DMA memory, addressable by both CPU and device.
 struct DmaPage {
@@ -109,6 +118,10 @@ struct VirtioBlk {
     max_data_pages: usize,
     last_used: u16,
     avail_idx: u16,
+    /// The device declared itself read-only; every write is refused up front.
+    read_only: bool,
+    /// The device accepted `VIRTIO_BLK_F_FLUSH`, so durability can be requested.
+    can_flush: bool,
     /// Set when a request timed out. The device has been reset and is never used
     /// again: a late completion would otherwise be mistaken for the next request's.
     failed: bool,
@@ -212,15 +225,23 @@ fn probe() -> Result<Option<u64>, Error> {
     mmio_write::<u8>(common + CC_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
     mmio_write::<u8>(common + CC_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
-    // Negotiate: we only require VIRTIO_F_VERSION_1 and no optional block features.
+    // Negotiate: VIRTIO_F_VERSION_1 is required. From the block features we take
+    // only FLUSH, and only if offered -- writing without a way to ask for durability
+    // would make "it survived the reboot" a property of the host's cache, not of this
+    // driver. RO is not a feature to accept but a fact to record: the device is
+    // telling us every write will fail.
     mmio_write::<u32>(common + CC_DEVICE_FEATURE_SELECT, 1);
     let device_features_hi = mmio_read::<u32>(common + CC_DEVICE_FEATURE);
     if device_features_hi & F_VERSION_1 == 0 {
         println!("[kernel] virtio-blk: device does not offer VIRTIO_F_VERSION_1; ignored");
         return Ok(None);
     }
+    mmio_write::<u32>(common + CC_DEVICE_FEATURE_SELECT, 0);
+    let device_features_lo = mmio_read::<u32>(common + CC_DEVICE_FEATURE);
+    let read_only = device_features_lo & F_BLK_RO != 0;
+    let can_flush = device_features_lo & F_BLK_FLUSH != 0;
     mmio_write::<u32>(common + CC_DRIVER_FEATURE_SELECT, 0);
-    mmio_write::<u32>(common + CC_DRIVER_FEATURE, 0);
+    mmio_write::<u32>(common + CC_DRIVER_FEATURE, device_features_lo & F_BLK_FLUSH);
     mmio_write::<u32>(common + CC_DRIVER_FEATURE_SELECT, 1);
     mmio_write::<u32>(common + CC_DRIVER_FEATURE, F_VERSION_1);
     mmio_write::<u8>(common + CC_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK);
@@ -296,13 +317,26 @@ fn probe() -> Result<Option<u64>, Error> {
         max_data_pages,
         last_used: 0,
         avail_idx: 0,
+        read_only,
+        can_flush,
         failed: false,
         capacity_sectors,
     };
     let status = dev.status();
     println!(
-        "[kernel] virtio-blk: pci {:02x}:{:02x}.{} queue size {} (max {}), {} data pages/request, status {:#x}",
-        addr.bus, addr.device, addr.function, size, max_size, max_data_pages, status
+        "[kernel] virtio-blk: pci {:02x}:{:02x}.{} queue size {} (max {}), {} data pages/request, {}, status {:#x}",
+        addr.bus,
+        addr.device,
+        addr.function,
+        size,
+        max_size,
+        max_data_pages,
+        match (read_only, can_flush) {
+            (true, _) => "read-only",
+            (false, true) => "writable with flush",
+            (false, false) => "writable, no flush",
+        },
+        status
     );
     *BLK.lock() = Some(dev);
     Ok(Some(capacity_sectors))
@@ -340,7 +374,7 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     let mut done = 0u64;
     while done < buf.len() as u64 {
         let this = chunk_bytes.min(buf.len() as u64 - done);
-        request_read(dev, lba + done / SECTOR_SIZE, this)?;
+        request(dev, BLK_T_IN, lba + done / SECTOR_SIZE, this)?;
         let pages = (this as usize).div_ceil(PAGE_SIZE as usize);
         for p in 0..pages {
             let off = p * PAGE_SIZE as usize;
@@ -354,28 +388,99 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     Ok(())
 }
 
-fn request_read(dev: &mut VirtioBlk, lba: u64, bytes: u64) -> Result<(), Error> {
-    let pages = (bytes as usize).div_ceil(PAGE_SIZE as usize);
+/// Submit one request and poll for its completion.
+///
+/// `kind` decides who owns the data pages: the device fills them for a read and
+/// reads them for a write, which is the only difference between the two chains.
+/// A flush carries no data at all.
+/// True when the device declared itself read-only, so no write will ever succeed.
+pub fn read_only() -> bool {
+    BLK.lock().as_ref().is_some_and(|d| d.read_only)
+}
+
+/// Write `buf.len()` bytes starting at sector `lba`. `buf.len()` must be a multiple
+/// of [`SECTOR_SIZE`].
+///
+/// The bytes are copied into the driver's DMA pages first: the device must never be
+/// pointed at kernel memory the caller happens to own.
+pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
+    if buf.is_empty() || !(buf.len() as u64).is_multiple_of(SECTOR_SIZE) {
+        return Err(Error::Invalid);
+    }
+    let mut guard = BLK.lock();
+    let dev = guard.as_mut().ok_or(Error::NotFound)?;
+    if dev.failed {
+        return Err(Error::Fault);
+    }
+    if dev.read_only {
+        return Err(Error::Denied);
+    }
+    let total_sectors = buf.len() as u64 / SECTOR_SIZE;
+    if lba
+        .checked_add(total_sectors)
+        .is_none_or(|end| dev.capacity_sectors != 0 && end > dev.capacity_sectors)
+    {
+        return Err(Error::Invalid);
+    }
+    let chunk_bytes = dev.max_data_pages as u64 * PAGE_SIZE;
+    let mut done = 0u64;
+    while done < buf.len() as u64 {
+        let this = chunk_bytes.min(buf.len() as u64 - done);
+        let pages = (this as usize).div_ceil(PAGE_SIZE as usize);
+        for p in 0..pages {
+            let off = p * PAGE_SIZE as usize;
+            let n = (this as usize - off).min(PAGE_SIZE as usize);
+            // SAFETY: driver-owned DMA page; `n` bytes inside one page.
+            let dst = unsafe { core::slice::from_raw_parts_mut(dev.data[p].virt as *mut u8, n) };
+            dst.copy_from_slice(&buf[done as usize + off..done as usize + off + n]);
+        }
+        request(dev, BLK_T_OUT, lba + done / SECTOR_SIZE, this)?;
+        done += this;
+    }
+    Ok(())
+}
+
+/// Ask the device to make earlier writes durable.
+///
+/// Without `VIRTIO_BLK_F_FLUSH` there is nothing to ask, and saying so is better
+/// than pretending: the caller learns that "written" means "handed to the host".
+pub fn flush() -> Result<(), Error> {
+    let mut guard = BLK.lock();
+    let dev = guard.as_mut().ok_or(Error::NotFound)?;
+    if dev.failed {
+        return Err(Error::Fault);
+    }
+    if dev.read_only || !dev.can_flush {
+        return Ok(());
+    }
+    request(dev, BLK_T_FLUSH, 0, 0)
+}
+
+fn request(dev: &mut VirtioBlk, kind: u32, lba: u64, bytes: u64) -> Result<(), Error> {
+    let pages = if kind == BLK_T_FLUSH { 0 } else { (bytes as usize).div_ceil(PAGE_SIZE as usize) };
     // The caller chunks by `max_data_pages`; never write past the descriptor table.
-    if pages == 0 || pages > dev.max_data_pages {
+    if (pages == 0 && kind != BLK_T_FLUSH) || pages > dev.max_data_pages {
         return Err(Error::Invalid);
     }
     // SAFETY: the header page is driver-owned DMA memory.
     unsafe {
         core::ptr::write_volatile(
             dev.header.virt as *mut BlkReqHeader,
-            BlkReqHeader { kind: BLK_T_IN, reserved: 0, sector: lba },
+            BlkReqHeader { kind, reserved: 0, sector: lba },
         );
         // Status byte lives after the header in the same page.
         core::ptr::write_volatile((dev.header.virt + 16) as *mut u8, 0xFF);
     }
 
     let status_desc = (pages + 1) as u16;
+    // A read has the device fill the data pages; a write has it read them, so the
+    // WRITE flag (which means "device writes here") belongs only to the read path.
+    let data_flags = if kind == BLK_T_IN { DESC_F_WRITE | DESC_F_NEXT } else { DESC_F_NEXT };
     // SAFETY: descriptor slots inside the queue page, indices below QUEUE_SIZE.
     unsafe {
         core::ptr::write_volatile(
             desc_ptr(dev, 0),
-            Desc { addr: dev.header.phys, len: 16, flags: DESC_F_NEXT, next: 1 },
+            Desc { addr: dev.header.phys, len: 16, flags: DESC_F_NEXT, next: status_desc.min(1) },
         );
         for p in 0..pages {
             let len = ((bytes as usize - p * PAGE_SIZE as usize).min(PAGE_SIZE as usize)) as u32;
@@ -385,7 +490,7 @@ fn request_read(dev: &mut VirtioBlk, lba: u64, bytes: u64) -> Result<(), Error> 
                 Desc {
                     addr: dev.data[p].phys,
                     len,
-                    flags: DESC_F_WRITE | DESC_F_NEXT,
+                    flags: data_flags,
                     next: if last { status_desc } else { (p + 2) as u16 },
                 },
             );

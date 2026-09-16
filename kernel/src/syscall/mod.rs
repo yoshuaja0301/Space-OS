@@ -61,6 +61,8 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::VMO_SIZE => sys_vmo_size(a[0] as Handle),
         nr::FS_LIST => sys_fs_list(a[0] as Handle, a[1], a[2], a[3], a[4]),
         nr::CONSOLE_READ => sys_console_read(a[0] as Handle, a[1], a[2]),
+        nr::FS_CREATE => sys_fs_create(a[0] as Handle, a[1], a[2]),
+        nr::FS_WRITE => sys_fs_write(a[0] as Handle, a[1], a[2], a[3]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -100,8 +102,51 @@ fn sys_fs_open(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Erro
         return Err(Error::TooManyHandles);
     }
     let node = fs::open(&path)?;
-    let entry = HandleEntry { object: Object::File(Arc::new(OpenFile { node })), rights: rights::FILE_ALL };
+    let entry = HandleEntry {
+        object: Object::File(Arc::new(OpenFile { node: crate::sync::SpinLock::new(node) })),
+        rights: rights::FILE_ALL,
+    };
     Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+/// Create a file empty, or empty one that exists, and return a writable handle.
+///
+/// Writing is a second root right on top of `FS`: a process trusted to read the
+/// volume is not thereby trusted to rewrite it.
+fn sys_fs_create(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Error> {
+    require_root(root, rights::FS | rights::FS_WRITE)?;
+    heap::reserve(cost::HANDLE)?;
+    let path = read_user_str(path_ptr, path_len, PATH_MAX as u64)?;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    let node = fs::create(&path)?;
+    let entry = HandleEntry {
+        object: Object::File(Arc::new(OpenFile { node: crate::sync::SpinLock::new(node) })),
+        rights: rights::FILE_WRITABLE,
+    };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+/// Write to a file opened for writing. The handle carries the permission: a handle
+/// from `SYS_FS_OPEN` has no `WRITE` right and is refused here.
+fn sys_fs_write(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, Error> {
+    if len > MAX_USER_COPY {
+        return Err(Error::Invalid);
+    }
+    // Copy the caller's bytes out before touching the device: the write must not
+    // depend on user memory staying mapped while the driver runs.
+    let src = user_bytes(buf_ptr, len, false)?;
+    heap::reserve(len as usize)?;
+    let mut tmp = alloc::vec::Vec::new();
+    tmp.try_reserve_exact(len as usize).map_err(|_| Error::NoMemory)?;
+    tmp.extend_from_slice(src);
+    let file = with_file(h, rights::WRITE, |f| Ok(f.clone()))?;
+    let mut node = *file.node.lock();
+    let n = fs::write(&mut node, offset, &tmp)?;
+    *file.node.lock() = node;
+    Ok(n)
 }
 
 fn sys_fs_read(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, Error> {
@@ -115,7 +160,7 @@ fn sys_fs_read(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, 
     // charge it against the reserve so it can never eat into the headroom the
     // kernel's own infallible allocations depend on.
     heap::reserve(len as usize)?;
-    let node = with_file(h, rights::READ, |f| Ok(f.node))?;
+    let node = with_file(h, rights::READ, |f| Ok(*f.node.lock()))?;
     let mut tmp = alloc::vec::Vec::new();
     tmp.try_reserve_exact(len as usize).map_err(|_| Error::NoMemory)?;
     tmp.resize(len as usize, 0);
@@ -176,7 +221,7 @@ fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error
 
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
     let stat = with_file(h, rights::READ, |f| {
-        Ok(FileStat { size: f.node.size, block_size: crate::dev::virtio_blk::SECTOR_SIZE })
+        Ok(FileStat { size: f.node.lock().size, block_size: crate::dev::virtio_blk::SECTOR_SIZE })
     })?;
     write_user(out, stat)?;
     Ok(0)

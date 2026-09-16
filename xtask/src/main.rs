@@ -355,6 +355,10 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
         for (name, data) in bad_models(&model) {
             dir.create_file(name).map_err(|e| e.to_string())?.write_all(&data).map_err(|e| e.to_string())?;
         }
+        // Somewhere for the guest to write. Empty on purpose: everything in it was
+        // put there by the guest itself, so a file found here on the second boot is
+        // a file the volume remembered.
+        dir.create_dir("VAR").map_err(|e| e.to_string())?;
         // Agent workspace (G01): the instruction, the input, and the file the patch
         // is checked against. Kept tiny and deterministic so the check is exact.
         let ws = dir.create_dir("WS").map_err(|e| e.to_string())?;
@@ -1023,6 +1027,11 @@ struct Scenario {
     runs: u32,
     /// How the harness types, if at all.
     typing: Typing,
+    /// Markers required only on the final boot of a multi-boot scenario. This is
+    /// where "the volume remembered what the last boot wrote" belongs: it cannot be
+    /// true on the first boot of a fresh disk, and demanding it there would be
+    /// demanding a lie.
+    final_boot_markers: &'static [&'static str],
     /// Lines typed on the guest console once `ready_marker` appears. Empty for a
     /// scenario nobody types into.
     type_lines: &'static [&'static str],
@@ -1081,6 +1090,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED", "[shell] unknown command"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1098,6 +1108,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1114,6 +1125,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1126,6 +1138,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1143,6 +1156,11 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "[init] FAIL"],
         runs: 2,
         typing: Typing::None,
+        // The volume is shared by every scenario, so the generation number depends on
+        // what ran before; what must be true here is that this boot found the one the
+        // previous boot left. `init` checks the arithmetic itself and fails if it is
+        // off by anything.
+        final_boot_markers: &["survived the reboot, wrote"],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1161,6 +1179,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1174,6 +1193,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
         typing: Typing::None,
+        final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
     },
@@ -1190,6 +1210,7 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "unknown command"],
         runs: 1,
         typing: Typing::Keyboard,
+        final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
     },
@@ -1204,13 +1225,21 @@ const SCENARIOS: &[Scenario] = &[
         must_not_contain: &["KERNEL PANIC", "unknown command"],
         runs: 1,
         typing: Typing::Serial,
+        final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
     },
 ];
 
-fn check_run(s: &Scenario, run: &QemuRun) -> Vec<String> {
+fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
     let mut problems = Vec::new();
+    if final_boot {
+        for m in s.final_boot_markers {
+            if !run.log.contains(m) {
+                problems.push(format!("missing marker {m:?} on the last boot"));
+            }
+        }
+    }
     // First, because it explains every marker that follows it: if the harness never
     // managed to type, the missing answers are the harness's fault, not the guest's.
     if let Some(e) = &run.input_error {
@@ -1262,7 +1291,7 @@ fn cmd_test(release: bool) -> Result<(), String> {
                 s.type_lines,
                 s.ready_marker,
             )?;
-            let problems = check_run(s, &run);
+            let problems = check_run(s, &run, run_index == s.runs);
             if problems.is_empty() {
                 println!(
                     "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), log: {}",
@@ -1402,7 +1431,7 @@ fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
             &log_path,
             &["[kernel] shutdown requested", "spacekernel: halted after panic"],
         )?;
-        let problems = check_run(s, &run);
+        let problems = check_run(s, &run, true);
         if !problems.is_empty() {
             println!(
                 "boot {i}/{boots}: FAIL after {:.1}s: {}",

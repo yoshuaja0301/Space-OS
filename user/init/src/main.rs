@@ -1691,6 +1691,121 @@ pub extern "C" fn space_main() -> i32 {
         Ok(())
     });
 
+    r.run_if(disk, "no disk on this machine", "D01", "a written file reads back byte for byte", || {
+        const PATH: &str = "/spaceos/var/scratch.dat";
+        // Three shapes, because they take different paths through the driver: one
+        // inside a single cluster, one that has to allocate and cross into the next,
+        // and one that overwrites part of what is already there.
+        let small = b"space os writes".to_vec();
+        let mut big = alloc::vec::Vec::new();
+        for i in 0..9000u32 {
+            big.push((i % 251) as u8);
+        }
+        let file = sys::fs_create(ROOT, PATH).map_err(|e| alloc::format!("create: {e}"))?;
+        let n = sys::fs_write(file, 0, &small).map_err(|e| alloc::format!("write small: {e}"))?;
+        if n != small.len() {
+            return Err(alloc::format!("wrote {n} of {} bytes", small.len()));
+        }
+        let n = sys::fs_write(file, 0, &big).map_err(|e| alloc::format!("write big: {e}"))?;
+        if n != big.len() {
+            return Err(alloc::format!("wrote {n} of {} bytes", big.len()));
+        }
+        // Patch in the middle: the cluster around it must survive untouched.
+        let patch = b"PATCH";
+        sys::fs_write(file, 4096, patch).map_err(|e| alloc::format!("write patch: {e}"))?;
+        sys::handle_close(file).ok();
+
+        let mut want = big.clone();
+        want[4096..4096 + patch.len()].copy_from_slice(patch);
+        let read = sys::fs_open(ROOT, PATH).map_err(|e| alloc::format!("open: {e}"))?;
+        let st = sys::fs_stat(read).map_err(|e| alloc::format!("stat: {e}"))?;
+        if st.size != want.len() as u64 {
+            return Err(alloc::format!("size {} after writing {} bytes", st.size, want.len()));
+        }
+        let mut got = alloc::vec![0u8; want.len()];
+        let mut done = 0usize;
+        while done < got.len() {
+            let n =
+                sys::fs_read(read, done as u64, &mut got[done..]).map_err(|e| alloc::format!("read: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            done += n;
+        }
+        sys::handle_close(read).ok();
+        if done != want.len() {
+            return Err(alloc::format!("read {done} of {} bytes", want.len()));
+        }
+        if let Some(i) = (0..want.len()).find(|&i| got[i] != want[i]) {
+            return Err(alloc::format!("byte {i}: got {:#04x}, wrote {:#04x}", got[i], want[i]));
+        }
+        Ok(())
+    });
+
+    r.run_if(disk, "no disk on this machine", "D01", "writing is a right of its own", || {
+        // `FS` alone reads the volume; changing it needs `FS_WRITE` as well.
+        let read_only = sys::handle_dup(ROOT, rights::FS).map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::fs_create(read_only, "/spaceos/var/nope.dat");
+        sys::handle_close(read_only).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("create without FS_WRITE gave {other:?}")),
+        }
+        // A handle from `fs_open` carries no WRITE right, however the file was made.
+        let ro = sys::fs_open(ROOT, "/spaceos/manifest.txt").map_err(|e| alloc::format!("open: {e}"))?;
+        let denied = sys::fs_write(ro, 0, b"x");
+        sys::handle_close(ro).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("write to a read handle gave {other:?}")),
+        }
+        // A name this driver cannot store is refused, not mangled into another one.
+        match sys::fs_create(ROOT, "/spaceos/var/a-very-long-name.data") {
+            Err(Error::Invalid) => {}
+            other => return Err(alloc::format!("create with a long name gave {other:?}")),
+        }
+        // A directory is not a file to be emptied.
+        match sys::fs_create(ROOT, "/spaceos/var") {
+            Err(Error::Invalid) => {}
+            other => return Err(alloc::format!("create over a directory gave {other:?}")),
+        }
+        Ok(())
+    });
+
+    r.run_if(disk, "no disk on this machine", "D01", "the volume remembers across a reboot", || {
+        // One counter file, read then rewritten one higher. On the first boot of a
+        // fresh volume there is nothing to remember and the test says so; on every
+        // later boot the number must be exactly what the previous boot left, which
+        // no amount of in-memory bookkeeping can fake.
+        const PATH: &str = "/spaceos/var/gen.txt";
+        let previous = match sys::fs_open(ROOT, PATH) {
+            Ok(h) => {
+                let mut buf = [0u8; 16];
+                let n = sys::fs_read(h, 0, &mut buf).map_err(|e| alloc::format!("read: {e}"))?;
+                sys::handle_close(h).ok();
+                let text = core::str::from_utf8(&buf[..n]).map_err(|_| String::from("not utf-8"))?;
+                Some(text.trim().parse::<u32>().map_err(|_| alloc::format!("not a number: {text:?}"))?)
+            }
+            Err(Error::NotFound) => None,
+            Err(e) => return Err(alloc::format!("open: {e}")),
+        };
+        let generation = previous.unwrap_or(0) + 1;
+        let file = sys::fs_create(ROOT, PATH).map_err(|e| alloc::format!("create: {e}"))?;
+        let text = alloc::format!("{generation}\n");
+        sys::fs_write(file, 0, text.as_bytes()).map_err(|e| alloc::format!("write: {e}"))?;
+        sys::handle_close(file).ok();
+        match previous {
+            None => println!("[init] persistence: first boot on this volume, wrote generation 1"),
+            Some(p) => {
+                if p + 1 != generation {
+                    return Err(alloc::format!("previous boot left {p}, expected {}", generation - 1));
+                }
+                println!("[init] persistence: generation {p} survived the reboot, wrote {generation}");
+            }
+        }
+        Ok(())
+    });
+
     r.run_if(disk, "no disk on this machine", "U01", "the file manager lists the guest volume", || {
         let mut entries = [DirEntry::default(); 16];
         let n = sys::fs_list(ROOT, "/", &mut entries).map_err(|e| alloc::format!("list /: {e}"))?;
