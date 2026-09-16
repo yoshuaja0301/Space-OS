@@ -99,7 +99,17 @@ impl Compute {
             return Err(r.result().unwrap_err());
         }
         let handle = handle.ok_or(Error::Invalid)?;
-        let ptr = sys::vmo_map(handle, false)?;
+        let ptr = match sys::vmo_map(handle, false) {
+            Ok(p) => p,
+            Err(e) => {
+                // Neither side should keep a buffer this client cannot use: drop the
+                // handle and hand the service's slot back.
+                sys::handle_close(handle).ok();
+                self.call(&Request { kind: req::BUFFER_RELEASE, buffer: r.buffer, ..Default::default() })
+                    .ok();
+                return Err(e);
+            }
+        };
         Ok(Buffer { id: r.buffer, handle, ptr, len })
     }
 

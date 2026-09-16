@@ -204,18 +204,27 @@ impl Fat32 {
         if components.peek().is_none() {
             return Err(Error::Invalid);
         }
-        for component in components {
+        while let Some(component) = components.next() {
             if component.len() > 12 {
                 return Err(Error::Invalid);
             }
             let upper: String = component.chars().map(|c| c.to_ascii_uppercase()).collect();
             let (first, size, is_dir) = self.lookup(cluster, &upper)?;
-            node = FileNode { first_cluster: first, size };
-            if is_dir {
-                cluster = if first == 0 { self.root_cluster } else { first };
-            } else {
-                cluster = first;
+            let last = components.peek().is_none();
+            // Only a directory can be walked through, and only a file can be opened:
+            // treating a file's data as directory entries would hand the caller
+            // whatever those bytes happen to decode to.
+            if !is_dir {
+                if !last {
+                    return Err(Error::NotFound);
+                }
+                node = FileNode { first_cluster: first, size };
+                break;
             }
+            if last {
+                return Err(Error::Invalid);
+            }
+            cluster = if first == 0 { self.root_cluster } else { first };
         }
         Ok(node)
     }

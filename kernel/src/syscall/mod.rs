@@ -109,6 +109,10 @@ fn sys_fs_read(h: Handle, offset: u64, buf_ptr: u64, len: u64) -> Result<usize, 
     // Validate the destination before touching the device so a bad pointer cannot
     // consume a read.
     user_bytes(buf_ptr, len, true)?;
+    // The bounce buffer is kernel heap driven straight by a user-supplied length:
+    // charge it against the reserve so it can never eat into the headroom the
+    // kernel's own infallible allocations depend on.
+    heap::reserve(len as usize)?;
     let node = with_file(h, rights::READ, |f| Ok(f.node))?;
     let mut tmp = alloc::vec::Vec::new();
     tmp.try_reserve_exact(len as usize).map_err(|_| Error::NoMemory)?;
@@ -183,15 +187,13 @@ fn sys_vmo_map(h: Handle, flags: u32) -> Result<usize, Error> {
     if flags & !map_flags::READ_ONLY != 0 {
         return Err(Error::Invalid);
     }
-    let (frames, writable) = with_memory(h, rights::MAP | rights::READ, |m, held| {
-        let writable = held & rights::WRITE != 0 && flags & map_flags::READ_ONLY == 0;
-        let mut frames = alloc::vec::Vec::new();
-        frames.try_reserve_exact(m.frames.len()).map_err(|_| Error::NoMemory)?;
-        frames.extend_from_slice(&m.frames);
-        Ok((frames, writable))
+    let (obj, writable) = with_memory(h, rights::MAP | rights::READ, |m, held| {
+        Ok((m.clone(), held & rights::WRITE != 0 && flags & map_flags::READ_ONLY == 0))
     })?;
     let p = current();
-    let addr = p.space.lock().map_shared(&frames, writable)?;
+    // The mapping holds its own reference to the object, so the frames survive for
+    // as long as they are mapped even if every handle to the object is closed.
+    let addr = p.space.lock().map_shared(obj, writable)?;
     Ok(addr as usize)
 }
 
@@ -333,7 +335,9 @@ fn sys_mem_unmap(addr: u64, len: u64) -> Result<usize, Error> {
     }
     let pages = len.div_ceil(PAGE_SIZE) as usize;
     let p = current();
-    p.space.lock().unmap_region(addr, pages)?;
+    // Bind the detached object: dropping it refunds the creator's quota, and that
+    // creator may be this process, whose address-space lock is released first.
+    let _object = p.space.lock().unmap_region(addr, pages)?;
     Ok(0)
 }
 

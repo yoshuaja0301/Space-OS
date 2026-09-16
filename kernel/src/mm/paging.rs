@@ -1,5 +1,6 @@
 //! Page tables: the kernel's own PML4 and per-process address spaces.
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use spaceabi::boot::{BootInfo, PHYS_OFFSET};
@@ -12,6 +13,7 @@ use x86_64::structures::paging::{
 use x86_64::{PhysAddr, VirtAddr};
 
 use super::{PAGE_SIZE, USER_SPACE_END, frame};
+use crate::proc::handles::MemoryObject;
 use crate::sync::{SpinLock, StaticCell};
 
 pub const HEAP_PML4_INDEX: usize = 288;
@@ -126,14 +128,23 @@ pub fn activate_kernel() {
     unsafe { Cr3::write(kernel_pml4(), Cr3Flags::empty()) };
 }
 
-#[derive(Clone, Copy, Debug)]
 pub struct Region {
     pub start: u64,
     pub pages: usize,
     /// Private pages (ELF image, anonymous memory) own their frames and free them
-    /// on unmap. Pages backed by a shared memory object do not: the object owns
-    /// them and frees them when its last handle goes away.
-    pub owned: bool,
+    /// on unmap, so `object` is `None`. Pages backed by a shared memory object hold
+    /// a reference to it instead: the frames belong to the object, and keeping the
+    /// reference here means the object outlives every mapping of it. Without that a
+    /// process could map a buffer, drop the last handle, and keep writing to frames
+    /// the allocator had already handed to somebody else.
+    pub object: Option<Arc<MemoryObject>>,
+}
+
+impl Region {
+    /// True when unmapping this region must return its frames to the allocator.
+    fn owns_frames(&self) -> bool {
+        self.object.is_none()
+    }
 }
 
 /// A user address space: private lower half, shared kernel upper half.
@@ -264,7 +275,7 @@ impl AddressSpace {
             }
             return Err(e);
         }
-        self.regions.push(Region { start, pages, owned: true });
+        self.regions.push(Region { start, pages, object: None });
         self.used_pages += pages;
         Ok(())
     }
@@ -274,11 +285,11 @@ impl AddressSpace {
     /// The frames belong to the object, so they are not freed on unmap and are not
     /// charged again here: the process that created the object already paid for
     /// them against its quota.
-    pub fn map_shared(&mut self, frames: &[PhysFrame], writable: bool) -> Result<u64, Error> {
-        if frames.is_empty() {
+    pub fn map_shared(&mut self, object: Arc<MemoryObject>, writable: bool) -> Result<u64, Error> {
+        if object.frames.is_empty() {
             return Err(Error::Invalid);
         }
-        let pages = frames.len();
+        let pages = object.frames.len();
         let start = self.mmap_next;
         let len = (pages as u64).checked_mul(PAGE_SIZE).ok_or(Error::Invalid)?;
         let end = start.checked_add(len).ok_or(Error::Invalid)?;
@@ -294,7 +305,7 @@ impl AddressSpace {
         let mut mapped = 0usize;
         let mut mapper = self.mapper();
         let mut err = None;
-        for (i, frame) in frames.iter().enumerate() {
+        for (i, frame) in object.frames.iter().enumerate() {
             let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
             // SAFETY: frames owned by the memory object; user page in this process.
             match unsafe {
@@ -319,16 +330,19 @@ impl AddressSpace {
             }
             return Err(e);
         }
-        self.regions.push(Region { start, pages, owned: false });
+        self.regions.push(Region { start, pages, object: Some(object) });
         self.mmap_next = end + PAGE_SIZE;
         Ok(start)
     }
 
     /// Unmap a region previously created by `map_region` (exact match required).
-    pub fn unmap_region(&mut self, start: u64, pages: usize) -> Result<(), Error> {
+    /// Returns the memory object the region was backed by, if any. The caller drops
+    /// it *after* releasing the address-space lock: the last drop refunds the
+    /// creator's quota, and that creator may be this very process.
+    pub fn unmap_region(&mut self, start: u64, pages: usize) -> Result<Option<Arc<MemoryObject>>, Error> {
         let idx =
             self.regions.iter().position(|r| r.start == start && r.pages == pages).ok_or(Error::Invalid)?;
-        let owned = self.regions[idx].owned;
+        let owned = self.regions[idx].owns_frames();
         let mut mapper = self.mapper();
         for i in 0..pages {
             let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
@@ -339,11 +353,11 @@ impl AddressSpace {
                 }
             }
         }
-        self.regions.swap_remove(idx);
+        let region = self.regions.swap_remove(idx);
         if owned {
             self.used_pages -= pages;
         }
-        Ok(())
+        Ok(region.object)
     }
 
     /// Verify that `[addr, addr+len)` is user memory mapped with the needed access.
@@ -409,7 +423,7 @@ impl AddressSpace {
                 let va = VirtAddr::new(r.start + i as u64 * PAGE_SIZE);
                 if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
                     flush.ignore();
-                    if r.owned {
+                    if r.owns_frames() {
                         frame::free(f);
                     }
                 }

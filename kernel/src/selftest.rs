@@ -2,11 +2,13 @@
 //! command-line driven fault injection used by the test harness.
 
 use alloc::boxed::Box;
+use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 
 use x86_64::structures::paging::PageTableFlags;
 
 use crate::mm::{self, AddressSpace, frame, heap, paging};
+use crate::proc::handles::MemoryObject;
 use crate::{arch, cmdline};
 
 const SCRATCH_VA: u64 = mm::KSTACK_BASE + 512 * 1024 * 1024;
@@ -65,12 +67,37 @@ pub fn run_early() {
         assert!(!space.check_user_range(0xFFFF_8000_0000_0000, 8, false));
         assert!(space.map_region(0x1000_1000, 1, true, false).is_err(), "overlap must be rejected");
         assert_eq!(space.used_pages, 4);
-        space.unmap_region(0x1000_0000, 4).expect("unmap");
+        assert!(
+            space.unmap_region(0x1000_0000, 4).expect("unmap").is_none(),
+            "private region owns its frames"
+        );
         assert_eq!(space.used_pages, 0);
         space.map_region(0x2000_0000, 2, false, true).expect("map again");
     }
     let (_, free3) = frame::stats();
     assert_eq!(free2, free3, "address space teardown leaked frames");
+
+    // Shared memory objects: a live mapping keeps the frames alive even after the
+    // last handle is gone, and the frames come back once the mapping goes too.
+    let (_, free4) = frame::stats();
+    {
+        let mut frames = Vec::new();
+        for _ in 0..2 {
+            frames.push(frame::alloc_zeroed().expect("frame"));
+        }
+        let object = Arc::new(MemoryObject { frames, len: 2 * mm::PAGE_SIZE, owner: Weak::new() });
+        let mut space = AddressSpace::new().expect("address space");
+        let addr = space.map_shared(object.clone(), true).expect("map shared");
+        let (_, mapped) = frame::stats();
+        drop(object);
+        assert_eq!(frame::stats().1, mapped, "frames freed while a mapping still points at them");
+        let detached = space.unmap_region(addr, 2).expect("unmap shared");
+        assert!(detached.is_some(), "shared region must hand its object back");
+        assert_eq!(frame::stats().1, mapped, "the object is only dropped by the caller");
+        drop(detached);
+        assert_eq!(frame::stats().1, mapped + 2, "frames not returned with the last mapping");
+    }
+    assert_eq!(free4, frame::stats().1, "shared mapping leaked frames");
 
     println!("[kernel] selftest: heap ok, frames ok, paging ok, address-space ok");
 }

@@ -46,7 +46,6 @@ const MT_KERNEL: MemoryType = MemoryType::custom(0x8000_0000);
 
 const PAGE: u64 = 4096;
 const HUGE: u64 = 2 * 1024 * 1024;
-const GIB: u64 = 1024 * 1024 * 1024;
 /// Number of pages reserved for the memory-region array handed to the kernel.
 const MEMMAP_PAGES: usize = 16;
 
@@ -192,6 +191,19 @@ fn framebuffer_info() -> FramebufferInfo {
 }
 
 /// Memory types that are RAM (as opposed to MMIO or firmware-reserved holes).
+/// True when the 2 MiB frame at `pa` holds memory the kernel may touch through the
+/// linear map: RAM of any flavour, or the framebuffer. Everything else (device MMIO,
+/// firmware-reserved and unusable ranges) stays out of the write-back linear map.
+fn backs_ram(map: &uefi::mem::memory_map::MemoryMapOwned, pa: u64, fb: &FramebufferInfo) -> bool {
+    let end = pa + HUGE;
+    if fb.present != 0 && fb.size != 0 && pa < fb.phys_addr + fb.size && fb.phys_addr < end {
+        return true;
+    }
+    map.entries().any(|d| {
+        is_ram(d.ty) && d.page_count != 0 && pa < d.phys_start + d.page_count * PAGE && d.phys_start < end
+    })
+}
+
 fn is_ram(ty: MemoryType) -> bool {
     matches!(
         region_kind(ty),
@@ -258,17 +270,18 @@ fn run() -> Result<(), &'static str> {
     mem::forget(cfg_data);
 
     // ---- 3. page tables -----------------------------------------------------
-    // Extent of the linear map: all RAM reported now, at least 4 GiB (LAPIC, IOAPIC,
-    // HPET live below 4 GiB), rounded to 2 MiB. High MMIO windows (64-bit PCI BARs)
-    // are deliberately left out; the kernel maps device memory on demand.
+    // The linear map covers RAM and the framebuffer, and nothing else. Device MMIO
+    // (PCI BARs, LAPIC, IOAPIC, HPET) is deliberately left out: the kernel maps it
+    // uncached on demand, and a second write-back mapping of the same physical page
+    // would be an aliased memory type — undefined per the SDM, and enough for a
+    // speculative read through the linear map to touch a device register.
     let prelim = boot::memory_map(MemoryType::LOADER_DATA).map_err(|_| "memory_map failed")?;
-    let mut phys_map_end = 4 * GIB;
+    let mut phys_map_end = 0u64;
     for d in prelim.entries() {
         if is_ram(d.ty) {
             phys_map_end = phys_map_end.max(d.phys_start + d.page_count * PAGE);
         }
     }
-    drop(prelim);
     // The framebuffer is captured last (opening GOP exclusively may detach the text console).
     let fb = framebuffer_info();
     if fb.present != 0 {
@@ -297,7 +310,12 @@ fn run() -> Result<(), &'static str> {
         | PageTableFlags::NO_EXECUTE;
     let identity_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::HUGE_PAGE;
     let mut pa = 0u64;
+    let mut mapped_huge = 0u64;
     while pa < phys_map_end {
+        if !backs_ram(&prelim, pa, &fb) {
+            pa += HUGE;
+            continue;
+        }
         let frame: PhysFrame<Size2MiB> = PhysFrame::containing_address(PhysAddr::new(pa));
         let linear: Page<Size2MiB> = Page::containing_address(VirtAddr::new(PHYS_OFFSET + pa));
         let ident: Page<Size2MiB> = Page::containing_address(VirtAddr::new(pa));
@@ -306,11 +324,18 @@ fn run() -> Result<(), &'static str> {
             mapper.map_to(linear, frame, linear_flags, &mut falloc).map_err(|_| "linear map")?.ignore();
             mapper.map_to(ident, frame, identity_flags, &mut falloc).map_err(|_| "identity map")?.ignore();
         }
+        mapped_huge += 1;
         pa += HUGE;
     }
+    drop(prelim);
     println!(
-        "spaceboot: linear map 0..{:#x} at {:#x}, framebuffer {}x{} @ {:#x}",
-        phys_map_end, PHYS_OFFSET, fb.width, fb.height, fb.phys_addr
+        "spaceboot: linear map {} MiB of RAM below {:#x} at {:#x} (device MMIO excluded), framebuffer {}x{} @ {:#x}",
+        mapped_huge * HUGE / (1024 * 1024),
+        phys_map_end,
+        PHYS_OFFSET,
+        fb.width,
+        fb.height,
+        fb.phys_addr
     );
     println!("spaceboot: exiting boot services and jumping to kernel");
 

@@ -50,9 +50,13 @@ const F_VERSION_1: u32 = 1 << 0; // in feature word 1
 const DESC_F_NEXT: u16 = 1;
 const DESC_F_WRITE: u16 = 2;
 
+/// Largest queue we ask for. The device may offer less; the negotiated size is what
+/// every ring index is taken modulo, and it bounds the descriptors a request may use.
 const QUEUE_SIZE: u16 = 16;
 /// Data descriptors per request: 8 pages = 32 KiB, leaving room for header+status.
 const MAX_DATA_PAGES: usize = 8;
+/// A request always needs a header and a status descriptor besides its data.
+const DESC_OVERHEAD: usize = 2;
 pub const SECTOR_SIZE: u64 = 512;
 const POLL_LIMIT: u64 = 200_000_000;
 
@@ -99,8 +103,15 @@ struct VirtioBlk {
     desc_off: u64,
     avail_off: u64,
     used_off: u64,
+    /// Queue size the device agreed to; every ring index is taken modulo this.
+    size: u16,
+    /// Data pages one request may use: `size - DESC_OVERHEAD`, capped at `MAX_DATA_PAGES`.
+    max_data_pages: usize,
     last_used: u16,
     avail_idx: u16,
+    /// Set when a request timed out. The device has been reset and is never used
+    /// again: a late completion would otherwise be mistaken for the next request's.
+    failed: bool,
     pub capacity_sectors: u64,
 }
 
@@ -230,13 +241,24 @@ fn probe() -> Result<Option<u64>, Error> {
         return Ok(None);
     }
     let size = QUEUE_SIZE.min(max_size);
+    if (size as usize) <= DESC_OVERHEAD {
+        println!("[kernel] virtio-blk: queue size {size} is too small for a request; ignored");
+        return Ok(None);
+    }
     mmio_write::<u16>(common + CC_QUEUE_SIZE, size);
+    // The device may clamp the size further; take what it reports back.
+    let size = mmio_read::<u16>(common + CC_QUEUE_SIZE);
+    if (size as usize) <= DESC_OVERHEAD || size > QUEUE_SIZE {
+        println!("[kernel] virtio-blk: device settled on queue size {size}; ignored");
+        return Ok(None);
+    }
+    let max_data_pages = MAX_DATA_PAGES.min(size as usize - DESC_OVERHEAD);
     let queue_notify_off = mmio_read::<u16>(common + CC_QUEUE_NOTIFY_OFF);
 
     let queue = DmaPage::new()?;
     let header = DmaPage::new()?;
     let mut data = Vec::new();
-    for _ in 0..MAX_DATA_PAGES {
+    for _ in 0..max_data_pages {
         data.push(DmaPage::new()?);
     }
     // One page holds the whole split queue for size <= 16:
@@ -244,7 +266,10 @@ fn probe() -> Result<Option<u64>, Error> {
     let desc_off = 0u64;
     let avail_off = 16 * size as u64;
     let used_off = (avail_off + 6 + 2 * size as u64).div_ceil(16) * 16;
-    assert!(used_off + 6 + 8 * size as u64 <= PAGE_SIZE, "virtqueue does not fit in one page");
+    if used_off + 6 + 8 * size as u64 > PAGE_SIZE {
+        println!("[kernel] virtio-blk: queue size {size} does not fit in one page; ignored");
+        return Ok(None);
+    }
 
     mmio_write::<u64>(common + CC_QUEUE_DESC, queue.phys + desc_off);
     mmio_write::<u64>(common + CC_QUEUE_DRIVER, queue.phys + avail_off);
@@ -267,14 +292,17 @@ fn probe() -> Result<Option<u64>, Error> {
         desc_off,
         avail_off,
         used_off,
+        size,
+        max_data_pages,
         last_used: 0,
         avail_idx: 0,
+        failed: false,
         capacity_sectors,
     };
     let status = dev.status();
     println!(
-        "[kernel] virtio-blk: pci {:02x}:{:02x}.{} queue size {} (max {}), status {:#x}",
-        addr.bus, addr.device, addr.function, size, max_size, status
+        "[kernel] virtio-blk: pci {:02x}:{:02x}.{} queue size {} (max {}), {} data pages/request, status {:#x}",
+        addr.bus, addr.device, addr.function, size, max_size, max_data_pages, status
     );
     *BLK.lock() = Some(dev);
     Ok(Some(capacity_sectors))
@@ -282,7 +310,7 @@ fn probe() -> Result<Option<u64>, Error> {
 
 /// True when a block device is present.
 pub fn present() -> bool {
-    BLK.lock().is_some()
+    BLK.lock().as_ref().is_some_and(|d| !d.failed)
 }
 
 /// Capacity in 512-byte sectors (0 when absent).
@@ -298,6 +326,9 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     }
     let mut guard = BLK.lock();
     let dev = guard.as_mut().ok_or(Error::NotFound)?;
+    if dev.failed {
+        return Err(Error::Fault);
+    }
     let total_sectors = buf.len() as u64 / SECTOR_SIZE;
     if lba
         .checked_add(total_sectors)
@@ -305,7 +336,7 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     {
         return Err(Error::Invalid);
     }
-    let chunk_bytes = MAX_DATA_PAGES as u64 * PAGE_SIZE;
+    let chunk_bytes = dev.max_data_pages as u64 * PAGE_SIZE;
     let mut done = 0u64;
     while done < buf.len() as u64 {
         let this = chunk_bytes.min(buf.len() as u64 - done);
@@ -325,7 +356,10 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
 
 fn request_read(dev: &mut VirtioBlk, lba: u64, bytes: u64) -> Result<(), Error> {
     let pages = (bytes as usize).div_ceil(PAGE_SIZE as usize);
-    assert!(pages <= MAX_DATA_PAGES);
+    // The caller chunks by `max_data_pages`; never write past the descriptor table.
+    if pages == 0 || pages > dev.max_data_pages {
+        return Err(Error::Invalid);
+    }
     // SAFETY: the header page is driver-owned DMA memory.
     unsafe {
         core::ptr::write_volatile(
@@ -360,7 +394,7 @@ fn request_read(dev: &mut VirtioBlk, lba: u64, bytes: u64) -> Result<(), Error> 
             desc_ptr(dev, status_desc as usize),
             Desc { addr: dev.header.phys + 16, len: 1, flags: DESC_F_WRITE, next: 0 },
         );
-        let slot = (dev.avail_idx % QUEUE_SIZE) as usize;
+        let slot = (dev.avail_idx % dev.size) as usize;
         core::ptr::write_volatile(avail_ring_ptr(dev, slot), 0);
         core::ptr::write_volatile(avail_flags_ptr(dev), 0);
         fence(Ordering::SeqCst);
@@ -382,6 +416,13 @@ fn request_read(dev: &mut VirtioBlk, lba: u64, bytes: u64) -> Result<(), Error> 
         }
         spins += 1;
         if spins > POLL_LIMIT {
+            // The request may still be in flight: the device could write into the
+            // data pages, and bump the used index, long after we gave up. Reset it so
+            // it stops touching driver memory, and never issue another request — a
+            // late completion would otherwise be read as the next request's data.
+            mmio_write::<u8>(dev.common + CC_DEVICE_STATUS, 0);
+            dev.failed = true;
+            println!("[kernel] virtio-blk: request timed out; device reset and taken offline");
             return Err(Error::WouldBlock);
         }
         core::hint::spin_loop();

@@ -49,6 +49,8 @@ struct Ticket {
     state: TicketState,
     progress: u64,
     value: u64,
+    /// Non-zero when the work itself failed; reported to the client with the ticket.
+    status: i32,
 }
 
 struct Service {
@@ -62,6 +64,17 @@ struct Service {
 
 fn status_of(e: Error) -> i32 {
     -(e as u32 as i32)
+}
+
+/// A dimension that indexes element 0 must not be zero: every kernel below reads
+/// `a[0]`, and a zero-length slice would turn a client's request into a panic.
+fn elems(d: u32) -> Result<usize, Error> {
+    if d == 0 { Err(Error::Invalid) } else { Ok(d as usize) }
+}
+
+/// Product of two dimensions, refusing anything that would wrap.
+fn area(a: usize, b: usize) -> Result<usize, Error> {
+    a.checked_mul(b).filter(|v| *v <= u32::MAX as usize).ok_or(Error::Invalid)
 }
 
 fn as_bytes<T>(v: &T) -> &[u8] {
@@ -115,54 +128,45 @@ impl Service {
         let d = o.dims;
         match o.kind {
             op::FILL => {
-                self.slice(&o.dst, d[0] as usize)?;
+                self.slice(&o.dst, elems(d[0])?)?;
             }
-            op::COPY => {
-                self.slice(&o.dst, d[0] as usize)?;
-                self.slice(&o.a, d[0] as usize)?;
+            op::COPY | op::SCALE => {
+                let n = elems(d[0])?;
+                self.slice(&o.dst, n)?;
+                self.slice(&o.a, n)?;
             }
-            op::SCALE => {
-                self.slice(&o.dst, d[0] as usize)?;
-                self.slice(&o.a, d[0] as usize)?;
-            }
-            op::ADD | op::MUL | op::SILU_MUL => {
-                self.slice(&o.dst, d[0] as usize)?;
-                self.slice(&o.a, d[0] as usize)?;
-                self.slice(&o.b, d[0] as usize)?;
+            op::ADD | op::MUL | op::SILU_MUL | op::RMSNORM => {
+                let n = elems(d[0])?;
+                self.slice(&o.dst, n)?;
+                self.slice(&o.a, n)?;
+                self.slice(&o.b, n)?;
             }
             op::MATMUL => {
-                let (m, k, n) = (d[0] as usize, d[1] as usize, d[2] as usize);
-                if m == 0 || k == 0 || n == 0 {
-                    return Err(Error::Invalid);
-                }
-                m.checked_mul(n).and_then(|v| v.checked_mul(4)).ok_or(Error::Invalid)?;
-                self.slice(&o.dst, m * n)?;
-                self.slice(&o.a, m * k)?;
-                self.slice(&o.b, n * k)?;
-            }
-            op::RMSNORM => {
-                self.slice(&o.dst, d[0] as usize)?;
-                self.slice(&o.a, d[0] as usize)?;
-                self.slice(&o.b, d[0] as usize)?;
+                let (m, k, n) = (elems(d[0])?, elems(d[1])?, elems(d[2])?);
+                self.slice(&o.dst, area(m, n)?)?;
+                self.slice(&o.a, area(m, k)?)?;
+                self.slice(&o.b, area(n, k)?)?;
             }
             op::SOFTMAX => {
-                self.slice(&o.dst, d[0] as usize)?;
-                self.slice(&o.a, d[0] as usize)?;
+                let n = elems(d[0])?;
+                self.slice(&o.dst, n)?;
+                self.slice(&o.a, n)?;
             }
             op::ROPE => {
-                let (heads, head_dim) = (d[0] as usize, d[1] as usize);
-                if head_dim == 0 || !head_dim.is_multiple_of(2) {
+                let (heads, head_dim) = (elems(d[0])?, elems(d[1])?);
+                if !head_dim.is_multiple_of(2) {
                     return Err(Error::Invalid);
                 }
-                self.slice(&o.dst, heads * head_dim)?;
+                self.slice(&o.dst, area(heads, head_dim)?)?;
             }
             op::EMBED => {
-                let (row, index) = (d[0] as usize, d[1] as usize);
+                let (row, index) = (elems(d[0])?, d[1] as usize);
                 self.slice(&o.dst, row)?;
-                self.slice(&o.a, row * (index + 1))?;
+                let rows = index.checked_add(1).ok_or(Error::Invalid)?;
+                self.slice(&o.a, area(row, rows)?)?;
             }
             op::ARGMAX => {
-                self.slice(&o.a, d[0] as usize)?;
+                self.slice(&o.a, elems(d[0])?)?;
             }
             op::SPIN => {}
             _ => return Err(Error::NoSys),
@@ -170,8 +174,20 @@ impl Service {
         Ok(())
     }
 
+    /// True while a pending ticket still points at buffer `id`.
+    fn buffer_in_use(&self, id: u32) -> bool {
+        self.tickets
+            .iter()
+            .filter(|t| t.state == TicketState::Pending)
+            .any(|t| [&t.op.dst, &t.op.a, &t.op.b].iter().any(|r| !r.is_none() && r.id == id))
+    }
+
     /// Execute at most one step of `t`. Returns true when the ticket finished.
-    fn step(&self, t: &mut Ticket) -> bool {
+    ///
+    /// Every buffer is resolved again here rather than trusted from submit time: a
+    /// client can release a buffer between two steps, and a service that panicked on
+    /// that would take the whole compute device down with it.
+    fn step(&self, t: &mut Ticket) -> Result<bool, Error> {
         let o = t.op;
         let d = o.dims;
         match o.kind {
@@ -188,15 +204,15 @@ impl Service {
                 t.value = acc;
                 if done >= total {
                     t.value = total;
-                    return true;
+                    return Ok(true);
                 }
-                false
+                Ok(false)
             }
             op::MATMUL => {
                 let (m, k, n) = (d[0] as usize, d[1] as usize, d[2] as usize);
-                let dst = self.slice(&o.dst, m * n).expect("validated at submit");
-                let a = self.slice(&o.a, m * k).expect("validated at submit");
-                let b = self.slice(&o.b, n * k).expect("validated at submit");
+                let dst = self.slice(&o.dst, area(m, n)?)?;
+                let a = self.slice(&o.a, area(m, k)?)?;
+                let b = self.slice(&o.b, area(n, k)?)?;
                 // One row of the output per step keeps long matmuls interruptible.
                 let row = t.progress as usize;
                 let rows_this_step = 1.max(STEP_UNITS as usize / (k * n).max(1));
@@ -211,67 +227,67 @@ impl Service {
                     }
                 }
                 t.progress = end as u64;
-                end >= m
+                Ok(end >= m)
             }
             op::FILL => {
-                let dst = self.slice(&o.dst, d[0] as usize).expect("validated");
+                let dst = self.slice(&o.dst, d[0] as usize)?;
                 for v in dst[..d[0] as usize].iter_mut() {
                     *v = o.scalar;
                 }
-                true
+                Ok(true)
             }
             op::COPY => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
                 dst[..n].copy_from_slice(&a[..n]);
-                true
+                Ok(true)
             }
             op::SCALE => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
                 for i in 0..n {
                     dst[i] = a[i] * o.scalar;
                 }
-                true
+                Ok(true)
             }
             op::ADD | op::MUL => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
-                let b = self.slice(&o.b, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
+                let b = self.slice(&o.b, n)?;
                 for i in 0..n {
                     dst[i] = if o.kind == op::ADD { a[i] + b[i] } else { a[i] * b[i] };
                 }
-                true
+                Ok(true)
             }
             op::SILU_MUL => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
-                let b = self.slice(&o.b, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
+                let b = self.slice(&o.b, n)?;
                 for i in 0..n {
                     dst[i] = silu_f32(a[i]) * b[i];
                 }
-                true
+                Ok(true)
             }
             op::RMSNORM => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
-                let w = self.slice(&o.b, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
+                let w = self.slice(&o.b, n)?;
                 let sum: f32 = a[..n].iter().map(|v| v * v).sum();
                 let scale = 1.0 / sqrt_f32(sum / n as f32 + 1e-5);
                 for i in 0..n {
                     dst[i] = a[i] * scale * w[i];
                 }
-                true
+                Ok(true)
             }
             op::SOFTMAX => {
                 let n = d[0] as usize;
-                let dst = self.slice(&o.dst, n).expect("validated");
-                let a = self.slice(&o.a, n).expect("validated");
+                let dst = self.slice(&o.dst, n)?;
+                let a = self.slice(&o.a, n)?;
                 let mut max = a[0];
                 for &v in &a[1..n] {
                     if v > max {
@@ -287,11 +303,11 @@ impl Service {
                 for v in dst[..n].iter_mut() {
                     *v /= sum;
                 }
-                true
+                Ok(true)
             }
             op::ROPE => {
                 let (heads, head_dim, pos) = (d[0] as usize, d[1] as usize, d[2] as usize);
-                let x = self.slice(&o.dst, heads * head_dim).expect("validated");
+                let x = self.slice(&o.dst, area(heads, head_dim)?)?;
                 for h in 0..heads {
                     for i in (0..head_dim).step_by(2) {
                         let freq = 1.0 / powf_f32(ROPE_THETA, i as f32 / head_dim as f32);
@@ -303,18 +319,18 @@ impl Service {
                         x[base + 1] = re * s + im * c;
                     }
                 }
-                true
+                Ok(true)
             }
             op::EMBED => {
                 let (row, index) = (d[0] as usize, d[1] as usize);
-                let dst = self.slice(&o.dst, row).expect("validated");
-                let table = self.slice(&o.a, row * (index + 1)).expect("validated");
+                let dst = self.slice(&o.dst, row)?;
+                let table = self.slice(&o.a, area(row, index.checked_add(1).ok_or(Error::Invalid)?)?)?;
                 dst[..row].copy_from_slice(&table[index * row..index * row + row]);
-                true
+                Ok(true)
             }
             op::ARGMAX => {
                 let n = d[0] as usize;
-                let a = self.slice(&o.a, n).expect("validated");
+                let a = self.slice(&o.a, n)?;
                 let mut best = 0usize;
                 for i in 1..n {
                     if a[i] > a[best] {
@@ -322,9 +338,9 @@ impl Service {
                     }
                 }
                 t.value = best as u64;
-                true
+                Ok(true)
             }
-            _ => true,
+            _ => Ok(true),
         }
     }
 
@@ -427,6 +443,11 @@ impl Service {
     }
 
     fn buffer_release(&mut self, id: u32) {
+        // Releasing memory a queued operation still points at would leave the step
+        // loop resolving a buffer that no longer exists.
+        if self.buffer_in_use(id) {
+            return self.reply_err(Error::WouldBlock);
+        }
         match self.buffers.get_mut(id as usize).and_then(Option::take) {
             Some(b) => {
                 sys::mem_unmap(b.ptr, b.len).ok();
@@ -456,6 +477,7 @@ impl Service {
             state: TicketState::Pending,
             progress: 0,
             value: 0,
+            status: 0,
         });
         self.reply(Response { ticket: id, flags: state::RUNNING, ..Default::default() });
     }
@@ -482,6 +504,7 @@ impl Service {
                         ticket: t.id,
                         queue: t.queue,
                         value: t.value,
+                        status: t.status,
                         flags: state::DONE,
                         ..Default::default()
                     });
@@ -497,9 +520,19 @@ impl Service {
                     state: TicketState::Pending,
                     progress: 0,
                     value: 0,
+                    status: 0,
                 },
             );
-            let finished = self.step(&mut ticket);
+            let finished = match self.step(&mut ticket) {
+                Ok(done) => done,
+                // The work itself failed (a buffer went away underneath it). Finish
+                // the ticket with the error instead of taking the service down.
+                Err(e) => {
+                    ticket.status = status_of(e);
+                    ticket.value = 0;
+                    true
+                }
+            };
             if finished {
                 ticket.state = TicketState::Done;
             }
@@ -525,7 +558,12 @@ pub extern "C" fn space_main() -> i32 {
     let mut buf = [0u8; core::mem::size_of::<Request>()];
     loop {
         match sys::recv(handle::BOOTSTRAP, &mut buf, false) {
-            Ok((n, _)) if n == buf.len() => {
+            // No request carries a handle. Close anything a client transfers anyway,
+            // or a stream of them would exhaust this process's handle table.
+            Ok((n, transferred)) if n == buf.len() => {
+                if let Some(h) = transferred {
+                    sys::handle_close(h).ok();
+                }
                 // SAFETY: the client sends exactly one `Request`.
                 let r: Request = unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const Request) };
                 if !svc.handle(&r) {
@@ -533,7 +571,10 @@ pub extern "C" fn space_main() -> i32 {
                     return 0;
                 }
             }
-            Ok((n, _)) => {
+            Ok((n, transferred)) => {
+                if let Some(h) = transferred {
+                    sys::handle_close(h).ok();
+                }
                 println!("[compute] malformed request of {n} bytes");
                 svc.reply_err(Error::MsgSize);
             }

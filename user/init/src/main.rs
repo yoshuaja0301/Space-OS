@@ -18,7 +18,7 @@ use libspace::spaceabi::compute::{
     Response as ComputeResponse, op as cop, req as creq,
 };
 use libspace::spaceabi::error::{Error, decode};
-use libspace::spaceabi::handle::rights;
+use libspace::spaceabi::handle::{MAX_HANDLES, rights};
 use libspace::spaceabi::syscall::nr;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
@@ -235,6 +235,18 @@ fn compute_raw(ch: Handle, request: &ComputeRequest) -> Result<ComputeResponse, 
     }
     // SAFETY: the service replies with exactly one Response.
     Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const ComputeResponse) })
+}
+
+/// A request as raw bytes, for the few cases that need `send` directly (handle
+/// transfer) instead of going through `Compute::call`.
+fn as_request_bytes(r: &ComputeRequest) -> &[u8] {
+    // SAFETY: `Request` is a `repr(C)` plain-data message.
+    unsafe {
+        core::slice::from_raw_parts(
+            r as *const ComputeRequest as *const u8,
+            core::mem::size_of::<ComputeRequest>(),
+        )
+    }
 }
 
 fn expect_status(what: &str, got: i32, want: Error) -> Result<(), String> {
@@ -612,6 +624,12 @@ pub extern "C" fn space_main() -> i32 {
             Err(Error::NotFound) | Err(Error::Invalid) => {}
             Err(e) => return Err(alloc::format!("opening a directory gave {e}")),
         }
+        // A regular file is not a directory: the walk must stop there rather than
+        // decode the file's own bytes as directory entries.
+        match sys::fs_open(ROOT, "/spaceos/manifest.txt/anything") {
+            Err(Error::NotFound) => {}
+            other => return Err(alloc::format!("walking through a file gave {other:?}")),
+        }
         let no_fs = sys::handle_dup(ROOT, rights::STATS).map_err(|e| alloc::format!("dup: {e}"))?;
         let denied = sys::fs_open(no_fs, "/spaceos/manifest.txt");
         sys::handle_close(no_fs).ok();
@@ -849,6 +867,74 @@ pub extern "C" fn space_main() -> i32 {
             .map_err(|e| alloc::format!("wait: {e}"))?;
         expect_status("wait on an unknown ticket", unknown_ticket.status, Error::BadHandle)?;
 
+        // A zero element count would make every kernel read element 0 of an empty
+        // slice. It has to be refused at submit, not panic the service.
+        for kind in [cop::SOFTMAX, cop::ARGMAX, cop::FILL, cop::RMSNORM, cop::EMBED] {
+            let empty = c
+                .call(&ComputeRequest {
+                    kind: creq::SUBMIT,
+                    queue: q,
+                    op: ComputeOp {
+                        kind,
+                        dst: dst.reference(),
+                        a: a.reference(),
+                        b: b.reference(),
+                        dims: [0, 0, 0, 0],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .map_err(|e| alloc::format!("submit: {e}"))?;
+            expect_status("operation with a zero dimension", empty.status, Error::Invalid)?;
+        }
+
+        // Releasing a buffer a pending ticket still points at must be refused.
+        let pending = c
+            .submit(q, ComputeOp { kind: cop::SPIN, dims: [1, 0, 0, 0], ..Default::default() })
+            .map_err(|e| alloc::format!("submit spin: {e}"))?;
+        let busy = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: q,
+                op: ComputeOp {
+                    kind: cop::FILL,
+                    dst: a.reference(),
+                    dims: [4, 0, 0, 0],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit fill: {e}"))?;
+        let busy_ticket = busy.ticket;
+        let refused = c
+            .call(&ComputeRequest { kind: creq::BUFFER_RELEASE, buffer: a.id, ..Default::default() })
+            .map_err(|e| alloc::format!("release: {e}"))?;
+        expect_status("release of a buffer in use", refused.status, Error::WouldBlock)?;
+        c.cancel(busy_ticket).map_err(|e| alloc::format!("cancel: {e}"))?;
+        c.wait_raw(busy_ticket, 100).map_err(|e| alloc::format!("reap: {e}"))?;
+        c.wait(pending, 1000).map_err(|e| alloc::format!("spin: {e}"))?;
+
+        // Handles a client transfers with a request are closed by the service; a
+        // stream of them must not exhaust its handle table.
+        for i in 0..(MAX_HANDLES * 2) {
+            let extra = sys::handle_dup(ROOT, rights::STATS | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup: {e}"))?;
+            if sys::send(
+                mine,
+                as_request_bytes(&ComputeRequest { kind: creq::DEVICE_QUERY, ..Default::default() }),
+                Some(extra),
+            )
+            .is_err()
+            {
+                return Err(alloc::format!("send with a transferred handle failed at {i}"));
+            }
+            let mut reply = [0u8; core::mem::size_of::<ComputeResponse>()];
+            let (n, _) = sys::recv(mine, &mut reply, false).map_err(|e| alloc::format!("reply: {e}"))?;
+            if n != reply.len() {
+                return Err(alloc::format!("short reply at {i}"));
+            }
+        }
+
         for buf in [a, b, dst] {
             c.buffer_release(&buf).map_err(|e| alloc::format!("release: {e}"))?;
         }
@@ -903,6 +989,39 @@ pub extern "C" fn space_main() -> i32 {
         sys::handle_close(svc).ok();
         sys::handle_close(mine).ok();
         expect_exit("spacecompute", st, 0)
+    });
+
+    r.run("C01", "a mapped memory object outlives the close of its last handle", || {
+        const LEN: usize = 64 * 1024;
+        const CHURN: usize = 1024 * 1024;
+        let before = stats()?;
+        let h = sys::vmo_create(LEN).map_err(|e| alloc::format!("vmo_create: {e}"))?;
+        let ptr = sys::vmo_map(h, false).map_err(|e| alloc::format!("vmo_map: {e}"))?;
+        // Drop every handle to the object: only the mapping refers to it now.
+        sys::handle_close(h).map_err(|e| alloc::format!("close: {e}"))?;
+        if sys::vmo_size(h).is_ok() {
+            return Err(String::from("the closed handle is still usable"));
+        }
+        // SAFETY: LEN bytes mapped read-write in this address space.
+        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, LEN) };
+        for (i, b) in buf.iter_mut().enumerate() {
+            *b = (i % 251) as u8;
+        }
+        // Churn the frame allocator. If closing the handle had freed the frames they
+        // would be handed out here, zeroed, and the pattern below would be gone.
+        let churn = sys::mem_map(CHURN).map_err(|e| alloc::format!("mem_map: {e}"))?;
+        // SAFETY: CHURN bytes mapped read-write in this address space.
+        unsafe { core::ptr::write_bytes(churn, 0xAA, CHURN) };
+        sys::mem_unmap(churn, CHURN).map_err(|e| alloc::format!("mem_unmap: {e}"))?;
+        if let Some((i, b)) = buf.iter().enumerate().find(|&(i, b)| *b != (i % 251) as u8) {
+            return Err(alloc::format!("mapping corrupted at byte {i}: {b:#04x}"));
+        }
+        sys::mem_unmap(ptr, LEN).map_err(|e| alloc::format!("unmap object: {e}"))?;
+        let after = stats()?;
+        if after.frames_free != before.frames_free {
+            return Err(alloc::format!("leak: frames {} -> {}", before.frames_free, after.frames_free));
+        }
+        Ok(())
     });
 
     r.run("C01", "compute service teardown returns every frame it allocated", || {
