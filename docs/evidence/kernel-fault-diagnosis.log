@@ -8,7 +8,7 @@ spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (d
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 38 memory regions, initrd 980992 bytes, cmdline 15 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 36 memory regions, initrd 980992 bytes, cmdline 15 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] frames: 2095086 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB

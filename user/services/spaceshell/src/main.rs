@@ -172,6 +172,10 @@ impl Shell {
             Ok(p) => p,
             Err(e) => {
                 sys::handle_close(mine).ok();
+                // Spawn consumes the transferred handle only once it has taken it;
+                // a refusal before that (no right, no memory) leaves it here. Closing
+                // an already-consumed handle is a no-op, so close it either way.
+                sys::handle_close(theirs).ok();
                 return Err(e);
             }
         };
@@ -199,9 +203,9 @@ impl Shell {
         let Some(h) = self.worker else {
             return self.reply_err(Error::NotFound);
         };
-        if let Err(e) = sys::kill(h) {
-            return self.reply_err(e);
-        }
+        // Exactly the path the typed `stop` takes. A worker that finished on its own
+        // a moment ago is not a failed Stop: it is a Stop with nothing left to do,
+        // and the reply carries the state either way.
         self.stop_worker(h);
         self.reply(Reply::default());
     }
@@ -289,6 +293,10 @@ impl Shell {
                         if let Some(old) = self.root.replace(h) {
                             sys::handle_close(old).ok();
                         }
+                        // A new capability is a new answer to "can this session read
+                        // the console": look again rather than stay latched off.
+                        self.console_ok = true;
+                        self.terminal = false;
                         println!("[shell] session open, ABI v{ABI_VERSION}");
                         self.paint();
                         self.reply(Reply { value: ABI_VERSION as u64, ..Default::default() });

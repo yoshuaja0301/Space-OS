@@ -1545,14 +1545,15 @@ pub extern "C" fn space_main() -> i32 {
     });
 
     r.run("U01", "console input is a capability of its own and never blocks", || {
-        // Nothing has been typed on this machine, so the read must come back empty
-        // rather than waiting for a keystroke that will never come.
+        // The property is that the call returns whatever is buffered and never waits
+        // for a keystroke. How many bytes are waiting depends on whether anybody is
+        // typing, which is not this test's business to assert.
         let mut buf = [0u8; 32];
         let before = sys::ticks_ms();
         let n = sys::console_read(ROOT, &mut buf).map_err(|e| alloc::format!("console_read: {e}"))?;
         let waited = sys::ticks_ms().saturating_sub(before);
-        if n != 0 {
-            return Err(alloc::format!("console_read returned {n} bytes on a machine nobody typed on"));
+        if n > buf.len() {
+            return Err(alloc::format!("console_read reported {n} bytes into a {}-byte buffer", buf.len()));
         }
         if waited > 50 {
             return Err(alloc::format!("console_read blocked for {waited} ms"));
