@@ -20,14 +20,14 @@ struct Ring {
     buf: [u8; CAPACITY],
     head: usize,
     len: usize,
-    /// Bytes dropped because nobody read fast enough. Reported once, so a full
-    /// buffer is visible rather than silent.
+    /// Bytes dropped because nobody read fast enough, since the last time a reader
+    /// was told. Counted per episode rather than latched once: a second overflow is
+    /// exactly as damaging to the line being typed as the first one, so it has to be
+    /// exactly as visible.
     dropped: u32,
-    reported: bool,
 }
 
-static RING: SpinLock<Ring> =
-    SpinLock::new(Ring { buf: [0; CAPACITY], head: 0, len: 0, dropped: 0, reported: false });
+static RING: SpinLock<Ring> = SpinLock::new(Ring { buf: [0; CAPACITY], head: 0, len: 0, dropped: 0 });
 
 /// Queue one byte. Called from interrupt context.
 pub fn push(byte: u8) {
@@ -55,13 +55,16 @@ pub fn read(out: &mut [u8]) -> usize {
         r.head = (head + 1) % CAPACITY;
         r.len -= 1;
     }
-    if r.dropped > 0 && !r.reported {
-        r.reported = true;
-        let dropped = r.dropped;
-        drop(r);
-        println!("[kernel] console input: {dropped} byte(s) dropped, the buffer was full");
-    }
     n
+}
+
+/// Take the number of bytes dropped since the last call, and forget them.
+///
+/// The reader asks before it takes any byte, so that "the stream has a hole in it"
+/// arrives *before* the bytes on the far side of the hole: a session can then throw
+/// away the half-line it had assembled instead of running a command nobody typed.
+pub fn take_dropped() -> u32 {
+    core::mem::take(&mut RING.lock().dropped)
 }
 
 /// Translate one scan code (set 1) into a byte, tracking the shift keys.

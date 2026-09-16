@@ -63,6 +63,21 @@ Kernel tidak melakukan echo dan tidak mengenal baris. Ia menyerahkan byte; sesi
 yang memutuskan apa itu baris dan apa yang ditampilkan. Semantik terminal adalah
 urusan user space.
 
+**Byte yang hilang dilaporkan, bukan didiamkan.** Ring 256 byte membuang yang
+paling tua ketika penuh. Kehilangan itu dihitung dan diserahkan ke pembaca sebagai
+`Error::DataLoss` **sebelum** satu byte pun diberikan, lalu penghitungnya
+dinolkan — sekali per episode, bukan sekali seumur hidup mesin. Urutannya penting:
+pembaca yang baru diberi tahu *setelah* menerima byte di seberang lubang sudah
+terlanjur merakit baris yang tidak pernah diketik siapa pun. `spaceshell` menjawab
+dengan membuang baris yang sedang dirakit dan mengatakannya, bukan menjalankan
+sisanya. Tidak ada byte yang ikut hilang karena laporan itu: yang selamat tetap
+antre untuk panggilan berikutnya.
+
+Jalur ini tidak bisa dipicu dari user space — ring diisi oleh interupsi — jadi ada
+`debug_op::CONSOLE_FLOOD` di balik hak root `DEBUG` yang sengaja meluapkannya, dan
+uji U01 memakainya. Jalur galat yang tidak pernah diuji justru jalur tempat
+terminal diam-diam mulai menjalankan perintah yang salah.
+
 COM2 dipilih, bukan COM1, karena COM1 membawa log keluar dari mana saja termasuk
 handler panic; mencampur masukan ke port yang sama berarti masukan bisa tertahan
 oleh log, atau sebaliknya. Mesin tanpa COM2 (setiap skenario uji selain

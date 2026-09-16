@@ -1059,9 +1059,12 @@ const SCENARIOS: &[Scenario] = &[
             "[ai] model verified: sha256",
             "[ai] generated 128 tokens offline, all matching the pinned baseline",
             "[init] ALL TESTS PASSED",
+            // The session was told its input was lost and kept its terminal, instead
+            // of running the half-line that survived.
+            "[shell] input was lost; the line was discarded",
         ],
         must_contain_extra: &[],
-        must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"],
+        must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED", "[shell] unknown command"],
         runs: 1,
         typing: Typing::None,
         type_lines: &[],

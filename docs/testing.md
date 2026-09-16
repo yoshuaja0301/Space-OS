@@ -85,10 +85,14 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | U01 | sesi bertahan melewati empat worker berturut-turut: `crash` (dibunuh `PAGE_FAULT`), `hang` (macet tanpa syscall), `slow` (tidur), `ok` (selesai normal). Setiap kali sesi harus menjawab `STATUS` dan membuka daftar berkas; `STOP` menghentikan worker yang macet maupun yang tidur; `STOP` tanpa worker → `NotFound` | `bin/spaceshell`, `bin/uiworker` |
 | U01 | sesi tanpa hak `FS` → daftar berkas `Denied` tetapi job tetap jalan; perintah tak dikenal → `NoSys`; sesi tidak bisa memperluas kapabilitas yang diberikan | `bin/spaceshell` |
 | U01 | `fs_list` pada volume guest: `/` memuat `SPACEOS/`, ukuran `MODEL.SLM` cocok dengan `fs_stat`, melist berkas (bukan direktori) → `Invalid`, tanpa hak `FS` → `Denied` | `bin/init` |
+| U01 | `console_read` tanpa hak `CONSOLE` → `Denied`, ke memori kernel → `Fault`, dan tidak pernah memblokir | `bin/init` |
+| U01 | ring masukan diluapkan dengan sengaja (`debug_op::CONSOLE_FLOOD`, 264 byte ke ring 256 byte): pembacaan berikutnya → `DataLoss` **sebelum** byte apa pun, laporan itu tidak memakan byte, dan byte yang selamat masih berupa potongan pola yang berurutan | `bin/init` |
 
 Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
 `wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena
-time-out, bukan gagal dengan rapi.
+time-out, bukan gagal dengan rapi. Uji kehilangan masukan juga: dengan
+`sys_console_read` kembali menyerahkan byte tanpa melaporkan yang hilang, uji itu
+gagal dengan `read after an overflow gave Ok(32), expected DataLoss`.
 
 Kedua skenario `terminal` menutup sisi lain U01: perintah datang dari **ketikan**,
 bukan dari channel kontrol. Boot yang sama membuktikan bahwa `stop` yang diketik

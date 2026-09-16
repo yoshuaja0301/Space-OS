@@ -61,6 +61,10 @@ errors! {
     /// The blocking call was interrupted because the caller is being terminated.
     /// User code never observes it: the process exits when the syscall returns.
     Interrupted = 15, "interrupted";
+    /// Buffered input was lost before anyone read it. Reported once per episode,
+    /// before any surviving byte is handed over, so the reader can discard what it
+    /// had assembled instead of acting on a stream with a hole in it.
+    DataLoss = 16, "input was lost";
 }
 
 impl core::fmt::Display for Error {

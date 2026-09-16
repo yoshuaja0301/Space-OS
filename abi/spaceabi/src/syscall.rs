@@ -265,6 +265,20 @@ pub mod debug_op {
     pub const PANIC: u64 = 1;
     /// Deliberate kernel-mode page fault – exercises the exception dump path.
     pub const KERNEL_FAULT: u64 = 2;
+    /// Overflow the console input ring on purpose – exercises the input-loss path,
+    /// which cannot be provoked from user space any other way (the ring is fed by
+    /// interrupts). Pushes [`CONSOLE_FLOOD_LEN`] bytes of a known pattern.
+    pub const CONSOLE_FLOOD: u64 = 3;
+}
+
+/// Bytes pushed by [`debug_op::CONSOLE_FLOOD`], and the pattern they follow:
+/// byte `i` is `b'A' + (i % 26)`. Larger than the kernel ring, so the oldest bytes
+/// are dropped and the loss is reported to the next reader.
+pub const CONSOLE_FLOOD_LEN: usize = 264;
+
+/// The byte `debug_op::CONSOLE_FLOOD` pushes at index `i`.
+pub const fn console_flood_byte(i: usize) -> u8 {
+    b'A' + (i % 26) as u8
 }
 
 /// Exit codes written to the QEMU `isa-debug-exit` device by `SYS_SHUTDOWN` and the

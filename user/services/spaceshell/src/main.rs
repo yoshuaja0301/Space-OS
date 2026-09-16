@@ -323,6 +323,13 @@ impl Shell {
         libspace::print!("space> ");
     }
 
+    /// Forget the partly typed line. Used when the kernel reports that buffered
+    /// input was lost: what survives is the tail of a line, not a line.
+    fn discard_line(&mut self) {
+        self.line.clear();
+        self.last_cr = false;
+    }
+
     /// Feed one typed byte to the line editor. Returns false when the session
     /// should end (the person typed `quit`).
     fn typed(&mut self, byte: u8) -> bool {
@@ -454,8 +461,10 @@ pub extern "C" fn space_main() -> i32 {
             let first = sys::console_read(root, &mut typed);
             if !sh.terminal {
                 sh.terminal = true;
+                // Lost input still proves the capability is there, so it announces a
+                // terminal like any other successful read would.
                 match &first {
-                    Ok(_) => {
+                    Ok(_) | Err(Error::DataLoss) => {
                         println!("[shell] terminal ready on the console; type 'help'");
                         sh.prompt();
                     }
@@ -476,6 +485,17 @@ pub extern "C" fn space_main() -> i32 {
                     if !alive {
                         break;
                     }
+                }
+                // The kernel dropped buffered bytes, so the half-line assembled so
+                // far has a hole in it. Throwing it away and saying so is the only
+                // honest answer: running what is left would run a command the person
+                // never typed. The console itself is fine, so it stays open.
+                Err(Error::DataLoss) => {
+                    busy = true;
+                    sh.discard_line();
+                    println!();
+                    println!("[shell] input was lost; the line was discarded");
+                    sh.prompt();
                 }
                 // Refused once is refused for good: this session is driven by its
                 // channel only, and retrying every poll would be pure waste.

@@ -197,7 +197,11 @@ pub fn fs_list(root: Handle, path: &str, out: &mut [DirEntry]) -> Result<usize, 
     )
 }
 
-/// Read what has been typed on the console; 0 when nothing is waiting.
+/// Read what has been typed on the console; 0 when nothing is waiting. Never blocks.
+///
+/// [`Error::DataLoss`] means buffered input was dropped before anyone read it. It
+/// arrives before the bytes that survived and consumes none of them, so a caller
+/// assembling a line should throw that line away and read again.
 pub fn console_read(root: Handle, buf: &mut [u8]) -> Result<usize, Error> {
     call(nr::CONSOLE_READ, [root as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0])
 }

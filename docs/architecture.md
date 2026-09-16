@@ -73,6 +73,12 @@ balik hak root `CONSOLE` dan **tidak pernah memblokir**. Kernel tidak melakukan
 echo dan tidak mengenal baris; sesi yang menentukan semantik terminal. COM1 tetap
 khusus keluaran log, termasuk dari handler panic.
 
+Ring yang penuh membuang byte paling tua dan menghitungnya. Pembacaan berikutnya
+mendapat `DataLoss` **sebelum** byte yang selamat diserahkan (tidak ada yang ikut
+terbuang), lalu hitungannya dinolkan — jadi setiap episode kehilangan terlihat,
+bukan hanya yang pertama, dan sesi bisa membuang baris yang setengah jadi alih-alih
+menjalankan perintah yang tidak pernah diketik.
+
 `init=` pada command line kernel memilih proses user pertama: `bin/init` untuk
 acceptance run, `init=bin/spaceterm` untuk sesi interaktif dari image yang sama.
 

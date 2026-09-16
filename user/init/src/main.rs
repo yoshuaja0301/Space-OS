@@ -26,6 +26,7 @@ use libspace::spaceabi::link::{self as link_abi, LinkReply, LinkRequest, req as 
 use libspace::spaceabi::pkg::{PkgReply, PkgRequest, reject_code, req as preq};
 use libspace::spaceabi::shell::{Reply as ShellReply, job as shell_job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
+use libspace::spaceabi::syscall::debug_op;
 use libspace::spaceabi::syscall::nr;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
@@ -1527,8 +1528,10 @@ pub extern "C" fn space_main() -> i32 {
         let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
             .map_err(|e| alloc::format!("spawn shell: {e}"))?;
         // Without the FS right the file manager is refused; jobs still run. The
-        // shell has no way to widen what it was handed.
-        let narrow = sys::handle_dup(ROOT, rights::SPAWN | rights::TRANSFER)
+        // shell has no way to widen what it was handed. `CONSOLE` is included so the
+        // session really owns a terminal here: that is what makes the lost-input
+        // check below a test of the session, not of the kernel alone.
+        let narrow = sys::handle_dup(ROOT, rights::SPAWN | rights::CONSOLE | rights::TRANSFER)
             .map_err(|e| alloc::format!("dup root: {e}"))?;
         let s = Session::open(mine, narrow).map_err(|e| alloc::format!("open session: {e}"))?;
         let denied = s.list("/spaceos").map_err(|e| alloc::format!("list: {e}"))?;
@@ -1537,6 +1540,16 @@ pub extern "C" fn space_main() -> i32 {
         wait_for_worker(&s, worker_state::DONE, 10_000)?;
         let unknown = s.call(0xFFFF_FFFF, "").map_err(|e| alloc::format!("unknown command: {e}"))?;
         expect_status("unknown session command", unknown.status, Error::NoSys)?;
+        // Overflow the console ring under a live session. The shell must say the line
+        // was lost and keep its terminal, rather than run what survived or give the
+        // console up for good -- the harness reads both of those back out of the log
+        // (`[shell] input was lost`, and no `unknown command` from the flood).
+        sys::debug(ROOT, debug_op::CONSOLE_FLOOD).map_err(|e| alloc::format!("flood: {e}"))?;
+        // The session polls the console every pass; give it several passes.
+        sys::sleep_ms(100);
+        s.status()
+            .and_then(|r| r.result())
+            .map_err(|e| alloc::format!("status after lost input: {e}"))?;
         s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
         let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
         sys::handle_close(shell).ok();
@@ -1573,6 +1586,67 @@ pub extern "C" fn space_main() -> i32 {
             decode(unsafe { sys::raw(nr::CONSOLE_READ, ROOT as u64, 0xFFFF_8000_0000_0000, 8, 0, 0, 0) });
         if bad != Err(Error::Fault) {
             return Err(alloc::format!("console_read into kernel memory gave {bad:?}"));
+        }
+        Ok(())
+    });
+
+    r.run("U01", "input lost to a full buffer is reported before the bytes that survived", || {
+        // Start from an empty ring so the flood is the only thing in it. Anything
+        // already buffered (somebody typing at the machine) is drained and ignored.
+        let mut buf = [0u8; 32];
+        for _ in 0..64 {
+            match sys::console_read(ROOT, &mut buf) {
+                Ok(0) => break,
+                Ok(_) | Err(Error::DataLoss) => {}
+                Err(e) => return Err(alloc::format!("draining the console: {e}")),
+            }
+        }
+        // The ring is fed by interrupts, so overflowing it is a kernel favour.
+        sys::debug(ROOT, debug_op::CONSOLE_FLOOD).map_err(|e| alloc::format!("flood: {e}"))?;
+        // The loss has to arrive *before* the surviving bytes: a session that is told
+        // afterwards has already assembled a line nobody typed.
+        match sys::console_read(ROOT, &mut buf) {
+            Err(Error::DataLoss) => {}
+            other => {
+                return Err(alloc::format!("read after an overflow gave {other:?}, expected DataLoss"));
+            }
+        }
+        // Nothing was consumed by that report, and it is reported once: a following
+        // read hands over the bytes that survived, which are a contiguous run of the
+        // flood pattern (the oldest were dropped, so it does not start at 'A'). A
+        // person typing at the machine can overflow the full ring again and earn one
+        // more report, so a few reports in a row are tolerated -- what is not
+        // tolerated is never getting the bytes.
+        let mut n = 0;
+        for _ in 0..4 {
+            match sys::console_read(ROOT, &mut buf) {
+                Ok(got) => {
+                    n = got;
+                    break;
+                }
+                Err(Error::DataLoss) => {}
+                Err(e) => return Err(alloc::format!("read after loss: {e}")),
+            }
+        }
+        if n != buf.len() {
+            return Err(alloc::format!("read after loss gave {n} bytes, expected {}", buf.len()));
+        }
+        for w in buf.windows(2) {
+            let next = if w[0] == b'Z' { b'A' } else { w[0] + 1 };
+            if w[1] != next {
+                return Err(alloc::format!(
+                    "surviving bytes are not the flood pattern: {} then {}",
+                    w[0] as char, w[1] as char
+                ));
+            }
+        }
+        // Drain the rest so the flood does not outlive its own test.
+        for _ in 0..64 {
+            match sys::console_read(ROOT, &mut buf) {
+                Ok(0) => break,
+                Ok(_) | Err(Error::DataLoss) => {}
+                Err(e) => return Err(alloc::format!("drain: {e}")),
+            }
         }
         Ok(())
     });

@@ -158,6 +158,15 @@ fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error
         return Err(Error::Invalid);
     }
     let buf = user_bytes(buf_ptr, len, true)?;
+    // Loss first, bytes second. A reader that is told "the stream has a hole in it"
+    // only after it has been handed the bytes on the far side of the hole has already
+    // assembled a line nobody typed. Nothing is consumed here: the surviving bytes
+    // are still queued for the next call.
+    let dropped = crate::input::take_dropped();
+    if dropped > 0 {
+        println!("[kernel] console input: {dropped} byte(s) dropped, the buffer was full");
+        return Err(Error::DataLoss);
+    }
     Ok(crate::input::read(buf))
 }
 
@@ -653,6 +662,16 @@ fn sys_debug(root: Handle, op: u64) -> Result<usize, Error> {
             // SAFETY: intentionally unsound: this address is never mapped; the fault is the point.
             let v = unsafe { core::ptr::read_volatile(bad) };
             Ok(v as usize)
+        }
+        debug_op::CONSOLE_FLOOD => {
+            // The console ring is fed by interrupts, so user space cannot make it
+            // overflow on purpose. Without this, the input-loss path would be code no
+            // test ever runs -- and untested error paths are where a terminal quietly
+            // starts executing commands nobody typed.
+            for i in 0..spaceabi::syscall::CONSOLE_FLOOD_LEN {
+                crate::input::push(spaceabi::syscall::console_flood_byte(i));
+            }
+            Ok(0)
         }
         _ => Err(Error::Invalid),
     }
