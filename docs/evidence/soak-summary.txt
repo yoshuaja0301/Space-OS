@@ -1,1 +1,13 @@
-soak: 100/100 consecutive cold boots passed; per boot min 13.2s mean 13.9s max 16.9s; total 1389s
+soak: 100/100 consecutive cold boots passed; per boot min 14.3s mean 15.0s max 18.2s; total 1500s
+
+Build: commit 919b2a6 (tahap 1-5 lengkap + layanan 5A). Setiap boot menjalankan
+acceptance run penuh, jadi 100 kali berturut-turut: virtio-blk siap, FAT32 ter-mount,
+model diverifikasi SHA-256 dari disk, 128 token inferensi cocok dengan baseline, sesi
+bertahan melewati empat worker, dan 54 uji lulus. Diperiksa ulang satu per satu:
+kesembilan puluh sembilan log lain juga memuat "ALL TESTS PASSED (54/54, 0 skipped)"
+-- tidak ada boot yang lulus dengan uji yang dilewati.
+
+Catatan: satu percobaan soak sebelumnya gagal di boot 16 dengan "QEMU exit code
+Some(0)". Itu bukan tamu yang macet: stderr QEMU berbunyi "terminating on signal 15",
+sebuah proses lain di host mengirim SIGTERM ke QEMU pada detik yang sama. Soak di atas
+dijalankan tanpa proses lain yang menyentuh QEMU.
