@@ -8,7 +8,7 @@
 | 4 Compute ABI | Kontrak v0, CPU backend, handle dan quota | **selesai**: objek memori bersama di kernel, layanan `spacecompute` user-space, backend CPU, uji kontrak C01 lulus |
 | 5 Inferensi native | Model kecil, tokenizer, generation, benchmark offline | **selesai untuk model referensi**: format SpaceLM v0, validasi + checksum, runtime `spaceai`, 128 token offline cocok dengan baseline; model terlatih berlisensi belum |
 | 5A Developer Preview | SpaceLink, Tool Broker, agent, desktop, adapter | **sebagian**: `spaceshell` + `spaceterm` (sesi yang bertahan melewati worker crash dan bisa diketik orang, U01), `spacebroker` + `spaceagent` (scope workspace dan audit, G01), `spacelink` (indeks, revokasi, context bundle, L01–L03). `spacepkg` (paket terautentikasi dan rollback, P01). Adapter cloud (I01) terhalang jaringan dan TLS |
-| 6 GPU terpilih | Studi kelayakan, driver | belum |
+| 6 GPU terpilih | Studi kelayakan, driver | **studi selesai, driver belum**: `docs/gpu-feasibility.md` memetakan apa yang sudah siap (Compute ABI v0 tidak menyebut backend), tiga kapabilitas perangkat yang belum ada untuk driver user-space, dan mengapa tanpa IOMMU driver DMA tetap tepercaya. Driver tidak ditulis: tidak ada perangkat keras untuk memverifikasinya (H01) |
 | 7 Hardware Preview | Installer, recovery, matriks hardware, ARM64 | **sebagian**: matriks konfigurasi mesin virtual (`cargo xtask compat`, ADR-0010) berjalan di CI; perangkat keras fisik, installer, recovery dan ARM64 belum |
 
 ## Backlog berikutnya (urutan PRD "Urutan backlog pertama" sudah selesai sampai "syscall/IPC serta negative tests")
