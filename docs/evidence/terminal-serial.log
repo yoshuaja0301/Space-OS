@@ -2,16 +2,16 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x7d763000, entry 0xffffffff80110180
+spaceboot: kernel 295680 bytes, initrd 1013760 bytes, config 77 bytes
+spaceboot: kernel 3 segments, 288 KiB at phys 0x7d756000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 38 memory regions, initrd 976896 bytes, cmdline 18 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 38 memory regions, initrd 1013760 bytes, cmdline 18 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] frames: 2095086 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2095075 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -20,8 +20,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spaceterm"
-[kernel] initrd: 976896 bytes, 22 files
-[kernel]   bin/init (250808 bytes)
+[kernel] initrd: 1013760 bytes, 22 files
+[kernel]   bin/init (275384 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/abi_negative (53912 bytes)
@@ -34,19 +34,20 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/spaceai (74544 bytes)
 [kernel]   bin/spaceshell (45744 bytes)
 [kernel]   bin/uiworker (21064 bytes)
-[kernel]   bin/spacebroker (49840 bytes)
+[kernel]   bin/spacebroker (53936 bytes)
 [kernel]   bin/spaceagent (45776 bytes)
 [kernel]   bin/spacelink (58032 bytes)
-[kernel]   bin/spacepkg (41600 bytes)
+[kernel]   bin/spacepkg (49792 bytes)
 [kernel]   bin/spaceterm (33464 bytes)
 [kernel]   fixtures/bad_entry (21064 bytes)
 [kernel]   fixtures/bad_magic (21064 bytes)
 [kernel]   fixtures/truncated (600 bytes)
 [kernel]   fixtures/huge_segment (21064 bytes)
 [kernel] pci: 7 functions present
-[kernel] virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, status 0xf
+[kernel] virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
 [kernel] virtio-blk: ready, 64 MiB (131072 sectors)
 [kernel] vfs: FAT32 mounted from virtio-blk (512 byte clusters, 64 MiB volume)
+[kernel] vfs: volume is writable
 [kernel] pic remapped to vectors 32..47
 [kernel] console input: keyboard (IRQ1) and COM2 serial (IRQ3)
 [kernel] pit: 1000 Hz (divisor 1193)
@@ -67,7 +68,7 @@ space> helpp 
 space> status
 [shell] worker idle (-), last exit code 0, commands served 3
 space> ls /spaceos
-[shell] /spaceos: 11 entries
+[shell] /spaceos: 12 entries
 [shell]   .                   0 dir
 [shell]   ..                  0 dir
 [shell]   MODEL.SLM      460096 
@@ -76,6 +77,7 @@ space> ls /spaceos
 [shell]   BADMAGIC.SLM   460096 
 [shell]   BADDIMS.SLM    460096 
 [shell]   TRUNC.SLM      230048 
+[shell]   VAR                 0 dir
 [shell]   WS                  0 dir
 [shell]   DOCS                0 dir
 [shell]   PKG                 0 dir
@@ -98,4 +100,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 3876 ms, 3052 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 3973 ms, 3134 context switches)
