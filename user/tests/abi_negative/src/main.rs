@@ -47,6 +47,12 @@ pub extern "C" fn space_main() -> i32 {
     let r = decode(unsafe { sys::raw(999, 0, 0, 0, 0, 0, 0) });
     check("unknown syscall", r, Error::NoSys);
 
+    // The boundary itself: the first number past the table must not be dispatched.
+    // This follows `nr::COUNT`, so it keeps meaning the same thing as syscalls are
+    // added rather than drifting into a number nobody uses.
+    let r = decode(unsafe { sys::raw(nr::COUNT, 0, 0, 0, 0, 0, 0) });
+    check("syscall number just past the table", r, Error::NoSys);
+
     // Bad handle index.
     check("send on bad handle", sys::send(12345, b"x", None), Error::BadHandle);
     check("wait on bad handle", sys::wait(4242), Error::BadHandle);

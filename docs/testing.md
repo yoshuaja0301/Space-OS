@@ -52,7 +52,7 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | `syscall` dengan `rsp` non-kanonik dan dengan `rsp` = alamat kernel → kembali normal, proses keluar 0 | `bin/fault` |
 | K02 | ELF rusak dari initrd (`fixtures/bad_entry`, `bad_magic`, `truncated`, `huge_segment`) → `NoExec`/`Quota`, tanpa crash | fixture dibuat `xtask` dari `hello` |
 | K02 | pointer kernel ke syscall → `Fault`, tidak didereferensi | `bin/fault` |
-| K02 | 37 uji negatif ABI: buffer kosong beralamat 0, tabel handle penuh lalu pulih, nomor syscall salah, handle salah, jenis objek salah, pointer buruk, hak dipersempit tidak bisa diperluas, transfer endpoint sesama channel ditolak tanpa kehilangan handle, pesan terlalu besar tetap di antrean, peer tertutup, double close | `bin/abi_negative` |
+| K02 | 49 uji negatif ABI: buffer kosong beralamat 0, tabel handle penuh lalu pulih, nomor syscall salah dan nomor tepat di luar tabel (`nr::COUNT`, ikut bergerak saat syscall ditambah), handle salah, jenis objek salah, pointer buruk, hak dipersempit tidak bisa diperluas, transfer endpoint sesama channel ditolak tanpa kehilangan handle, pesan terlalu besar tetap di antrean, peer tertutup, double close | `bin/abi_negative` |
 | K02 | IPC echo 3 pesan + transfer handle + `PeerClosed` mengakhiri layanan | `bin/ipc_echo` |
 | K02 | `sleep(50 ms)` memajukan `ticks` | — |
 | K02 | proses loop tanpa syscall tidak membuat init kelaparan; `kill` → `SIGNAL` | `bin/spin` |
