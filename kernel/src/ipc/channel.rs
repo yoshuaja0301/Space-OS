@@ -51,6 +51,15 @@ impl Endpoint {
         (Arc::new(Endpoint { chan: chan.clone(), side: 0 }), Arc::new(Endpoint { chan, side: 1 }))
     }
 
+    /// Put a message back at the head of our own queue.
+    ///
+    /// Used when delivery to the receiving process fails after the message was
+    /// dequeued (a full handle table): without this the payload and any capability
+    /// inside it would be destroyed by an error the receiver can retry.
+    pub fn requeue(&self, msg: Message) {
+        self.chan.sides.lock()[self.side].queue.push_front(msg);
+    }
+
     /// True when both endpoints belong to the same channel (either side).
     pub fn same_channel(&self, other: &Endpoint) -> bool {
         Arc::ptr_eq(&self.chan, &other.chan)
@@ -99,7 +108,7 @@ impl Endpoint {
                     return Err(Error::WouldBlock);
                 }
                 // Register as a waiter, release the channel lock, then sleep.
-                self.chan.waiters[self.side].sleep_after(move || drop(sides));
+                self.chan.waiters[self.side].sleep_after(move || drop(sides))?;
                 if crate::proc::has_pending_kill() {
                     return Err(Error::Interrupted);
                 }

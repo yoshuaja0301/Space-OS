@@ -25,13 +25,15 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | `syscall` dengan `rsp` non-kanonik dan dengan `rsp` = alamat kernel → kembali normal, proses keluar 0 | `bin/fault` |
 | K02 | ELF rusak dari initrd (`fixtures/bad_entry`, `bad_magic`, `truncated`, `huge_segment`) → `NoExec`/`Quota`, tanpa crash | fixture dibuat `xtask` dari `hello` |
 | K02 | pointer kernel ke syscall → `Fault`, tidak didereferensi | `bin/fault` |
-| K02 | 33 uji negatif ABI: nomor syscall salah, handle salah, jenis objek salah, pointer buruk, hak dipersempit tidak bisa diperluas, transfer endpoint sesama channel ditolak tanpa kehilangan handle, pesan terlalu besar tetap di antrean, peer tertutup, double close | `bin/abi_negative` |
+| K02 | 37 uji negatif ABI: buffer kosong beralamat 0, tabel handle penuh lalu pulih, nomor syscall salah, handle salah, jenis objek salah, pointer buruk, hak dipersempit tidak bisa diperluas, transfer endpoint sesama channel ditolak tanpa kehilangan handle, pesan terlalu besar tetap di antrean, peer tertutup, double close | `bin/abi_negative` |
 | K02 | IPC echo 3 pesan + transfer handle + `PeerClosed` mengakhiri layanan | `bin/ipc_echo` |
 | K02 | `sleep(50 ms)` memajukan `ticks` | — |
 | K02 | proses loop tanpa syscall tidak membuat init kelaparan; `kill` → `SIGNAL` | `bin/spin` |
 | K03 | kuota 100 halaman: `mem_map` ditolak tepat pada batas, halaman nol, dilepas dan dapat dipakai lagi | `bin/quota` |
 | K03 | 50 siklus spawn/IPC/exit → frame bebas dan heap kernel identik | `bin/worker` |
 | K03 | 20 siklus "kill saat blocking di `recv`" → peer melihat `PeerClosed`, frame bebas dan heap kernel identik | `bin/ipc_echo` |
+| K03 | 20 siklus kill saat `sleep(1 jam)`, 20 siklus kill saat blocking `recv` dengan peer tetap terbuka, 20 siklus kill saat `wait` pada proses yang terus berjalan → frame bebas dan heap kernel identik (tanpa perbaikan: ~180 frame dan ~12 KiB heap bocor per 20 siklus) | `bin/blocker` |
+| K02 | tabel handle penuh → `spawn` ditolak `TooManyHandles` dan tidak ada proses yatim | `bin/hello` |
 
 ## Selftest kernel (sebelum user-space)
 

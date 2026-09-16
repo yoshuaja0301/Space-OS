@@ -249,23 +249,34 @@ pub fn yield_now() {
 /// Wake a blocked thread (no-op for any other state).
 pub fn wake(t: &Arc<Thread>) {
     let mut s = SCHED.lock();
+    // A woken thread is no longer a sleeper: dropping the entry here releases the
+    // reference immediately instead of at `wake_at` (which a long sleep puts far in
+    // the future, keeping a killed thread's kernel stack and process alive).
+    s.sleepers.retain(|(_, st)| !Arc::ptr_eq(st, t));
     if t.state() == ThreadState::Blocked {
         t.set_state(ThreadState::Ready);
         s.run_queue.push_back(t.clone());
     }
 }
 
-pub fn sleep_ms(ms: u64) {
+pub fn sleep_ms(ms: u64) -> Result<(), Error> {
     crate::sync::without_interrupts(|| {
+        let cur = current();
         {
             let mut s = SCHED.lock();
-            let cur = s.current.clone().expect("no current");
+            // Bookkeeping must not be able to exhaust the heap on a blocking path.
+            if s.sleepers.try_reserve(1).is_err() {
+                return Err(Error::NoMemory);
+            }
             let wake_at = s.ticks.saturating_add(ms.saturating_mul(TICK_HZ as u64).div_ceil(1000).max(1));
             cur.set_state(ThreadState::Blocked);
-            s.sleepers.push((wake_at, cur));
+            s.sleepers.push((wake_at, cur.clone()));
         }
         schedule();
-    });
+        // Woken normally (timer) or by a kill: make sure no sleeper entry survives.
+        SCHED.lock().sleepers.retain(|(_, st)| !Arc::ptr_eq(st, &cur));
+        Ok(())
+    })
 }
 
 /// Called from the timer IRQ with interrupts disabled.
@@ -315,13 +326,30 @@ impl WaitQueue {
     }
 
     /// Block the current thread on this queue. Must be called with interrupts
-    /// disabled; `release` runs after the thread is registered (drop your lock there).
-    pub fn sleep_after(&self, release: impl FnOnce()) {
+    /// disabled; `release` runs after the thread is registered (drop your lock there)
+    /// and is always called, including on the error path.
+    ///
+    /// On return the caller is no longer referenced by this queue: a thread woken by
+    /// `wake_all` was already drained, and one woken by a kill removes itself here.
+    /// Without that, killing a thread blocked on a queue whose event never happens
+    /// (a `wait` on a process that keeps running) would pin its kernel stack and its
+    /// address space forever.
+    pub fn sleep_after(&self, release: impl FnOnce()) -> Result<(), Error> {
         let cur = current();
-        cur.set_state(ThreadState::Blocked);
-        self.waiters.lock().push_back(cur);
+        {
+            let mut w = self.waiters.lock();
+            if w.try_reserve(1).is_err() {
+                drop(w);
+                release();
+                return Err(Error::NoMemory);
+            }
+            cur.set_state(ThreadState::Blocked);
+            w.push_back(cur.clone());
+        }
         release();
         schedule();
+        self.waiters.lock().retain(|t| !Arc::ptr_eq(t, &cur));
+        Ok(())
     }
 
     pub fn wake_all(&self) {

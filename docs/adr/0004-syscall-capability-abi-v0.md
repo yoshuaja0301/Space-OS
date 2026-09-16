@@ -24,6 +24,10 @@ Sumber kebenaran: crate `abi/spaceabi` (`ABI_VERSION = 0`).
 
 **Terminasi**: exception dari ring 3 mematikan proses dengan `ExitStatus::killed(reason, addr)` (`PAGE_FAULT`, `GENERAL_PROTECTION`, `INVALID_OPCODE`, `DIVIDE_ERROR`, `DEBUG` untuk `#DB`/single-step, `BREAKPOINT` untuk `int3`, `OTHER_EXCEPTION`); `kill` dari pemegang handle `KILL` menghasilkan alasan `SIGNAL`. Kernel tidak pernah panic karena kesalahan program user: `#DB` yang mendarat di instruksi kernel pertama setelah `syscall` (user menyetel TF) ditangani di stack IST sendiri dan proses dimatikan saat trap terulang di ring 3; `syscall` dengan `rsp` user non-kanonik/alamat kernel tidak pernah disentuh kernel; `rip` kembali yang bukan alamat user mematikan proses alih-alih `sysret` (#GP ring 0).
 
+**Pembebasan saat kill**: thread yang dimatikan saat memblokir melepas semua yang dipegangnya (kernel stack, address space, entri antrean) pada saat kill, bukan saat peristiwa yang ditunggunya terjadi: `sleep` melepas entri sleeper saat dibangunkan, dan penunggu wait queue melepas dirinya sendiri setelah `schedule()` kembali. Tanpa itu, membunuh proses yang `sleep` lama atau `wait` pada proses yang tidak pernah keluar akan menahan memori itu selamanya.
+
+**Pesan tidak boleh hilang karena error yang bisa diulang**: bila tabel handle penuh saat `recv` mengambil pesan berisi handle, seluruh pesan dikembalikan ke depan antrean dan syscall gagal `TooManyHandles`; `spawn` menolak lebih awal bila pemanggil tidak punya slot handle (dan membunuh anak yang terlanjur dibuat) agar tidak ada proses berjalan tanpa pemilik.
+
 **Batas alokasi kernel yang dipicu user**: syscall yang membuat objek kernel (pesan, channel, handle, proses, region) menolak dengan `NoMemory` bila heap kernel akan turun di bawah headroom 1 MiB, dan memakai `try_reserve` agar kehabisan memori menjadi error syscall, bukan panic kernel.
 
 Daftar syscall: lihat `abi/spaceabi/src/syscall.rs` (`nr::*`).

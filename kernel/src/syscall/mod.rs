@@ -35,10 +35,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
             sched::yield_now();
             Ok(0)
         }
-        nr::SLEEP => {
-            sched::sleep_ms(a[0]);
-            Ok(0)
-        }
+        nr::SLEEP => sched::sleep_ms(a[0]).map(|()| 0),
         nr::TICKS => Ok(sched::uptime_ms() as usize),
         nr::MEM_MAP => sys_mem_map(a[0], a[1] as u32),
         nr::MEM_UNMAP => sys_mem_unmap(a[0], a[1]),
@@ -90,6 +87,11 @@ fn user_bytes<'a>(addr: u64, len: u64, write: bool) -> Result<&'a mut [u8], Erro
     let ok = p.space.lock().check_user_range(addr, len, write);
     if !ok {
         return Err(Error::Fault);
+    }
+    if len == 0 {
+        // `from_raw_parts_mut` requires a non-null, aligned pointer even for length 0,
+        // and user space is free to pass 0 as the address of an empty buffer.
+        return Ok(&mut []);
     }
     // SAFETY: the range is mapped user memory of the current address space with the
     // requested access; the process is single-threaded and blocked in this syscall,
@@ -187,8 +189,7 @@ fn sys_mem_map(len: u64, flags: u32) -> Result<usize, Error> {
     if space.used_pages + pages > p.quota_pages {
         return Err(Error::Quota);
     }
-    let addr = space.alloc_mmap_addr(pages).ok_or(Error::NoMemory)?;
-    space.map_region(addr, pages, true, false)?;
+    let addr = space.map_anonymous(pages)?;
     Ok(addr as usize)
 }
 
@@ -284,13 +285,23 @@ fn sys_recv(h: Handle, args_ptr: u64) -> Result<usize, Error> {
     }
     // Validate the buffer up front so a message is never dequeued and then lost.
     user_bytes(args.buf, args.buf_cap, true)?;
-    let msg = with_channel(h, rights::RECV, |ep| ep.recv(args.buf_cap as usize, nonblock))?;
-    let buf = user_bytes(args.buf, args.buf_cap, true)?;
-    buf[..msg.data.len()].copy_from_slice(&msg.data);
-    let handle = match msg.handle {
-        Some(entry) => current().handles.lock().insert(entry)?,
+    let ep = with_channel(h, rights::RECV, |ep| Ok(ep.clone()))?;
+    let mut msg = ep.recv(args.buf_cap as usize, nonblock)?;
+    // Install the transferred handle before anything else can fail: if the table is
+    // full the whole message goes back to the head of the queue, so neither the
+    // payload nor the capability inside it is destroyed by a retryable error.
+    let handle = match msg.handle.take() {
+        Some(entry) => match current().handles.lock().insert(entry) {
+            Ok(h) => h,
+            Err(e) => {
+                ep.requeue(msg);
+                return Err(e);
+            }
+        },
         None => handle::INVALID,
     };
+    let buf = user_bytes(args.buf, args.buf_cap, true)?;
+    buf[..msg.data.len()].copy_from_slice(&msg.data);
     let out = RecvArgs {
         buf: args.buf,
         buf_cap: args.buf_cap,
@@ -347,10 +358,23 @@ fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
     } else {
         None
     };
+    // Refuse before creating anything when the caller could not hold the process
+    // handle: a child the parent cannot see is unkillable.
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
     // A failed spawn drops the bootstrap handle (same consume-on-transfer rule as send).
     let child = proc::spawn(&name, args.quota_pages as usize, bootstrap)?;
-    let entry = HandleEntry { object: Object::Process(child), rights: rights::PROCESS_ALL };
-    Ok(p.handles.lock().insert(entry)? as usize)
+    let entry = HandleEntry { object: Object::Process(child.clone()), rights: rights::PROCESS_ALL };
+    match p.handles.lock().insert(entry) {
+        Ok(h) => Ok(h as usize),
+        Err(e) => {
+            // Lost the last slot after all: terminate the child rather than leaving a
+            // running process nobody holds a handle to.
+            let _ = proc::kill(&child, ExitStatus::killed(kill_reason::SIGNAL, 0));
+            Err(e)
+        }
+    }
 }
 
 fn sys_wait(h: Handle, out: u64) -> Result<usize, Error> {
@@ -366,7 +390,7 @@ fn sys_wait(h: Handle, out: u64) -> Result<usize, Error> {
                     if let Some(s) = *st {
                         return Ok(s);
                     }
-                    target.exit_waiters.sleep_after(move || drop(st));
+                    target.exit_waiters.sleep_after(move || drop(st))?;
                 }
                 if proc::has_pending_kill() {
                     return Err(Error::Interrupted);

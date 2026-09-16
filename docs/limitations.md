@@ -11,7 +11,6 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - **Stack user tetap 64 KiB**, dipetakan penuh saat spawn; tidak ada demand paging atau pertumbuhan stack.
 - **Heap kernel tetap 16 MiB**; kehabisan heap = panic (alloc error), bukan penolakan bertahap.
 - **Kuota menghitung halaman user saja**; frame page-table dan objek kernel (thread, channel) belum dibebankan ke proses. Headroom heap kernel dan `try_reserve` mengubah kehabisan heap menjadi error syscall (`NoMemory`), tetapi satu proses masih dapat menghabiskan headroom bersama (ancaman PRD §5 "resource exhaustion" baru ditutup sebagian).
-- Thread yang di-`kill` saat menunggu `wait` pada proses yang belum keluar tetap tercatat di wait queue proses itu sampai proses tersebut keluar (Arc lepas terlambat, bukan bocor permanen).
 - Siklus referensi antar-channel (endpoint A dikirim lewat channel B dan endpoint B dikirim lewat channel A) tidak dideteksi dan bocor; siklus satu channel ditolak (`Invalid`).
 - NMI bersarang (NMI kedua saat handler NMI belum selesai) merusak frame di stack IST NMI.
 - Headroom heap kernel 1 MiB menolak alokasi yang dipicu user, tetapi fragmentasi ekstrem masih dapat membuat alokasi internal kernel gagal (panic).

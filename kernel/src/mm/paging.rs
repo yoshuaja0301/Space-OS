@@ -184,16 +184,21 @@ impl AddressSpace {
         })
     }
 
-    /// Reserve a virtual range for an anonymous mapping.
-    pub fn alloc_mmap_addr(&mut self, pages: usize) -> Option<u64> {
+    /// Map `pages` zero-filled, writable pages at a fresh anonymous address.
+    ///
+    /// The address cursor only advances when the mapping succeeds, so a failed
+    /// attempt reuses the same address (and the page tables already built for it)
+    /// instead of stranding page-table frames at every abandoned address.
+    pub fn map_anonymous(&mut self, pages: usize) -> Result<u64, Error> {
         let start = self.mmap_next;
-        let len = (pages as u64).checked_mul(PAGE_SIZE)?;
-        let end = start.checked_add(len)?;
+        let len = (pages as u64).checked_mul(PAGE_SIZE).ok_or(Error::Invalid)?;
+        let end = start.checked_add(len).ok_or(Error::Invalid)?;
         if end > USER_SPACE_END / 2 {
-            return None;
+            return Err(Error::NoMemory);
         }
+        self.map_region(start, pages, true, false)?;
         self.mmap_next = end + PAGE_SIZE; // leave a guard gap between mappings
-        Some(start)
+        Ok(start)
     }
 
     /// Map `pages` zero-filled frames at `start`. Rolls back completely on failure.
@@ -331,8 +336,9 @@ impl AddressSpace {
             return;
         }
         self.torn_down = true;
-        let regions: Vec<Region> = self.regions.drain(..).collect();
-        for r in regions {
+        // Pop instead of collecting into a fresh Vec: process exit must never need
+        // the kernel heap (an allocation failure there would panic the kernel).
+        while let Some(r) = self.regions.pop() {
             let mut mapper = self.mapper();
             for i in 0..r.pages {
                 let va = VirtAddr::new(r.start + i as u64 * PAGE_SIZE);

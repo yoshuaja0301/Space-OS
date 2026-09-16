@@ -12,6 +12,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use libspace::spaceabi::error::Error;
+use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
 
@@ -122,6 +123,57 @@ fn kill_blocked_cycle() -> Result<(), String> {
     }
     sys::handle_close(mine).ok();
     if st.is_killed_by(kill_reason::SIGNAL) { Ok(()) } else { Err(alloc::format!("echo ended with {st:?}")) }
+}
+
+/// Spawn `bin/blocker` in `mode`, wait until it is blocked, kill it and reap it.
+/// `pass` is moved into the child together with the mode message.
+fn blocked_kill_cycle(mode: &str, pass: Option<Handle>) -> Result<(), String> {
+    let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+    let p = sys::spawn(ROOT, "bin/blocker", CHILD_QUOTA, Some(theirs))
+        .map_err(|e| alloc::format!("spawn: {e}"))?;
+    sys::send(mine, mode.as_bytes(), pass).map_err(|e| alloc::format!("send mode: {e}"))?;
+    let mut buf = [0u8; 16];
+    let (n, _) = sys::recv(mine, &mut buf, false).map_err(|e| alloc::format!("ready: {e}"))?;
+    if &buf[..n] != b"ready" {
+        return Err(String::from("blocker did not report ready"));
+    }
+    // It is inside sleep/wait/recv now (the reply is sent immediately before blocking).
+    sys::sleep_ms(5);
+    sys::kill(p).map_err(|e| alloc::format!("kill: {e}"))?;
+    let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+    sys::handle_close(p).ok();
+    sys::handle_close(mine).ok();
+    if st.is_killed_by(kill_reason::SIGNAL) {
+        Ok(())
+    } else {
+        Err(alloc::format!("blocker '{mode}' ended with {st:?}"))
+    }
+}
+
+/// Run `cycle` `n` times and require that no frame and no kernel-heap byte is lost.
+fn no_leak_over(n: u32, label: &str, mut cycle: impl FnMut() -> Result<(), String>) -> Result<(), String> {
+    for _ in 0..3 {
+        cycle()?; // warm up
+    }
+    let before = stats()?;
+    for i in 0..n {
+        cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
+    }
+    let after = stats()?;
+    println!(
+        "[init] {label}: frames free {} -> {}, heap used {} -> {}, live processes {}",
+        before.frames_free, after.frames_free, before.heap_used, after.heap_used, after.processes_live
+    );
+    if after.frames_free != before.frames_free || after.heap_used != before.heap_used {
+        return Err(alloc::format!(
+            "leak over {n} cycles: frames {} -> {}, heap {} -> {}",
+            before.frames_free,
+            after.frames_free,
+            before.heap_used,
+            after.heap_used
+        ));
+    }
+    Ok(())
 }
 
 fn stats() -> Result<KernelStats, String> {
@@ -367,6 +419,57 @@ pub extern "C" fn space_main() -> i32 {
             ));
         }
         Ok(())
+    });
+
+    r.run("K03", "20 kill-while-sleeping cycles release the thread at once, not at wake-up", || {
+        no_leak_over(20, "kill while sleeping", || blocked_kill_cycle("sleep", None))
+    });
+
+    r.run("K03", "20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)", || {
+        no_leak_over(20, "kill while in recv", || blocked_kill_cycle("recv", None))
+    });
+
+    r.run("K03", "20 kill-while-waiting cycles leak nothing although the target keeps running", || {
+        let target = sys::spawn(ROOT, "bin/spin", CHILD_QUOTA, None)
+            .map_err(|e| alloc::format!("spawn target: {e}"))?;
+        let res = no_leak_over(20, "kill while in wait", || {
+            let dup = sys::handle_dup(target, rights::WAIT | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup target: {e}"))?;
+            blocked_kill_cycle("wait", Some(dup))
+        });
+        sys::kill(target).ok();
+        sys::wait(target).ok();
+        sys::handle_close(target).ok();
+        res
+    });
+
+    r.run("K02", "a full handle table refuses spawn instead of orphaning the child", || {
+        let mut spare = Vec::new();
+        loop {
+            match sys::handle_dup(ROOT, rights::STATS) {
+                Ok(h) => spare.push(h),
+                Err(Error::TooManyHandles) => break,
+                Err(e) => return Err(alloc::format!("dup: {e}")),
+            }
+            if spare.len() > 1024 {
+                return Err(String::from("handle table never filled up"));
+            }
+        }
+        let spawn_result = sys::spawn(ROOT, "bin/hello", CHILD_QUOTA, None);
+        for h in spare.drain(..) {
+            sys::handle_close(h).map_err(|e| alloc::format!("close spare: {e}"))?;
+        }
+        match spawn_result {
+            Err(Error::TooManyHandles) => {}
+            other => return Err(alloc::format!("spawn with a full table gave {other:?}")),
+        }
+        // Nothing may have been created behind our back.
+        sys::sleep_ms(20);
+        let s = stats()?;
+        if s.processes_live != 1 {
+            return Err(alloc::format!("{} live processes after the refused spawn", s.processes_live));
+        }
+        expect_exit("hello", spawn_and_wait("bin/hello", CHILD_QUOTA, None)?, 0)
     });
 
     let total = r.passed + r.failed.len() as u32;

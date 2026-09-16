@@ -73,6 +73,11 @@ impl HandleTable {
         self.slots[index] = Some(entry);
     }
 
+    /// True when `insert` can still succeed (a free slot, or room to grow).
+    pub fn has_free_slot(&self) -> bool {
+        self.slots.len() < MAX_HANDLES || self.slots.iter().any(Option::is_none)
+    }
+
     pub fn get(&self, h: Handle) -> Result<&HandleEntry, Error> {
         self.slots.get(h as usize).and_then(Option::as_ref).ok_or(Error::BadHandle)
     }

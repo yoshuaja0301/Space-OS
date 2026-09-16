@@ -9,6 +9,7 @@ members = [
     "user/tests/hello",
     "user/tests/fault",
     "user/tests/abi_negative",
+    "user/tests/blocker",
     "user/tests/ipc_echo",
     "user/tests/quota",
     "user/tests/spin",

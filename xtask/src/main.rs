@@ -17,7 +17,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const USER_PROGRAMS: &[&str] =
-    &["init", "hello", "fault", "abi_negative", "ipc_echo", "quota", "spin", "worker"];
+    &["init", "hello", "fault", "abi_negative", "ipc_echo", "quota", "spin", "worker", "blocker"];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 const PART_START: u64 = 1024 * 1024;
 const BOOT_TIMEOUT: Duration = Duration::from_secs(240);

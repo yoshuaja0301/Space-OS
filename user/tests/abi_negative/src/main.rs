@@ -3,6 +3,8 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::syscall::{RecvArgs, nr};
@@ -67,6 +69,47 @@ pub extern "C" fn space_main() -> i32 {
         sys::raw(nr::RECV, handle::BOOTSTRAP as u64, &bad_args as *const RecvArgs as u64, 0, 0, 0, 0)
     });
     check("recv into kernel buffer", r, Error::Fault);
+
+    // Zero-length buffers: user space may pass a null pointer for an empty slice.
+    check_ok("log of an empty buffer at address 0", decode(unsafe { sys::raw(nr::LOG, 0, 0, 0, 0, 0, 0) }));
+    let (z0, z1) = sys::channel_create().expect("zero-length channel");
+    check_ok(
+        "send of an empty message from address 0",
+        decode(unsafe { sys::raw(nr::SEND, z0 as u64, 0, 0, handle::INVALID as u64, 0, 0) }),
+    );
+    let mut none: [u8; 0] = [];
+    check_ok("recv of the empty message", sys::recv(z1, &mut none, true));
+
+    // Handle table exhaustion must be reported, never silently truncate.
+    let mut spare = alloc::vec::Vec::new();
+    loop {
+        match sys::handle_dup(z0, rights::RECV) {
+            Ok(h) => spare.push(h),
+            Err(Error::TooManyHandles) => break,
+            Err(e) => {
+                println!("[abi]   FAIL dup until full: {e:?}");
+                unsafe { FAILS += 1 };
+                break;
+            }
+        }
+        if spare.len() > 1024 {
+            println!("[abi]   FAIL handle table never filled up");
+            unsafe { FAILS += 1 };
+            break;
+        }
+    }
+    println!("[abi]   ok   handle table filled after {} dups, then TooManyHandles", spare.len());
+    for h in spare.drain(..) {
+        sys::handle_close(h).expect("close spare");
+    }
+    check_ok(
+        "dup works again after closing the spares",
+        sys::handle_dup(z0, rights::RECV).inspect(|&h| {
+            sys::handle_close(h).ok();
+        }),
+    );
+    sys::handle_close(z0).expect("close z0");
+    sys::handle_close(z1).expect("close z1");
 
     // Invalid arguments.
     check("unmap of unmapped range", sys::mem_unmap(0x5000_0000 as *mut u8, 4096), Error::Invalid);
