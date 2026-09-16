@@ -43,8 +43,11 @@ struct Shell {
     served: u32,
     /// What has been typed since the last newline.
     line: String,
-    /// True once the terminal has printed its first prompt.
+    /// True once the terminal has announced itself, one way or the other.
     terminal: bool,
+    /// False once a console read has been refused: a session without the console
+    /// right should not keep asking every two milliseconds.
+    console_ok: bool,
     /// Last byte was a carriage return, so a following line feed is the other half
     /// of one CRLF and not a second empty line.
     last_cr: bool,
@@ -79,6 +82,7 @@ impl Shell {
             served: 0,
             line: String::new(),
             terminal: false,
+            console_ok: true,
             last_cr: false,
         }
     }
@@ -435,13 +439,22 @@ pub extern "C" fn space_main() -> i32 {
         sh.poll_worker();
         // The terminal only exists once a capability arrives that can read it.
         let mut busy = false;
-        if let Some(root) = sh.root {
+        if let (Some(root), true) = (sh.root, sh.console_ok) {
+            // Announce the terminal only after a read has proven the capability is
+            // really there: a session without the console right has no terminal, and
+            // saying otherwise would be a lie in the log.
+            let first = sys::console_read(root, &mut typed);
             if !sh.terminal {
                 sh.terminal = true;
-                println!("[shell] terminal ready on the console; type 'help'");
-                sh.prompt();
+                match &first {
+                    Ok(_) => {
+                        println!("[shell] terminal ready on the console; type 'help'");
+                        sh.prompt();
+                    }
+                    Err(e) => println!("[shell] no console capability ({e}); channel control only"),
+                }
             }
-            match sys::console_read(root, &mut typed) {
+            match first {
                 Ok(0) => {}
                 Ok(n) => {
                     busy = true;
@@ -456,8 +469,9 @@ pub extern "C" fn space_main() -> i32 {
                         break;
                     }
                 }
-                // No console right: this session is driven by its channel only.
-                Err(_) => sh.terminal = true,
+                // Refused once is refused for good: this session is driven by its
+                // channel only, and retrying every poll would be pure waste.
+                Err(_) => sh.console_ok = false,
             }
         }
         // Both inputs are served on every pass. Handling the console and looping

@@ -24,6 +24,8 @@ pub const USER_STACK_TOP: u64 = 0x0000_7FFF_F000_0000;
 pub const USER_STACK_PAGES: usize = 16;
 /// Quota for `init`: 8 MiB.
 pub const INIT_QUOTA_PAGES: usize = 2048;
+/// The first user process. Its exit ends the machine.
+pub const INIT_PID: u64 = 1;
 pub const MAX_QUOTA_PAGES: usize = 1 << 20; // 4 GiB
 
 pub struct Process {
@@ -49,10 +51,10 @@ pub fn live_count() -> usize {
 /// Spawn the first user process. `init=` on the kernel command line selects which
 /// program that is, so the same image can boot into the acceptance run or into an
 /// interactive session without rebuilding anything.
-pub fn spawn_init() -> Result<Arc<Process>, Error> {
+pub fn spawn_init() -> Result<(Arc<Process>, &'static str), Error> {
     let root = HandleEntry { object: Object::Root, rights: rights::ROOT_ALL };
     let name = crate::cmdline::get("init").unwrap_or("bin/init");
-    spawn(name, INIT_QUOTA_PAGES, Some(root))
+    spawn(name, INIT_QUOTA_PAGES, Some(root)).map(|p| (p, name))
 }
 
 /// Load `name` from the initrd into a fresh address space and schedule its main thread.
@@ -162,6 +164,16 @@ fn describe(status: &ExitStatus) -> String {
 fn release_current(status: ExitStatus) {
     let proc = current_process().expect("exit_current on the idle thread");
     println!("[kernel] pid {} '{}' {}", proc.pid, proc.name, describe(&status));
+    // The first process is the machine's reason to be running. If it ends without
+    // asking for a shutdown there is nothing left to schedule, and an idle loop with
+    // no runnable process looks exactly like a hang. Say what happened and stop.
+    if proc.pid == INIT_PID {
+        println!("[kernel] pid 1 '{}' ended without requesting shutdown; nothing left to run", proc.name);
+        crate::arch::disable_interrupts();
+        crate::arch::qemu_exit(spaceabi::syscall::qemu_exit::FAILURE);
+        println!("[kernel] no debug-exit device; halting");
+        crate::arch::halt_forever();
+    }
     // Leave the dying address space before tearing it down.
     crate::mm::paging::activate_kernel();
     *proc.status.lock() = Some(status);

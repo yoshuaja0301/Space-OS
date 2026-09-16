@@ -79,7 +79,10 @@ monitor QEMU tidak menyentuh subsistem serial sama sekali.
 
 **Boot langsung ke sesi.** `init=` pada command line kernel memilih proses user
 pertama, jadi image yang sama bisa dipakai untuk acceptance run (`bin/init`) atau
-untuk sesi interaktif (`init=bin/spaceterm`) tanpa build ulang. `bin/spaceterm`
+untuk sesi interaktif (`init=bin/spaceterm`) tanpa build ulang. Proses pertama
+adalah alasan mesin ini menyala: kalau ia selesai tanpa meminta shutdown, kernel
+mengatakannya dan berhenti dengan kode gagal, karena idle loop tanpa proses yang
+bisa dijadwalkan tidak bisa dibedakan dari hang. `bin/spaceterm`
 membuka satu sesi, menyerahkan root yang dipersempit ke `SPAWN|FS|CONSOLE`, lalu
 hanya menunggu — ia menahan hak `SHUTDOWN` untuk dirinya sendiri, sehingga sesi
 tidak bisa mematikan mesin.

@@ -53,6 +53,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
 - Belum ada window manager, GUI, font selain 8x16 bawaan, atau grafik selain teks di framebuffer. "Desktop" berarti konsol teks.
 - Ring buffer masukan 256 byte; yang tertua dibuang saat penuh dan kejadian itu dicetak sekali.
+- Masukan konsol adalah **satu antrean global**, bukan milik satu proses: pembacaan bersifat merusak, jadi dua proses yang sama-sama memegang hak `CONSOLE` akan saling memakan ketikan. Modelnya adalah satu sesi memiliki konsol; belum ada pemilik konsol yang ditegakkan kernel.
 - `SYS_FS_LIST` mengembalikan maksimum 64 entri per panggilan dan tidak punya kursor; direktori yang lebih besar terpotong tanpa cara melanjutkan. Entri `.` dan `..` ikut dikembalikan apa adanya.
 
 ## Agent dan Tool Broker

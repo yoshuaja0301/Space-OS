@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 283392 bytes, initrd 980992 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 276 KiB at phys 0x7d764000, entry 0xffffffff80100000
+spaceboot: kernel 3 segments, 276 KiB at phys 0x7d765000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -54,10 +54,10 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400974, 24 pages mapped, quota 2048 pages
-[kernel] init spawned as pid 1
+[kernel] init spawned as pid 1 from bin/spaceterm
 [kernel] entering idle loop; scheduler live
 [term] Space OS interactive session
-[kernel] spawn pid 2 'bin/spaceshell': entry=0x4029c4, 27 pages mapped, quota 256 pages
+[kernel] spawn pid 2 'bin/spaceshell': entry=0x402a54, 27 pages mapped, quota 256 pages
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0
 [shell] session: worker idle (-), commands served 1
@@ -98,4 +98,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 3943 ms, 3106 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 3975 ms, 3140 context switches)

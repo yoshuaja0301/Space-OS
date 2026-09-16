@@ -13,7 +13,7 @@
 | `cargo xtask build` | bootloader (`target/boot/…/spaceboot.efi`), kernel (`target/kernel/…/spacekernel`), program user (`target/user/…`), `build/esp.img` |
 | `cargo xtask run [--gui] [--cmdline "selftest=panic"]` | boot image di QEMU, serial di stdio (`Ctrl-A X` untuk keluar) |
 | `cargo xtask run --cmdline "init=bin/spaceterm"` | boot ke sesi interaktif: ketik `help`, `status`, `ls /spaceos`, `run ok`, `stop`, `quit` langsung di konsol |
-| `cargo xtask test` | enam skenario boot + pemeriksaan log/exit code, log di `build/logs/` |
+| `cargo xtask test` | sembilan skenario boot + pemeriksaan log/exit code, log di `build/logs/` |
 | `cargo xtask compat` | sembilan konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
 | `cargo xtask soak --boots 100` | 100 cold boot berturut-turut skenario acceptance (K01) |
 | `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy + `test` + `compat` |

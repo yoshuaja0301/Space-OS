@@ -1024,7 +1024,6 @@ struct Scenario {
 
 /// QEMU exit status = (value << 1) | 1 for isa-debug-exit.
 const EXIT_SUCCESS: i32 = (0x10 << 1) | 1; // 33
-#[allow(dead_code)]
 const EXIT_FAILURE: i32 = (0x11 << 1) | 1; // 35
 const EXIT_PANIC: i32 = (0x3f << 1) | 1; // 127
 
@@ -1126,6 +1125,37 @@ const SCENARIOS: &[Scenario] = &[
         must_contain_extra: &[],
         must_not_contain: &["KERNEL PANIC", "[init] FAIL"],
         runs: 2,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
+    },
+    Scenario {
+        name: "init-exit-diagnosis",
+        // A first process that ends without asking for shutdown leaves nothing to
+        // schedule. That must read as a diagnosis, not as a hang.
+        cmdline: "init=bin/hello",
+        expect_exit: EXIT_FAILURE,
+        must_contain: &[
+            "[kernel] init spawned as pid 1 from bin/hello",
+            "[hello] hello from user space",
+            "ended without requesting shutdown; nothing left to run",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC"],
+        runs: 1,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
+    },
+    Scenario {
+        name: "init-missing-diagnosis",
+        // A misspelled init names the program that actually failed.
+        cmdline: "init=bin/not_a_program",
+        expect_exit: EXIT_PANIC,
+        must_contain: &["cannot start \"bin/not_a_program\" from initrd: not found", "!!! KERNEL PANIC !!!"],
+        must_contain_extra: &[],
+        must_not_contain: &["[init] Space OS init running"],
+        runs: 1,
         typing: Typing::None,
         type_lines: &[],
         ready_marker: "",

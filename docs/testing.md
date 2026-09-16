@@ -11,6 +11,8 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `kernel-fault-diagnosis` | `selftest=kfault` | `!!! CPU EXCEPTION IN KERNEL MODE: page fault !!!`, `cr2=0xfffff000dead0000`, lalu panic; exit 127 |
 | `kernel-stack-overflow-diagnosis` | `selftest=stack` | `!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!` (guard page kernel stack), lalu panic; exit 127 |
 | `storage-reboot` | — | image yang sama di-boot dua kali; kedua boot harus memuat virtio-blk, mount FAT32, dan lulus D01 (checksum model) |
+| `init-exit-diagnosis` | `init=bin/hello` | proses pertama yang **selesai tanpa meminta shutdown** tidak meninggalkan apa pun untuk dijadwalkan. Kernel harus mengatakannya (`ended without requesting shutdown; nothing left to run`) dan berhenti dengan exit 35 — bukan menggantung seperti hang |
+| `init-missing-diagnosis` | `init=bin/not_a_program` | `init=` yang salah ketik harus menyebut program yang benar-benar gagal: `cannot start "bin/not_a_program" from initrd: not found`, lalu panic; exit 127 |
 | `terminal` | `init=bin/spaceterm` | image yang **sama**, di-boot ke sesi interaktif dan dikendalikan dari **keyboard**: harness menekan tombol lewat monitor QEMU (`sendkey`), jadi jalurnya scan code → IRQ 1 → decoder kernel. Mesin ini tidak punya COM2 sama sekali (log wajib memuat `no COM2 UART`), jadi tiap ketikan pasti datang dari keyboard. Diketik `help`, `status`, `ls /spaceos`, `run hang`, `status`, `stop`, `status`, `quit`; exit 33 |
 | `terminal-serial` | `init=bin/spaceterm` | sesi yang sama lewat **konsol serial**: COM2 sebagai pty, harness menulis byte ke sana (IRQ 3). Log wajib memuat `keyboard (IRQ1) and COM2 serial (IRQ3)`. Perintah dan harapan sama dengan `terminal` |
 

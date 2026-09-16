@@ -125,8 +125,10 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     selftest::run_cmdline_fault_injection();
 
     match proc::spawn_init() {
-        Ok(p) => println!("[kernel] init spawned as pid {}", p.pid),
-        Err(e) => panic!("cannot start bin/init from initrd: {e}"),
+        Ok((p, name)) => println!("[kernel] init spawned as pid {} from {name}", p.pid),
+        // Name the program that actually failed: with `init=` on the command line it
+        // is not necessarily bin/init, and a wrong name is the likeliest reason.
+        Err(e) => panic!("cannot start {:?} from initrd: {e}", cmdline::get("init").unwrap_or("bin/init")),
     }
     println!("[kernel] entering idle loop; scheduler live");
     sched::idle_loop()

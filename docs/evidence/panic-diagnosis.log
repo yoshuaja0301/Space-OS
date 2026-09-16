@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 283392 bytes, initrd 980992 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 276 KiB at phys 0x7d779000, entry 0xffffffff80100000
+spaceboot: kernel 3 segments, 276 KiB at phys 0x7d76b000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -59,8 +59,8 @@ at kernel/src/selftest.rs:152:26
 message: deliberate kernel panic (cmdline selftest=panic)
 current: idle
 backtrace (frame pointers):
-  #00 0xffffffff80122edc
-  #01 0xffffffff8011388e
-  #02 0xffffffff8010088c
-  #03 0xffffffff8010301e
+  #00 0xffffffff8012309c
+  #01 0xffffffff8011373e
+  #02 0xffffffff80100ce6
+  #03 0xffffffff8010308e
 spacekernel: halted after panic (uptime 0 ms)

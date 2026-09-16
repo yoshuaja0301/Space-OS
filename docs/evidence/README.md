@@ -8,6 +8,8 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 | `panic-diagnosis.log` | `selftest=panic` | pesan panic + lokasi + backtrace, exit 127 |
 | `kernel-fault-diagnosis.log` | `selftest=kfault` | dump register page fault ring 0 (`cr2=0xfffff000dead0000`) lalu panic, exit 127 |
 | `kernel-stack-overflow-diagnosis.log` | `selftest=stack` | double fault dari guard page kernel stack (stack IST), exit 127 |
+| `init-exit-diagnosis.log` | proses pertama selesai tanpa meminta shutdown (`init=bin/hello`) | kernel mengatakannya dan berhenti, exit 35 |
+| `init-missing-diagnosis.log` | `init=` menyebut program yang tidak ada | panic yang menyebut nama program itu, exit 127 |
 | `terminal.log` | sesi interaktif dikendalikan dari **keyboard** (monitor QEMU `sendkey`; mesin ini tidak punya COM2) | tiap perintah yang diketik dijawab, `stop` menghentikan worker yang macet, `quit` menutup sesi; exit 33 |
 | `terminal-serial.log` | sesi yang sama lewat **konsol serial** COM2 (pty) | sama, dengan `console input: keyboard (IRQ1) and COM2 serial (IRQ3)` |
 | `storage-reboot-boot1.log`, `storage-reboot-boot2.log` | image yang sama di-boot dua kali (D01 setelah reboot) | virtio-blk siap, FAT32 ter-mount, checksum model cocok pada kedua boot |
