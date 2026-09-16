@@ -306,16 +306,30 @@ fn pkg_call(ch: Handle, r: &PkgRequest) -> Result<PkgReply, String> {
     pkg_reply(ch)
 }
 
-fn pkg_start() -> Result<(Handle, Handle), String> {
+/// Start the service and attach to it, keeping whatever is already installed.
+fn pkg_start_keeping() -> Result<(Handle, Handle), String> {
     let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
     let svc = sys::spawn(ROOT, "bin/spacepkg", PKG_QUOTA, Some(theirs))
         .map_err(|e| alloc::format!("spawn spacepkg: {e}"))?;
-    let root =
-        sys::handle_dup(ROOT, rights::FS | rights::TRANSFER).map_err(|e| alloc::format!("dup root: {e}"))?;
+    // The service keeps what it installed on disk, so it needs the right to write
+    // the volume as well as to read it -- and nothing else.
+    let root = sys::handle_dup(ROOT, rights::FS | rights::FS_WRITE | rights::TRANSFER)
+        .map_err(|e| alloc::format!("dup root: {e}"))?;
     let hello = PkgRequest { kind: preq::HELLO, abi_version: 0, ..Default::default() };
     sys::send(mine, as_pkg_bytes(&hello), Some(root)).map_err(|e| alloc::format!("hello: {e}"))?;
     pkg_reply(mine)?.result().map_err(|e| alloc::format!("hello: {e}"))?;
     Ok((mine, svc))
+}
+
+/// Start the service from an empty store.
+///
+/// The volume remembers now, so without this each test would inherit whatever the
+/// one before it installed, and "the service starts with nothing installed" would
+/// depend on the order the tests happen to run in.
+fn pkg_start() -> Result<(Handle, Handle), String> {
+    let (ch, svc) = pkg_start_keeping()?;
+    pkg_call(ch, &PkgRequest::new(preq::RESET))?.result().map_err(|e| alloc::format!("reset: {e}"))?;
+    Ok((ch, svc))
 }
 
 fn pkg_stop(ch: Handle, svc: Handle) -> Result<(), String> {
@@ -2362,6 +2376,60 @@ pub extern "C" fn space_main() -> i32 {
                 return Err(String::from("verify changed what is installed"));
             }
             pkg_stop(svc_ch, svc)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "P01",
+        "an install outlives the process that performed it",
+        || {
+            // The proof is a second process. It shares no memory with the first and is
+            // told nothing about what was installed: the only thing connecting them is
+            // the volume, so whatever it reports came off the disk.
+            let (ch, svc) = pkg_start()?;
+            pkg_call(ch, &PkgRequest::with_path(preq::INSTALL, "/spaceos/pkg/demo1.spk"))?
+                .result()
+                .map_err(|e| alloc::format!("install: {e}"))?;
+            let before = pkg_call(ch, &PkgRequest::new(preq::STATUS))?;
+            before.result().map_err(|e| alloc::format!("status: {e}"))?;
+            let payload_before = pkg_payload(ch, before.len)?;
+            pkg_stop(ch, svc)?;
+
+            let (ch2, svc2) = pkg_start_keeping()?;
+            let after = pkg_call(ch2, &PkgRequest::new(preq::STATUS))?;
+            after.result().map_err(|e| alloc::format!("status after restart: {e}"))?;
+            if after.name() != before.name()
+                || after.version != before.version
+                || after.history != before.history
+            {
+                return Err(alloc::format!(
+                    "after restart: {:?} v{} ({} held), expected {:?} v{} ({} held)",
+                    after.name(),
+                    after.version,
+                    after.history,
+                    before.name(),
+                    before.version,
+                    before.history
+                ));
+            }
+            if after.digest != before.digest {
+                return Err(String::from("the digest changed across the restart"));
+            }
+            // Not just the metadata: the bytes themselves came back.
+            let payload_after = pkg_payload(ch2, after.len)?;
+            if payload_after != payload_before {
+                return Err(String::from("the payload did not survive the restart"));
+            }
+            if sha256::digest(&payload_after) != after.digest {
+                return Err(String::from("the restored payload does not match its digest"));
+            }
+            // Leave nothing behind for whatever runs next.
+            pkg_call(ch2, &PkgRequest::new(preq::RESET))?
+                .result()
+                .map_err(|e| alloc::format!("reset: {e}"))?;
+            pkg_stop(ch2, svc2)
         },
     );
 

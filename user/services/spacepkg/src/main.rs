@@ -19,7 +19,7 @@
 
 extern crate alloc;
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use libspace::spaceabi::error::Error;
@@ -49,6 +49,8 @@ struct Service {
     root: Option<Handle>,
     /// Oldest first; the last entry is active.
     history: Vec<Installed>,
+    /// Said once: the store could not be written, so installs are for this boot only.
+    store_warned: bool,
 }
 
 fn as_bytes<T>(v: &T) -> &[u8] {
@@ -58,7 +60,150 @@ fn as_bytes<T>(v: &T) -> &[u8] {
 
 impl Service {
     fn new(channel: Handle) -> Service {
-        Service { channel, root: None, history: Vec::new() }
+        Service { channel, root: None, history: Vec::new(), store_warned: false }
+    }
+
+    /// Encode the whole history into the store format.
+    fn encode_store(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&pkg::STORE_MAGIC);
+        out.extend_from_slice(&pkg::STORE_FORMAT.to_le_bytes());
+        out.extend_from_slice(&(self.history.len() as u32).to_le_bytes());
+        for e in &self.history {
+            out.extend_from_slice(&(e.name.len() as u32).to_le_bytes());
+            out.extend_from_slice(e.name.as_bytes());
+            out.extend_from_slice(&e.version.to_le_bytes());
+            out.extend_from_slice(&e.digest);
+            out.extend_from_slice(&(e.payload.len() as u32).to_le_bytes());
+            out.extend_from_slice(&e.payload);
+        }
+        out
+    }
+
+    /// Read the history back. Every length is checked against what is left in the
+    /// buffer: a store that has been truncated or tampered with is treated as no
+    /// store at all, never as a reason to panic.
+    fn decode_store(raw: &[u8]) -> Option<Vec<Installed>> {
+        let mut at = 0usize;
+        let mut take = |n: usize| -> Option<&[u8]> {
+            let end = at.checked_add(n)?;
+            if end > raw.len() {
+                return None;
+            }
+            let s = &raw[at..end];
+            at = end;
+            Some(s)
+        };
+        if take(8)? != pkg::STORE_MAGIC {
+            return None;
+        }
+        if u32::from_le_bytes(take(4)?.try_into().ok()?) != pkg::STORE_FORMAT {
+            return None;
+        }
+        let count = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
+        if count > HISTORY_MAX {
+            return None;
+        }
+        let mut out = Vec::new();
+        out.try_reserve(count).ok()?;
+        for _ in 0..count {
+            let name_len = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
+            if name_len > pkg::NAME_MAX {
+                return None;
+            }
+            let name = core::str::from_utf8(take(name_len)?).ok()?.to_string();
+            let version = u32::from_le_bytes(take(4)?.try_into().ok()?);
+            let digest: [u8; 32] = take(32)?.try_into().ok()?;
+            let payload_len = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
+            if payload_len as u64 > pkg::PAYLOAD_MAX {
+                return None;
+            }
+            let payload = take(payload_len)?.to_vec();
+            out.push(Installed { name, version, digest, payload });
+        }
+        Some(out)
+    }
+
+    /// Write the store, if this operator handed over the right to write it.
+    ///
+    /// A volume that cannot be written is not an error here -- the diskless machine
+    /// is a supported configuration -- but it is said once, so nobody reads "installed"
+    /// as "installed for good".
+    fn save(&mut self) {
+        let Some(root) = self.root else { return };
+        let raw = self.encode_store();
+        let r = sys::fs_create(root, pkg::STORE_PATH).and_then(|h| {
+            let w = sys::fs_write(h, 0, &raw);
+            sys::handle_close(h).ok();
+            w
+        });
+        match r {
+            Ok(_) => {}
+            Err(e) => {
+                if !self.store_warned {
+                    self.store_warned = true;
+                    println!("[pkg] store not kept on disk ({e}); installs last only for this boot");
+                }
+            }
+        }
+    }
+
+    /// Load what an earlier process installed.
+    fn load(&mut self) {
+        let Some(root) = self.root else { return };
+        let file = match sys::fs_open(root, pkg::STORE_PATH) {
+            Ok(h) => h,
+            // Nothing installed yet is the ordinary case, not a failure.
+            Err(_) => return,
+        };
+        let mut raw = Vec::new();
+        let mut buf = [0u8; 512];
+        let mut off = 0u64;
+        loop {
+            match sys::fs_read(file, off, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if raw.len() + n > IMAGE_MAX * HISTORY_MAX {
+                        raw.clear();
+                        break;
+                    }
+                    raw.extend_from_slice(&buf[..n]);
+                    off += n as u64;
+                }
+                Err(_) => {
+                    raw.clear();
+                    break;
+                }
+            }
+        }
+        sys::handle_close(file).ok();
+        match Self::decode_store(&raw) {
+            Some(history) if !history.is_empty() => {
+                let active = history.last().expect("not empty");
+                println!(
+                    "[pkg] store loaded from disk: '{}' version {}, {} version(s) held",
+                    active.name,
+                    active.version,
+                    history.len()
+                );
+                self.history = history;
+            }
+            Some(_) => {}
+            None => {
+                if !raw.is_empty() {
+                    println!("[pkg] store on disk is not readable; starting empty");
+                }
+            }
+        }
+    }
+
+    /// Forget everything, on disk as well as in memory.
+    fn reset(&mut self) {
+        self.history.clear();
+        self.save();
+        println!("[pkg] store cleared");
+        let r = self.status_reply();
+        self.reply(&r);
     }
 
     fn reply(&self, r: &PkgReply) {
@@ -155,6 +300,7 @@ impl Service {
             return self.reply_err(Error::NoMemory, reject_code::NONE);
         }
         self.history.push(Installed { name, version, digest, payload });
+        self.save();
         let active = self.history.last().expect("just pushed");
         println!(
             "[pkg] installed '{}' version {} ({} bytes), {} version(s) held",
@@ -188,6 +334,7 @@ impl Service {
             return self.reply_err(Error::NotFound, reject_code::NONE);
         }
         let gone = self.history.pop().expect("checked");
+        self.save();
         let active = self.history.last().expect("checked");
         println!("[pkg] rolled back '{}' from version {} to {}", active.name, gone.version, active.version);
         let r = self.status_reply();
@@ -225,6 +372,8 @@ impl Service {
                         "[pkg] operator attached, ABI v{ABI_VERSION}, payload limit {} KiB",
                         PAYLOAD_MAX / 1024
                     );
+                    // Whatever an earlier process installed is still installed.
+                    self.load();
                     let reply = self.status_reply();
                     self.reply(&reply);
                 }
@@ -243,6 +392,7 @@ impl Service {
                 self.reply(&reply);
             }
             req::READ => self.read(r.offset),
+            req::RESET => self.reset(),
             req::QUIT => {
                 let reply = self.status_reply();
                 self.reply(&reply);

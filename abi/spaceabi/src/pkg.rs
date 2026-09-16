@@ -192,10 +192,21 @@ pub mod req {
     pub const READ: u32 = 5;
     /// Close the service.
     pub const QUIT: u32 = 6;
+    /// Forget every installed version, on disk as well as in memory. Exists so a
+    /// test can start from a known state on a volume that remembers.
+    pub const RESET: u32 = 7;
 }
 
 /// Longest path in a package request.
 pub const PATH_MAX: usize = 48;
+
+/// Where the service keeps what it has installed, so an install outlives the
+/// process that performed it.
+pub const STORE_PATH: &str = "/spaceos/var/pkgstore.dat";
+/// First bytes of that file. A store that does not start with this is not one.
+pub const STORE_MAGIC: [u8; 8] = *b"SPKGSTOR";
+/// Layout version of the store file.
+pub const STORE_FORMAT: u32 = 0;
 /// Payload bytes carried by one reply.
 pub const CHUNK_MAX: usize = 128;
 

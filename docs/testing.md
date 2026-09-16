@@ -157,6 +157,7 @@ Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehing
 | P01 | dua versi paket dipasang berurutan (v1 → v2, `previous` = 1); payload yang dipasang dibaca kembali dan cocok dengan digest yang dibawa paket | `bin/spacepkg` |
 | P01 | empat paket ditolak masing-masing dengan alasannya: satu byte payload dibalik → `Payload`, ditandatangani kunci lain → `Mac`, dipotong setelah header → `Truncated`, bukan paket sama sekali → `Format`. Setelah keempatnya, versi aktif tetap 2 dan riwayat tetap 2 — penolakan tidak mengubah apa pun. Berkas yang tidak ada → `NotFound`, bukan penolakan paket | `bin/spacepkg` |
 | P01 | `VERIFY` memeriksa tanpa memasang; memasang versi yang tidak lebih baru ditolak `Invalid`; `ROLLBACK` mengembalikan payload versi 1 **byte demi byte** (bukan membaca ulang berkas), `ROLLBACK` kedua → `NotFound` tanpa mengubah versi aktif, dan setelah rollback versi 2 bisa dipasang lagi | `bin/spacepkg` |
+| P01 | instalasi hidup lebih lama daripada prosesnya: layanan pertama memasang lalu di-`QUIT`, layanan **kedua** dijalankan tanpa diberi tahu apa pun, dan nama, versi, digest serta payload-nya harus sama — satu-satunya penghubung keduanya adalah volume | `bin/init`, `bin/spacepkg` |
 
 Fixture paket itu sendiri adalah giginya: keempatnya dibuat host dengan implementasi
 yang sama (`spaceabi::pkg`) dan masing-masing berbeda dari paket yang sah dalam
