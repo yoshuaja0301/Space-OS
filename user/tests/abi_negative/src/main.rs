@@ -5,6 +5,7 @@
 
 extern crate alloc;
 
+use libspace::spaceabi;
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::syscall::{RecvArgs, nr};
@@ -110,6 +111,43 @@ pub extern "C" fn space_main() -> i32 {
     );
     sys::handle_close(z0).expect("close z0");
     sys::handle_close(z1).expect("close z1");
+
+    // Memory objects.
+    check("vmo of zero bytes", sys::vmo_create(0), Error::Invalid);
+    check(
+        "vmo larger than the ABI limit",
+        sys::vmo_create(spaceabi::compute::MAX_BUFFER_BYTES as usize + 1),
+        Error::Invalid,
+    );
+    let (mv0, mv1) = sys::channel_create().expect("channel for kind checks");
+    check("vmo_map on a channel handle", sys::vmo_map(mv0, false), Error::Denied);
+    check("vmo_size on a channel handle", sys::vmo_size(mv0), Error::Denied);
+    sys::handle_close(mv0).expect("close mv0");
+    sys::handle_close(mv1).expect("close mv1");
+    let vmo = sys::vmo_create(8192).expect("vmo_create");
+    check_ok("vmo_size reports the requested length", sys::vmo_size(vmo).map(|n| n == 8192));
+    let mapped = sys::vmo_map(vmo, false).expect("vmo_map");
+    // SAFETY: freshly mapped, writable, 8192 bytes.
+    unsafe {
+        core::ptr::write_volatile(mapped, 0x5A);
+        if core::ptr::read_volatile(mapped) != 0x5A {
+            println!("[abi]   FAIL mapped memory object did not keep a write");
+            FAILS += 1;
+        } else {
+            println!("[abi]   ok   memory object is readable and writable when mapped");
+        }
+    }
+    let ro_handle = sys::handle_dup(vmo, rights::READ | rights::MAP).expect("dup without WRITE");
+    check_ok("map a handle that lacks WRITE", sys::vmo_map(ro_handle, false).map(|p| p as usize));
+    check(
+        "map without the MAP right",
+        sys::vmo_map(sys::handle_dup(vmo, rights::READ).expect("dup"), false),
+        Error::Denied,
+    );
+    check("unmap with a wrong length", sys::mem_unmap(mapped, 4096), Error::Invalid);
+    check_ok("unmap the memory object", sys::mem_unmap(mapped, 8192));
+    sys::handle_close(ro_handle).ok();
+    sys::handle_close(vmo).expect("close vmo");
 
     // Invalid arguments.
     check("unmap of unmapped range", sys::mem_unmap(0x5000_0000 as *mut u8, 4096), Error::Invalid);

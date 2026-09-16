@@ -37,6 +37,12 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | tabel handle penuh → `spawn` ditolak `TooManyHandles` dan tidak ada proses yatim | `bin/hello` |
 | D01 | SHA-256 guest cocok dengan vektor FIPS (kosong, "abc", sejuta 'a') | `bin/init` |
 | D01 | `/spaceos/model.slm` dibaca dari disk guest; ukuran dan SHA-256 cocok dengan `/spaceos/manifest.txt` yang dibuat host | `bin/init` |
+| C01 | negosiasi versi (permintaan sebelum `HELLO` → `Denied`, versi salah → `Invalid`), device query, antrean habis → `NoMemory`, submit pada antrean tak dikenal → `BadHandle` | `bin/spacecompute` |
+| C01 | buffer bersama: init menulis, layanan membaca; `ADD`, `MATMUL`, `ARGMAX` cocok dengan referensi yang dihitung di init | `bin/spacecompute` |
+| C01 | batas: buffer tak dikenal → `BadHandle`, irisan melewati akhir → `Invalid`, irisan terlalu kecil → `MsgSize`, operasi tak dikenal → `NoSys`, tiket tak dikenal → `BadHandle` | `bin/spacecompute` |
+| C01 | operasi panjang: `WAIT` singkat → `WouldBlock`+`RUNNING`, `WAIT` lagi → selesai; setelah `CANCEL` → `CANCELLED`, lalu tiket dilupakan | `bin/spacecompute` |
+| C01 | tiga siklus layanan (termasuk satu yang sengaja tidak melepas buffer) → frame bebas dan heap kernel identik | `bin/spacecompute` |
+| C01 | menulis lewat pemetaan memory object read-only → proses dibunuh `PAGE_FAULT` | `bin/fault` |
 | D01 | berkas tidak ada → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
 
 ## Selftest kernel (sebelum user-space)

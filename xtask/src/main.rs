@@ -16,8 +16,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const USER_PROGRAMS: &[&str] =
-    &["init", "hello", "fault", "abi_negative", "ipc_echo", "quota", "spin", "worker", "blocker"];
+const USER_PROGRAMS: &[&str] = &[
+    "init",
+    "hello",
+    "fault",
+    "abi_negative",
+    "ipc_echo",
+    "quota",
+    "spin",
+    "worker",
+    "blocker",
+    "spacecompute",
+];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
 const DATA_SIZE: u64 = 64 * 1024 * 1024;

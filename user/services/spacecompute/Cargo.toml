@@ -1,0 +1,16 @@
+[package]
+name = "spacecompute"
+description = "Space Compute service: CPU backend for the Space Compute ABI v0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spacecompute"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

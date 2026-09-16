@@ -11,3 +11,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0005](0005-executable-format-and-initrd.md) | Format executable (ELF64 statis) dan initrd (ustar) | Diterima |
 | [0006](0006-interrupts-timer-single-cpu.md) | PIC/PIT dan satu CPU untuk MVP kernel | Diterima (sementara) |
 | [0007](0007-storage-stack-and-file-abi.md) | Tempat driver, VirtIO block, FAT32 read-only, ABI file | Diterima |
+| [0008](0008-compute-abi-v0.md) | Objek memori bersama dan Space Compute ABI v0 | Diterima |

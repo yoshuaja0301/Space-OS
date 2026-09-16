@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+pub mod compute;
 pub mod heap;
 pub mod io;
 pub mod sha256;

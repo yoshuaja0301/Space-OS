@@ -1,7 +1,9 @@
 //! Per-process capability table (ADR-0004).
 
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
+
+use x86_64::structures::paging::PhysFrame;
 
 use spaceabi::error::Error;
 use spaceabi::handle::{Handle, MAX_HANDLES, kind};
@@ -15,10 +17,36 @@ pub struct OpenFile {
     pub node: FileNode,
 }
 
+/// A block of physical frames several processes can map (the buffers of the
+/// Compute ABI). The frames belong to the object: mappings come and go, the frames
+/// are freed when the last handle to the object is closed.
+pub struct MemoryObject {
+    pub frames: Vec<PhysFrame>,
+    pub len: u64,
+    /// Process charged for the frames, so its quota is refunded when the object dies.
+    pub owner: Weak<Process>,
+}
+
+impl Drop for MemoryObject {
+    fn drop(&mut self) {
+        if let Some(p) = self.owner.upgrade() {
+            // `try_lock`: an owner that is tearing down already holds its address
+            // space lock and is dropping the whole quota anyway.
+            if let Some(mut space) = p.space.try_lock() {
+                space.used_pages = space.used_pages.saturating_sub(self.frames.len());
+            }
+        }
+        for f in self.frames.drain(..) {
+            crate::mm::frame::free(f);
+        }
+    }
+}
+
 pub enum Object {
     Channel(Arc<Endpoint>),
     Process(Arc<Process>),
     File(Arc<OpenFile>),
+    Memory(Arc<MemoryObject>),
     Root,
 }
 
@@ -28,6 +56,7 @@ impl Object {
             Object::Channel(_) => kind::CHANNEL,
             Object::Process(_) => kind::PROCESS,
             Object::File(_) => kind::FILE,
+            Object::Memory(_) => kind::MEMORY,
             Object::Root => kind::ROOT,
         }
     }
@@ -37,6 +66,7 @@ impl Object {
             Object::Channel(e) => Object::Channel(e.clone()),
             Object::Process(p) => Object::Process(p.clone()),
             Object::File(f) => Object::File(f.clone()),
+            Object::Memory(m) => Object::Memory(m.clone()),
             Object::Root => Object::Root,
         }
     }

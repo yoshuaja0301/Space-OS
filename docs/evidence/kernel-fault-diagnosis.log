@@ -2,15 +2,15 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 267008 bytes, initrd 410112 bytes, config 74 bytes
-spaceboot: kernel 3 segments, 260 KiB at phys 0x7d7fc000, entry 0xffffffff80100000
+spaceboot: kernel 267008 bytes, initrd 514048 bytes, config 74 bytes
+spaceboot: kernel 3 segments, 260 KiB at phys 0x7d7e5000, entry 0xffffffff8010d9a8
 spaceboot: linear map 0..0x280000000 at 0xffff800000000000, framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 410112 bytes, cmdline 15 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 36 memory regions, initrd 514048 bytes, cmdline 15 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] frames: 2095227 usable (8184 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 0 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2095202 usable (8184 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 0 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -19,16 +19,17 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "selftest=kfault"
-[kernel] initrd: 410112 bytes, 13 files
-[kernel]   bin/init (115464 bytes)
+[kernel] initrd: 514048 bytes, 14 files
+[kernel]   bin/init (164792 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
-[kernel]   bin/abi_negative (49816 bytes)
+[kernel]   bin/abi_negative (53912 bytes)
 [kernel]   bin/ipc_echo (21064 bytes)
 [kernel]   bin/quota (25160 bytes)
 [kernel]   bin/spin (21064 bytes)
 [kernel]   bin/worker (29296 bytes)
 [kernel]   bin/blocker (25176 bytes)
+[kernel]   bin/spacecompute (49912 bytes)
 [kernel]   fixtures/bad_entry (21064 bytes)
 [kernel]   fixtures/bad_magic (21064 bytes)
 [kernel]   fixtures/truncated (600 bytes)
@@ -45,19 +46,19 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] selftest=kfault: touching an unmapped kernel address on purpose
 !!! CPU EXCEPTION IN KERNEL MODE: page fault !!!
   vector=14 (page fault) error=0x0 cr2=0xfffff000dead0000
-  rip=0xffffffff8010a327 cs=0x8 rflags=0x46 rsp=0xffffa0000000ff60 ss=0x10
-  rax=0xfffff000dead0000 rbx=0x0000000000000046 rcx=0x000000000000019f rdx=0x0000000000001200
-  rsi=0x000000000000000a rdi=0x0000000000000007 rbp=0xffffa0000000ff90 r8 =0xffff8000802087c4
-  r9 =0x000000000000001a r10=0xffffffff80122649 r11=0x0000000000000000 r12=0x000000007fe66607
-  r13=0x0000000000000041 r14=0x0000000000000086 r15=0x000000007fe66610
+  rip=0xffffffff801030ac cs=0x8 rflags=0x46 rsp=0xffffa0000000ff50 ss=0x10
+  rax=0xfffff000dead0000 rbx=0x0000000000000046 rcx=0x00000000000001af rdx=0x0000000000001200
+  rsi=0xffffffff801218a1 rdi=0x000000000000000a rbp=0xffffa0000000ff80 r8 =0x000000000000001b
+  r9 =0x0000000000000000 r10=0x0000000000000010 r11=0x0000000000000007 r12=0x0000000000000082
+  r13=0x0000000000000003 r14=0xffffa0000000ffa8 r15=0x0000000000000086
 !!! KERNEL PANIC !!!
 at kernel/src/arch/x86_64/trap.rs:187:5
 message: unhandled kernel-mode page fault (vector 14)
 current: idle
 backtrace (frame pointers):
-  #00 0xffffffff8011ef3c
-  #01 0xffffffff8011af41
-  #02 0xffffffff8011420c
-  #03 0xffffffff8010014e
-  #04 0xffffffff8010249e
+  #00 0xffffffff8011f0cc
+  #01 0xffffffff80107452
+  #02 0xffffffff80107474
+  #03 0xffffffff8010df5d
+  #04 0xffffffff8010eea9
 spacekernel: halted after panic (uptime 0 ms)

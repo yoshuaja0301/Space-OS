@@ -18,7 +18,7 @@ use crate::arch::syscall::SyscallFrame;
 use crate::fs;
 use crate::ipc::channel::{Endpoint, Message};
 use crate::mm::{PAGE_SIZE, frame, heap};
-use crate::proc::handles::{HandleEntry, Object, OpenFile};
+use crate::proc::handles::{HandleEntry, MemoryObject, Object, OpenFile};
 use crate::proc::{self, Process};
 use crate::sched;
 
@@ -56,6 +56,9 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::FS_OPEN => sys_fs_open(a[0] as Handle, a[1], a[2]),
         nr::FS_READ => sys_fs_read(a[0] as Handle, a[1], a[2], a[3]),
         nr::FS_STAT => sys_fs_stat(a[0] as Handle, a[1]),
+        nr::VMO_CREATE => sys_vmo_create(a[0]),
+        nr::VMO_MAP => sys_vmo_map(a[0] as Handle, a[1] as u32),
+        nr::VMO_SIZE => sys_vmo_size(a[0] as Handle),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -122,6 +125,78 @@ fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
     })?;
     write_user(out, stat)?;
     Ok(0)
+}
+
+fn with_memory<R>(
+    h: Handle,
+    need: u32,
+    f: impl FnOnce(&Arc<MemoryObject>, u32) -> Result<R, Error>,
+) -> Result<R, Error> {
+    let p = current();
+    let (obj, held) = {
+        let t = p.handles.lock();
+        let e = t.get(h)?;
+        match &e.object {
+            Object::Memory(m) if e.has(need) => (m.clone(), e.rights),
+            _ => return Err(Error::Denied),
+        }
+    };
+    f(&obj, held)
+}
+
+fn sys_vmo_create(len: u64) -> Result<usize, Error> {
+    if len == 0 || len > spaceabi::compute::MAX_BUFFER_BYTES {
+        return Err(Error::Invalid);
+    }
+    heap::reserve(cost::HANDLE)?;
+    let pages = len.div_ceil(PAGE_SIZE) as usize;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    // The creator pays for the frames; mapping the object elsewhere is free.
+    if p.space.lock().used_pages + pages > p.quota_pages {
+        return Err(Error::Quota);
+    }
+    let mut frames = alloc::vec::Vec::new();
+    frames.try_reserve_exact(pages).map_err(|_| Error::NoMemory)?;
+    for _ in 0..pages {
+        match frame::alloc_zeroed() {
+            Some(f) => frames.push(f),
+            None => {
+                for f in frames.drain(..) {
+                    frame::free(f);
+                }
+                return Err(Error::NoMemory);
+            }
+        }
+    }
+    p.space.lock().used_pages += pages;
+    // From here the object owns the frames: dropping it frees them and refunds the
+    // quota, so a failed insert cannot leak.
+    let obj = Arc::new(MemoryObject { frames, len, owner: Arc::downgrade(&p) });
+    let entry = HandleEntry { object: Object::Memory(obj), rights: rights::MEMORY_ALL };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+fn sys_vmo_map(h: Handle, flags: u32) -> Result<usize, Error> {
+    if flags & !map_flags::READ_ONLY != 0 {
+        return Err(Error::Invalid);
+    }
+    let (frames, writable) = with_memory(h, rights::MAP | rights::READ, |m, held| {
+        let writable = held & rights::WRITE != 0 && flags & map_flags::READ_ONLY == 0;
+        let mut frames = alloc::vec::Vec::new();
+        frames.try_reserve_exact(m.frames.len()).map_err(|_| Error::NoMemory)?;
+        frames.extend_from_slice(&m.frames);
+        Ok((frames, writable))
+    })?;
+    let p = current();
+    let addr = p.space.lock().map_shared(&frames, writable)?;
+    Ok(addr as usize)
+}
+
+fn sys_vmo_size(h: Handle) -> Result<usize, Error> {
+    with_memory(h, rights::READ, |m, _| Ok(m.len as usize))
 }
 
 /// Rough kernel-heap cost of the objects a syscall may create.

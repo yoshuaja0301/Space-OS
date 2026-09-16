@@ -33,12 +33,18 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 
 `pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan dengan polling berbatas; register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca volume FAT32 read-only dari perangkat itu, dan `SYS_FS_OPEN/READ/STAT` memberi user space akses berbasis capability ke berkasnya.
 
+## Komputasi (tahap 4)
+
+Kernel menambahkan satu objek: *memory object* (kumpulan frame yang dapat dipetakan beberapa proses) dengan `SYS_VMO_CREATE/MAP/SIZE`. Di atasnya, `bin/spacecompute` mengimplementasikan Space Compute ABI v0 di user space: kontrol lewat pesan channel berukuran tetap, tensor di memory object yang dipetakan kedua sisi, eksekusi bertahap dengan tenggat sehingga `WAIT` dapat timeout dan `CANCEL` dapat menghentikan pekerjaan.
+
 ## Objek kernel
 
 - **Process**: address space + tabel handle + kuota + status keluar + antrean penunggu `wait`.
 - **Thread**: satu per proses (MVP); kernel stack sendiri; context switch menyimpan register callee-saved (`switch_to`); masuk ring 3 lewat `iretq`; syscall lewat `syscall/sysret`.
 - **Channel/Endpoint**: dua sisi, antrean pesan terbatas, wait queue penerima, penutupan sisi membangunkan peer.
-- **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection).
+- **File**: berkas terbuka pada volume FAT32 (hak `READ`).
+- **Memory**: frame bersama yang dapat dipetakan beberapa proses (hak `READ|WRITE|MAP`).
+- **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection, akses berkas).
 
 ## Scheduler
 

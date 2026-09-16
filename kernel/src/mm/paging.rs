@@ -130,6 +130,10 @@ pub fn activate_kernel() {
 pub struct Region {
     pub start: u64,
     pub pages: usize,
+    /// Private pages (ELF image, anonymous memory) own their frames and free them
+    /// on unmap. Pages backed by a shared memory object do not: the object owns
+    /// them and frees them when its last handle goes away.
+    pub owned: bool,
 }
 
 /// A user address space: private lower half, shared kernel upper half.
@@ -260,25 +264,85 @@ impl AddressSpace {
             }
             return Err(e);
         }
-        self.regions.push(Region { start, pages });
+        self.regions.push(Region { start, pages, owned: true });
         self.used_pages += pages;
         Ok(())
+    }
+
+    /// Map the frames of a shared memory object at a fresh address.
+    ///
+    /// The frames belong to the object, so they are not freed on unmap and are not
+    /// charged again here: the process that created the object already paid for
+    /// them against its quota.
+    pub fn map_shared(&mut self, frames: &[PhysFrame], writable: bool) -> Result<u64, Error> {
+        if frames.is_empty() {
+            return Err(Error::Invalid);
+        }
+        let pages = frames.len();
+        let start = self.mmap_next;
+        let len = (pages as u64).checked_mul(PAGE_SIZE).ok_or(Error::Invalid)?;
+        let end = start.checked_add(len).ok_or(Error::Invalid)?;
+        if end > USER_SPACE_END / 2 {
+            return Err(Error::NoMemory);
+        }
+        self.regions.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        let mut flags =
+            PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::NO_EXECUTE;
+        if writable {
+            flags |= PageTableFlags::WRITABLE;
+        }
+        let mut mapped = 0usize;
+        let mut mapper = self.mapper();
+        let mut err = None;
+        for (i, frame) in frames.iter().enumerate() {
+            let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
+            // SAFETY: frames owned by the memory object; user page in this process.
+            match unsafe {
+                mapper.map_to(Page::<Size4KiB>::containing_address(va), *frame, flags, &mut KernelFrameAlloc)
+            } {
+                Ok(flush) => {
+                    flush.flush();
+                    mapped += 1;
+                }
+                Err(_) => {
+                    err = Some(Error::NoMemory);
+                    break;
+                }
+            }
+        }
+        if let Some(e) = err {
+            for i in 0..mapped {
+                let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
+                if let Ok((_, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
+                    flush.flush();
+                }
+            }
+            return Err(e);
+        }
+        self.regions.push(Region { start, pages, owned: false });
+        self.mmap_next = end + PAGE_SIZE;
+        Ok(start)
     }
 
     /// Unmap a region previously created by `map_region` (exact match required).
     pub fn unmap_region(&mut self, start: u64, pages: usize) -> Result<(), Error> {
         let idx =
             self.regions.iter().position(|r| r.start == start && r.pages == pages).ok_or(Error::Invalid)?;
+        let owned = self.regions[idx].owned;
         let mut mapper = self.mapper();
         for i in 0..pages {
             let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
             if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
                 flush.flush();
-                frame::free(f);
+                if owned {
+                    frame::free(f);
+                }
             }
         }
         self.regions.swap_remove(idx);
-        self.used_pages -= pages;
+        if owned {
+            self.used_pages -= pages;
+        }
         Ok(())
     }
 
@@ -345,7 +409,9 @@ impl AddressSpace {
                 let va = VirtAddr::new(r.start + i as u64 * PAGE_SIZE);
                 if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
                     flush.ignore();
-                    frame::free(f);
+                    if r.owned {
+                        frame::free(f);
+                    }
                 }
             }
         }

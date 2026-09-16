@@ -451,6 +451,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacecompute"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spacekernel"
 version = "0.1.0"
 dependencies = [

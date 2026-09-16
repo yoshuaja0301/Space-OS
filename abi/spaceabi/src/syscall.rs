@@ -56,8 +56,14 @@ pub mod nr {
     pub const FS_READ: usize = 21;
     /// `fs_stat(file_handle, out: *mut FileStat) -> 0`
     pub const FS_STAT: usize = 22;
+    /// `vmo_create(len) -> memory_handle` – shareable zeroed memory, charged to the creator.
+    pub const VMO_CREATE: usize = 23;
+    /// `vmo_map(memory_handle, flags) -> addr`
+    pub const VMO_MAP: usize = 24;
+    /// `vmo_size(memory_handle) -> len`
+    pub const VMO_SIZE: usize = 25;
 
-    pub const COUNT: usize = 23;
+    pub const COUNT: usize = 26;
 }
 
 /// Maximum inline message payload in bytes.
@@ -69,9 +75,11 @@ pub mod recv_flags {
     pub const NONBLOCK: u32 = 1;
 }
 
-/// Flags for `SYS_MEM_MAP` (reserved; must be 0 in ABI v0).
+/// Flags for `SYS_MEM_MAP` and `SYS_VMO_MAP`.
 pub mod map_flags {
     pub const NONE: u32 = 0;
+    /// Map a memory object read-only even when the handle carries `WRITE`.
+    pub const READ_ONLY: u32 = 1;
 }
 
 /// Argument block for `SYS_RECV`.

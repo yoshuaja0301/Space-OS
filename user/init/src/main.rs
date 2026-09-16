@@ -11,7 +11,12 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libspace::compute::Compute;
 use libspace::sha256;
+use libspace::spaceabi::compute::{
+    self as compute_abi, BufferRef as ComputeBufferRef, Op as ComputeOp, Request as ComputeRequest,
+    Response as ComputeResponse, op as cop, req as creq,
+};
 use libspace::spaceabi::error::{Error, decode};
 use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::syscall::nr;
@@ -208,6 +213,41 @@ fn manifest_value<'a>(manifest: &'a str, key: &str) -> Option<&'a str> {
     manifest.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('=').map(str::trim))
 }
 
+/// Quota for the compute service: it pays for every buffer it hands out.
+const COMPUTE_QUOTA: u64 = 4096;
+
+fn as_bytes<T>(v: &T) -> &[u8] {
+    // SAFETY: `T` is a `repr(C)` plain-data message.
+    unsafe { core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>()) }
+}
+
+/// One request/response round trip on a raw channel (used before the ABI version
+/// has been negotiated, which `Compute::connect` would do for us).
+fn compute_raw(ch: Handle, request: &ComputeRequest) -> Result<ComputeResponse, String> {
+    sys::send(ch, as_bytes(request), None).map_err(|e| alloc::format!("send: {e}"))?;
+    let mut buf = [0u8; core::mem::size_of::<ComputeResponse>()];
+    let (n, _) = sys::recv(ch, &mut buf, false).map_err(|e| alloc::format!("recv: {e}"))?;
+    if n != buf.len() {
+        return Err(alloc::format!("reply was {n} bytes"));
+    }
+    // SAFETY: the service replies with exactly one Response.
+    Ok(unsafe { core::ptr::read_unaligned(buf.as_ptr() as *const ComputeResponse) })
+}
+
+fn expect_status(what: &str, got: i32, want: Error) -> Result<(), String> {
+    let want_status = -(want as u32 as i32);
+    if got == want_status {
+        Ok(())
+    } else {
+        Err(alloc::format!("{what}: status {got}, expected {want_status} ({want:?})"))
+    }
+}
+
+fn close_enough(a: f32, b: f32) -> bool {
+    let diff = if a > b { a - b } else { b - a };
+    diff <= 1e-4 * (1.0 + if a > 0.0 { a } else { -a })
+}
+
 fn stats() -> Result<KernelStats, String> {
     sys::kstats(ROOT).map_err(|e| alloc::format!("kstats: {e}"))
 }
@@ -268,6 +308,9 @@ pub extern "C" fn space_main() -> i32 {
     });
     r.run("K02", "privileged instruction in ring 3 kills the process (#GP)", || {
         fault_case("cli", kill_reason::GENERAL_PROTECTION)
+    });
+    r.run("C01", "writing through a read-only memory-object mapping kills the process", || {
+        fault_case("ro_vmo_write", kill_reason::PAGE_FAULT)
     });
     r.run("K02", "int3 in ring 3 kills the process (breakpoint)", || {
         fault_case("int3", kill_reason::BREAKPOINT)
@@ -589,6 +632,327 @@ pub extern "C" fn space_main() -> i32 {
         }
         if as_channel != Err(Error::Denied) {
             return Err(alloc::format!("stat on a channel handle gave {as_channel:?}"));
+        }
+        Ok(())
+    });
+
+    r.run("C01", "Compute ABI: version negotiation, device query and queue lifetime", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let svc = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn compute: {e}"))?;
+
+        // Anything before HELLO must be refused.
+        let early = compute_raw(mine, &ComputeRequest { kind: creq::DEVICE_QUERY, ..Default::default() })?;
+        expect_status("request before HELLO", early.status, Error::Denied)?;
+
+        // A client speaking a different ABI version must be refused, not guessed at.
+        let bad = compute_raw(
+            mine,
+            &ComputeRequest {
+                kind: creq::HELLO,
+                abi_version: compute_abi::ABI_VERSION + 99,
+                ..Default::default()
+            },
+        )?;
+        expect_status("HELLO with the wrong ABI version", bad.status, Error::Invalid)?;
+
+        let c = Compute::connect(mine).map_err(|e| alloc::format!("connect: {e}"))?;
+        let (backend_id, abi, limit) = c.device_query().map_err(|e| alloc::format!("device_query: {e}"))?;
+        if backend_id != compute_abi::backend::CPU || abi != compute_abi::ABI_VERSION {
+            return Err(alloc::format!("device query reported backend {backend_id}, abi {abi}"));
+        }
+        println!("[init] compute device: CPU backend, ABI v{abi}, buffers up to {} MiB", limit >> 20);
+
+        // Queues are finite and their ids must be validated.
+        let mut queues = Vec::new();
+        loop {
+            match c.queue_create() {
+                Ok(q) => queues.push(q),
+                Err(Error::NoMemory) => break,
+                Err(e) => return Err(alloc::format!("queue_create: {e}")),
+            }
+            if queues.len() > 64 {
+                return Err(String::from("queue table never filled up"));
+            }
+        }
+        if queues.len() != compute_abi::MAX_QUEUES {
+            return Err(alloc::format!(
+                "{} queues created, expected {}",
+                queues.len(),
+                compute_abi::MAX_QUEUES
+            ));
+        }
+        let unknown = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: 99,
+                op: ComputeOp { kind: cop::FILL, ..Default::default() },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit: {e}"))?;
+        expect_status("submit on an unknown queue", unknown.status, Error::BadHandle)?;
+
+        c.shutdown().map_err(|e| alloc::format!("shutdown: {e}"))?;
+        let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(svc).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("spacecompute", st, 0)
+    });
+
+    r.run("C01", "Compute ABI: shared buffers, operations, bounds, unsupported ops", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let svc = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn compute: {e}"))?;
+        let c = Compute::connect(mine).map_err(|e| alloc::format!("connect: {e}"))?;
+        let q = c.queue_create().map_err(|e| alloc::format!("queue: {e}"))?;
+
+        let a = c.buffer_create(4096).map_err(|e| alloc::format!("buffer a: {e}"))?;
+        let b = c.buffer_create(4096).map_err(|e| alloc::format!("buffer b: {e}"))?;
+        let dst = c.buffer_create(4096).map_err(|e| alloc::format!("buffer dst: {e}"))?;
+        // SAFETY: nothing else touches these buffers while we fill them.
+        let (av, bv, dv) = unsafe { (a.as_f32_mut(), b.as_f32_mut(), dst.as_f32_mut()) };
+
+        // The service sees what we write: shared memory, not copies.
+        for i in 0..16 {
+            av[i] = i as f32;
+            bv[i] = (2 * i) as f32;
+        }
+        c.run(
+            q,
+            ComputeOp {
+                kind: cop::ADD,
+                dst: dst.reference(),
+                a: a.reference(),
+                b: b.reference(),
+                dims: [16, 0, 0, 0],
+                ..Default::default()
+            },
+        )
+        .map_err(|e| alloc::format!("add: {e}"))?;
+        for (i, &got) in dv.iter().take(16).enumerate() {
+            if !close_enough(got, (3 * i) as f32) {
+                return Err(alloc::format!("add: element {i} is {got}"));
+            }
+        }
+
+        // MATMUL against a reference computed here.
+        let (m, k, n) = (4usize, 8usize, 3usize);
+        for (i, v) in av.iter_mut().enumerate().take(m * k) {
+            *v = (i % 7) as f32 - 3.0;
+        }
+        for (i, v) in bv.iter_mut().enumerate().take(n * k) {
+            *v = ((i % 5) as f32) * 0.25 - 0.5;
+        }
+        c.run(
+            q,
+            ComputeOp {
+                kind: cop::MATMUL,
+                dst: dst.reference(),
+                a: a.reference(),
+                b: b.reference(),
+                dims: [m as u32, k as u32, n as u32, 0],
+                ..Default::default()
+            },
+        )
+        .map_err(|e| alloc::format!("matmul: {e}"))?;
+        for row in 0..m {
+            for col in 0..n {
+                let mut want = 0.0f32;
+                for i in 0..k {
+                    want += av[row * k + i] * bv[col * k + i];
+                }
+                if !close_enough(dv[row * n + col], want) {
+                    return Err(alloc::format!(
+                        "matmul[{row},{col}] = {}, expected {want}",
+                        dv[row * n + col]
+                    ));
+                }
+            }
+        }
+
+        // ARGMAX returns its result in the reply value.
+        for (i, v) in av.iter_mut().enumerate().take(32) {
+            *v = -(i as f32);
+        }
+        av[19] = 100.0;
+        let idx = c
+            .run(
+                q,
+                ComputeOp { kind: cop::ARGMAX, a: a.reference(), dims: [32, 0, 0, 0], ..Default::default() },
+            )
+            .map_err(|e| alloc::format!("argmax: {e}"))?;
+        if idx != 19 {
+            return Err(alloc::format!("argmax returned {idx}"));
+        }
+
+        // Bounds and kinds are checked at submit time.
+        let bad_id = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: q,
+                op: ComputeOp {
+                    kind: cop::FILL,
+                    dst: ComputeBufferRef::whole(250, 16),
+                    dims: [4, 0, 0, 0],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit: {e}"))?;
+        expect_status("op on an unknown buffer", bad_id.status, Error::BadHandle)?;
+
+        let past_end = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: q,
+                op: ComputeOp {
+                    kind: cop::FILL,
+                    dst: ComputeBufferRef { id: a.id, _pad: 0, offset: 4096, len: 64 },
+                    dims: [16, 0, 0, 0],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit: {e}"))?;
+        expect_status("op past the end of a buffer", past_end.status, Error::Invalid)?;
+
+        let too_small = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: q,
+                op: ComputeOp {
+                    kind: cop::FILL,
+                    dst: ComputeBufferRef { id: a.id, _pad: 0, offset: 0, len: 16 },
+                    dims: [4096, 0, 0, 0],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit: {e}"))?;
+        expect_status("op larger than its buffer slice", too_small.status, Error::MsgSize)?;
+
+        let unsupported = c
+            .call(&ComputeRequest {
+                kind: creq::SUBMIT,
+                queue: q,
+                op: ComputeOp { kind: 0xDEAD_BEEF, ..Default::default() },
+                ..Default::default()
+            })
+            .map_err(|e| alloc::format!("submit: {e}"))?;
+        expect_status("unsupported operation", unsupported.status, Error::NoSys)?;
+
+        let unknown_ticket = c
+            .call(&ComputeRequest { kind: creq::WAIT, ticket: 4242, timeout_ms: 10, ..Default::default() })
+            .map_err(|e| alloc::format!("wait: {e}"))?;
+        expect_status("wait on an unknown ticket", unknown_ticket.status, Error::BadHandle)?;
+
+        for buf in [a, b, dst] {
+            c.buffer_release(&buf).map_err(|e| alloc::format!("release: {e}"))?;
+        }
+        c.shutdown().map_err(|e| alloc::format!("shutdown: {e}"))?;
+        let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(svc).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("spacecompute", st, 0)
+    });
+
+    r.run("C01", "Compute ABI: a long operation times out, resumes and can be cancelled", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let svc = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn compute: {e}"))?;
+        let c = Compute::connect(mine).map_err(|e| alloc::format!("connect: {e}"))?;
+        let q = c.queue_create().map_err(|e| alloc::format!("queue: {e}"))?;
+
+        // A ticket that cannot finish inside the deadline reports RUNNING, keeps its
+        // progress, and finishes on a later wait.
+        let long = ComputeOp { kind: cop::SPIN, dims: [40_000_000, 0, 0, 0], ..Default::default() };
+        let t = c.submit(q, long).map_err(|e| alloc::format!("submit: {e}"))?;
+        let first = c.wait_raw(t, 1).map_err(|e| alloc::format!("wait: {e}"))?;
+        expect_status("wait that runs out of time", first.status, Error::WouldBlock)?;
+        if first.flags != compute_abi::state::RUNNING {
+            return Err(alloc::format!("timed-out wait reported flags {}", first.flags));
+        }
+        let value = c.wait(t, 120_000).map_err(|e| alloc::format!("second wait: {e}"))?;
+        if value != 40_000_000 {
+            return Err(alloc::format!("resumed ticket produced {value}"));
+        }
+
+        // A ticket cancelled between waits reports CANCELLED and is forgotten.
+        let t2 = c.submit(q, long).map_err(|e| alloc::format!("submit 2: {e}"))?;
+        let partial = c.wait_raw(t2, 1).map_err(|e| alloc::format!("wait 2: {e}"))?;
+        expect_status("wait before cancelling", partial.status, Error::WouldBlock)?;
+        c.cancel(t2).map_err(|e| alloc::format!("cancel: {e}"))?;
+        let after = c.wait_raw(t2, 1000).map_err(|e| alloc::format!("wait after cancel: {e}"))?;
+        if after.status != 0 || after.flags != compute_abi::state::CANCELLED {
+            return Err(alloc::format!(
+                "cancelled ticket reported status {} flags {}",
+                after.status,
+                after.flags
+            ));
+        }
+        let gone = c
+            .call(&ComputeRequest { kind: creq::CANCEL, ticket: t2, ..Default::default() })
+            .map_err(|e| alloc::format!("cancel twice: {e}"))?;
+        expect_status("cancelling a forgotten ticket", gone.status, Error::BadHandle)?;
+
+        c.shutdown().map_err(|e| alloc::format!("shutdown: {e}"))?;
+        let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(svc).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("spacecompute", st, 0)
+    });
+
+    r.run("C01", "compute service teardown returns every frame it allocated", || {
+        let before = stats()?;
+        for i in 0..3 {
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let svc = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn: {e}"))?;
+            let c = Compute::connect(mine).map_err(|e| alloc::format!("connect: {e}"))?;
+            let q = c.queue_create().map_err(|e| alloc::format!("queue: {e}"))?;
+            let buf = c.buffer_create(256 * 1024).map_err(|e| alloc::format!("buffer: {e}"))?;
+            c.run(
+                q,
+                ComputeOp {
+                    kind: cop::FILL,
+                    dst: buf.reference(),
+                    dims: [65536, 0, 0, 0],
+                    scalar: 1.5,
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| alloc::format!("fill: {e}"))?;
+            // SAFETY: only this process touches the buffer right now.
+            let v = unsafe { buf.as_f32_mut() };
+            if !close_enough(v[65535], 1.5) {
+                return Err(String::from("shared buffer did not receive the fill"));
+            }
+            // Deliberately leave the buffer mapped in cycle 1 so teardown has to
+            // reclaim it rather than relying on an orderly release.
+            if i != 0 {
+                c.buffer_release(&buf).map_err(|e| alloc::format!("release: {e}"))?;
+            }
+            c.shutdown().map_err(|e| alloc::format!("shutdown: {e}"))?;
+            let st = sys::wait(svc).map_err(|e| alloc::format!("wait: {e}"))?;
+            sys::handle_close(svc).ok();
+            sys::mem_unmap(buf.ptr, buf.len).ok();
+            sys::handle_close(buf.handle).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spacecompute", st, 0)?;
+        }
+        let after = stats()?;
+        println!(
+            "[init] compute cycles: frames free {} -> {}, heap used {} -> {}",
+            before.frames_free, after.frames_free, before.heap_used, after.heap_used
+        );
+        if after.frames_free != before.frames_free || after.heap_used != before.heap_used {
+            return Err(alloc::format!(
+                "leak: frames {} -> {}, heap {} -> {}",
+                before.frames_free,
+                after.frames_free,
+                before.heap_used,
+                after.heap_used
+            ));
         }
         Ok(())
     });

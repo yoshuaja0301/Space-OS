@@ -26,10 +26,18 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
 - Hanya perangkat virtio-blk 1.0 modern; perangkat legacy/transitional tanpa kapabilitas modern diabaikan.
 
+## Komputasi
+
+- Satu koneksi per layanan compute (bootstrap channel-nya); belum ada broker koneksi atau multiplexing klien.
+- Frame buffer dibebankan ke kuota **layanan**, bukan klien, jadi klien yang nakal dapat menghabiskan kuota layanannya.
+- Submit bersifat sinkron dari sudut pandang klien (satu round trip IPC per operasi); belum ada batching, antrean asinkron, atau event completion.
+- Matematika f32 diimplementasikan sendiri (tanpa libm); akurasinya memadai untuk model uji, bukan pustaka numerik umum.
+- Backend hanya CPU skalar, tanpa SIMD, tanpa GPU/NPU.
+
 ## Belum ada (tahap berikutnya)
 
 - VirtIO net/input/display, jaringan (sisa tahap 3).
-- Compute ABI v0, backend CPU, tokenizer, inferensi (tahap 4–5, C01, A01).
+- Tokenizer dan inferensi model (tahap 5, A01).
 - SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, Space Shell, package service, tanda tangan paket (5A).
 - GPU, ARM64 (6–7).
 

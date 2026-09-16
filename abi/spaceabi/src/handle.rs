@@ -40,12 +40,17 @@ pub mod rights {
     pub const DEBUG: u32 = 1 << 9;
     /// Root capability: open files on mounted filesystems.
     pub const FS: u32 = 1 << 10;
-    /// Read from a file handle.
+    /// Read from a file handle, or from a mapped memory object.
     pub const READ: u32 = 1 << 11;
+    /// Map a memory object into an address space.
+    pub const MAP: u32 = 1 << 12;
+    /// Map a memory object writable.
+    pub const WRITE: u32 = 1 << 13;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
     pub const FILE_ALL: u32 = READ | TRANSFER | DUP;
+    pub const MEMORY_ALL: u32 = READ | WRITE | MAP | TRANSFER | DUP;
     pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | TRANSFER | DUP;
 }
 
@@ -55,4 +60,5 @@ pub mod kind {
     pub const PROCESS: u32 = 2;
     pub const ROOT: u32 = 3;
     pub const FILE: u32 = 4;
+    pub const MEMORY: u32 = 5;
 }

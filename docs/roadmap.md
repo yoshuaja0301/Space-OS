@@ -5,7 +5,7 @@
 | 1 Kernel boot | Bootloader UEFI, kernel, memori awal, serial dan crash log | **selesai**: `spaceboot`, `spacekernel`, frame/paging/heap, serial + framebuffer, panic dengan backtrace, 3 skenario diagnosis crash, soak 100 boot |
 | 2 User space CPU | Address space, syscall, ELF loader, IPC, allocator, scalar compute | **selesai kecuali "scalar compute"**: address space per proses, 20 syscall ABI v0, loader ELF, channel IPC + transfer handle, allocator kernel/user, kuota. "Scalar compute" (operasi CPU untuk inferensi) ditunda ke tahap 4 karena bergantung pada kontrak Compute ABI |
 | 3 Perangkat virtual | VirtIO block, VFS, network, input, display | **sebagian**: PCI, virtio-blk 1.0 (polling), FAT32 read-only dan ABI file selesai (D01 verified); network, input, display belum |
-| 4 Compute ABI | Kontrak v0, CPU backend, handle dan quota | belum (model handle/hak/error sudah disiapkan di `spaceabi`) |
+| 4 Compute ABI | Kontrak v0, CPU backend, handle dan quota | **selesai**: objek memori bersama di kernel, layanan `spacecompute` user-space, backend CPU, uji kontrak C01 lulus |
 | 5 Inferensi native | Model kecil, tokenizer, generation, benchmark offline | belum |
 | 5A Developer Preview | SpaceLink, Tool Broker, agent, desktop, adapter | belum |
 | 6 GPU terpilih | Studi kelayakan, driver | belum |

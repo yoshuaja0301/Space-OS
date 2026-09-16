@@ -4,6 +4,7 @@
 //! privilege or component boundary:
 //!
 //! * [`boot`]    – the structure the UEFI bootloader (`spaceboot`) hands to the kernel.
+//! * [`compute`] – the Space Compute service contract (client <-> compute service).
 //! * [`syscall`] – syscall numbers and argument structures (kernel <-> user space).
 //! * [`error`]   – error codes returned by syscalls.
 //! * [`handle`]  – capability handle type and rights bits.
@@ -17,6 +18,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod boot;
+pub mod compute;
 pub mod elf;
 pub mod error;
 pub mod handle;

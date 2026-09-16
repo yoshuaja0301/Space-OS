@@ -97,6 +97,14 @@ pub extern "C" fn space_main() -> i32 {
             let f: extern "C" fn() = unsafe { core::mem::transmute(0x8000_0000_0000u64 as *const ()) };
             f();
         }
+        "ro_vmo_write" => {
+            // A memory object mapped read-only must fault on a write even though the
+            // handle carries the WRITE right.
+            let h = sys::vmo_create(4096).expect("vmo_create");
+            let p = sys::vmo_map(h, true).expect("vmo_map read-only");
+            // SAFETY: intentionally writing through a read-only mapping.
+            unsafe { core::ptr::write_volatile(p, 1) };
+        }
         "kernel_syscall_ptr" => {
             // Not a fault: the kernel must reject the pointer with Error::Fault instead
             // of touching kernel memory. Exit 0 if it does.

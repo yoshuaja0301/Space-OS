@@ -146,6 +146,21 @@ pub fn shutdown(root: Handle, code: u32) -> Result<(), Error> {
     call(nr::SHUTDOWN, [root as u64, code as u64, 0, 0, 0, 0]).map(|_| ())
 }
 
+/// Allocate a shareable, zero-filled memory object (charged to this process).
+pub fn vmo_create(len: usize) -> Result<Handle, Error> {
+    call(nr::VMO_CREATE, [len as u64, 0, 0, 0, 0, 0]).map(|v| v as Handle)
+}
+
+/// Map a memory object into this address space; returns its base address.
+pub fn vmo_map(h: Handle, read_only: bool) -> Result<*mut u8, Error> {
+    let flags = if read_only { spaceabi::syscall::map_flags::READ_ONLY } else { 0 };
+    call(nr::VMO_MAP, [h as u64, flags as u64, 0, 0, 0, 0]).map(|a| a as *mut u8)
+}
+
+pub fn vmo_size(h: Handle) -> Result<usize, Error> {
+    call(nr::VMO_SIZE, [h as u64, 0, 0, 0, 0, 0])
+}
+
 /// Open a file on a mounted volume (requires the root FS right).
 pub fn fs_open(root: Handle, path: &str) -> Result<Handle, Error> {
     call(nr::FS_OPEN, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0]).map(|v| v as Handle)
