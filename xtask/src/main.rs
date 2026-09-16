@@ -13,7 +13,7 @@
 mod reference;
 
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -36,6 +36,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spaceagent",
     "spacelink",
     "spacepkg",
+    "spaceterm",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -640,6 +641,26 @@ const MACHINES: &[Machine] = &[
 ];
 
 /// QEMU command line for `m`, booting `image` with `data_image` attached.
+/// How the harness puts input into a running guest.
+///
+/// A socket chardev on a second serial port is deliberately *not* an option: OVMF
+/// drives every serial port it finds as a console, and a socket chardev makes those
+/// console writes fail, which panics the bootloader before the kernel ever runs.
+/// Both mechanisms below leave the firmware's console alone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Typing {
+    /// Nobody types.
+    None,
+    /// Press keys on the emulated PS/2 keyboard through the QEMU monitor. This is
+    /// the path a person at the machine uses: scan codes, IRQ 1, the kernel's
+    /// decoder.
+    Keyboard,
+    /// Write bytes into the guest's second UART through a pty. This is the path a
+    /// headless machine on a serial console uses: IRQ 3, COM2.
+    Serial,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn qemu_args(
     m: &Machine,
     image: &Path,
@@ -648,6 +669,8 @@ fn qemu_args(
     code: &Path,
     gui: bool,
     serial_path: Option<&Path>,
+    typing: Typing,
+    monitor: Option<&Path>,
 ) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = vec![
         "-machine".into(),
@@ -681,9 +704,18 @@ fn qemu_args(
         "base=utc".into(),
     ]);
     a.extend(m.extra.iter().map(|s| (*s).to_string()));
+    // COM1 carries the log out.
     match serial_path {
         Some(p) => a.extend(["-serial".into(), format!("file:{}", p.display())]),
         None => a.extend(["-serial".into(), "mon:stdio".into()]),
+    }
+    // COM2 exists only where the harness types into it; a pty accepts firmware
+    // console writes without backpressure, which a socket chardev does not.
+    if typing == Typing::Serial {
+        a.extend(["-chardev".into(), "pty,id=spacekbd".into(), "-serial".into(), "chardev:spacekbd".into()]);
+    }
+    if let Some(path) = monitor {
+        a.extend(["-monitor".into(), format!("unix:{},server,nowait", path.display())]);
     }
     if !gui {
         a.extend(["-display".into(), "none".into()]);
@@ -701,7 +733,7 @@ fn run_qemu_capture(
     log_path: &Path,
     done_markers: &[&str],
 ) -> Result<QemuRun, String> {
-    run_qemu_capture_on(&LAB, image, data_image, log_path, done_markers)
+    run_qemu_capture_typing(&LAB, image, data_image, log_path, done_markers, Typing::None, &[], "")
 }
 
 fn run_qemu_capture_on(
@@ -711,13 +743,45 @@ fn run_qemu_capture_on(
     log_path: &Path,
     done_markers: &[&str],
 ) -> Result<QemuRun, String> {
+    run_qemu_capture_typing(machine, image, data_image, log_path, done_markers, Typing::None, &[], "")
+}
+
+/// Boot, and optionally type `type_lines` on the guest console once `ready_marker`
+/// appears in the log.
+#[allow(clippy::too_many_arguments)]
+fn run_qemu_capture_typing(
+    machine: &Machine,
+    image: &Path,
+    data_image: &Path,
+    log_path: &Path,
+    done_markers: &[&str],
+    typing: Typing,
+    type_lines: &[&str],
+    ready_marker: &str,
+) -> Result<QemuRun, String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
     if log_path.exists() {
         fs::remove_file(log_path).ok();
     }
-    let args = qemu_args(machine, image, data_image, &vars_copy, &code, false, Some(log_path))?;
+    // The monitor is how the harness reaches the keyboard and finds the pty; it is
+    // only added for a scenario that types.
+    let monitor = (typing != Typing::None).then(|| root().join("build/monitor.sock"));
+    if let Some(path) = &monitor {
+        fs::remove_file(path).ok();
+    }
+    let args = qemu_args(
+        machine,
+        image,
+        data_image,
+        &vars_copy,
+        &code,
+        false,
+        Some(log_path),
+        typing,
+        monitor.as_deref(),
+    )?;
     let start = Instant::now();
     let mut child = Command::new(qemu_bin())
         .args(&args)
@@ -726,6 +790,16 @@ fn run_qemu_capture_on(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", qemu_bin()))?;
+    let typist = match &monitor {
+        Some(path) if !type_lines.is_empty() => {
+            let path = path.clone();
+            let log = log_path.to_path_buf();
+            let ready = ready_marker.to_string();
+            let lines: Vec<String> = type_lines.iter().map(|l| (*l).to_string()).collect();
+            Some(std::thread::spawn(move || type_on_guest(typing, &path, &log, &ready, &lines)))
+        }
+        _ => None,
+    };
     let mut timed_out = false;
     let exit_code = loop {
         if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
@@ -751,6 +825,7 @@ fn run_qemu_capture_on(
         }
         std::thread::sleep(Duration::from_millis(100));
     };
+    let typed = typist.and_then(|t| t.join().ok()).unwrap_or(Ok(()));
     let mut stderr = String::new();
     if let Some(mut e) = child.stderr.take() {
         e.read_to_string(&mut stderr).ok();
@@ -761,7 +836,146 @@ fn run_qemu_capture_on(
         log.push_str(&stderr);
         fs::write(log_path, &log).ok();
     }
+    if let Err(e) = typed {
+        log.push_str(&format!("\n[harness] console input failed: {e}\n"));
+        fs::write(log_path, &log).ok();
+    }
     Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out })
+}
+
+/// Wait for the guest to say it is ready, then type each line on its console.
+///
+/// One line at a time with a pause, the way a person types: the point of the
+/// scenario is that the session keeps serving between keystrokes, which a burst
+/// would not show.
+fn type_on_guest(
+    typing: Typing,
+    monitor: &Path,
+    log_path: &Path,
+    ready_marker: &str,
+    lines: &[String],
+) -> Result<(), String> {
+    let mut mon = connect_monitor(monitor)?;
+    wait_for_marker(log_path, ready_marker)?;
+    match typing {
+        Typing::None => Ok(()),
+        Typing::Keyboard => {
+            for line in lines {
+                for ch in line.chars() {
+                    monitor_cmd(&mut mon, &format!("sendkey {}", key_name(ch)?), KEY_DRAIN)?;
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+                monitor_cmd(&mut mon, "sendkey ret", KEY_DRAIN)?;
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Ok(())
+        }
+        Typing::Serial => {
+            use std::io::Write;
+            let pty = monitor_pty(&mut mon)?;
+            let mut port = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&pty)
+                .map_err(|e| format!("open {pty}: {e}"))?;
+            for line in lines {
+                port.write_all(line.as_bytes()).map_err(|e| format!("write: {e}"))?;
+                port.write_all(b"\r").map_err(|e| format!("write: {e}"))?;
+                port.flush().ok();
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// How long to drain the monitor after a keystroke: long enough that its echo never
+/// backs up in the socket, short enough that typing stays fast.
+const KEY_DRAIN: Duration = Duration::from_millis(5);
+
+fn connect_monitor(path: &Path) -> Result<std::os::unix::net::UnixStream, String> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Ok(s) = std::os::unix::net::UnixStream::connect(path) {
+            s.set_read_timeout(Some(Duration::from_millis(5))).ok();
+            return Ok(s);
+        }
+        if Instant::now() > deadline {
+            return Err("the QEMU monitor socket never appeared".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn wait_for_marker(log_path: &Path, marker: &str) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(150);
+    loop {
+        if fs::read_to_string(log_path).map(|s| s.contains(marker)).unwrap_or(false) {
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            return Err(format!("the guest never printed {marker:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Send a monitor command and drain whatever it echoes back.
+///
+/// `wait` is how long to keep reading. Keystrokes do not need an answer, so they
+/// pass a few milliseconds - just enough to keep the socket from filling - while a
+/// query that needs its reply passes longer. Waiting for a reply on every keystroke
+/// would add a third of a second per character.
+fn monitor_cmd(
+    mon: &mut std::os::unix::net::UnixStream,
+    cmd: &str,
+    wait: Duration,
+) -> Result<String, String> {
+    use std::io::{Read, Write};
+    mon.write_all(format!("{cmd}\n").as_bytes()).map_err(|e| format!("monitor write: {e}"))?;
+    mon.flush().ok();
+    let mut out = String::new();
+    let mut buf = [0u8; 4096];
+    let deadline = Instant::now() + wait;
+    while Instant::now() < deadline {
+        match mon.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => out.push_str(&String::from_utf8_lossy(&buf[..n])),
+            // The socket read timeout is short so a keystroke drains quickly; a
+            // timeout is "nothing yet", not "nothing coming", so keep waiting until
+            // the caller's deadline.
+            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+            Err(_) => break,
+        }
+    }
+    Ok(out)
+}
+
+/// Ask the monitor where the second UART's pty landed.
+fn monitor_pty(mon: &mut std::os::unix::net::UnixStream) -> Result<String, String> {
+    for _ in 0..5 {
+        let out = monitor_cmd(mon, "info chardev", Duration::from_millis(400))?;
+        if let Some(rest) = out.split("/dev/pts/").nth(1) {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            if !digits.is_empty() {
+                return Ok(format!("/dev/pts/{digits}"));
+            }
+        }
+    }
+    Err("the monitor did not report a pty for the second serial port".into())
+}
+
+/// QEMU key name for a character the scenarios type. An unmapped character is a
+/// harness error rather than a silently dropped keystroke.
+fn key_name(ch: char) -> Result<String, String> {
+    match ch {
+        'a'..='z' | '0'..='9' => Ok(ch.to_string()),
+        ' ' => Ok("spc".into()),
+        '/' => Ok("slash".into()),
+        '-' => Ok("minus".into()),
+        '.' => Ok("dot".into()),
+        _ => Err(format!("no QEMU key name for {ch:?}")),
+    }
 }
 
 struct Scenario {
@@ -769,10 +983,18 @@ struct Scenario {
     cmdline: &'static str,
     expect_exit: i32,
     must_contain: &'static [&'static str],
+    /// Markers this scenario alone must produce, on top of `must_contain`.
+    must_contain_extra: &'static [&'static str],
     must_not_contain: &'static [&'static str],
     /// Consecutive boots of the same image that must all pass (D01 asks for the
     /// checksum to hold after a reboot).
     runs: u32,
+    /// How the harness types, if at all.
+    typing: Typing,
+    /// Lines typed on the guest console once `ready_marker` appears. Empty for a
+    /// scenario nobody types into.
+    type_lines: &'static [&'static str],
+    ready_marker: &'static str,
 }
 
 /// QEMU exit status = (value << 1) | 1 for isa-debug-exit.
@@ -780,6 +1002,24 @@ const EXIT_SUCCESS: i32 = (0x10 << 1) | 1; // 33
 #[allow(dead_code)]
 const EXIT_FAILURE: i32 = (0x11 << 1) | 1; // 35
 const EXIT_PANIC: i32 = (0x3f << 1) | 1; // 127
+
+const TERMINAL_READY: &str = "[shell] terminal ready on the console";
+
+/// What a typed session must produce, whichever way the keystrokes arrive.
+const TERMINAL_MARKERS: &[&str] = &[
+    "[term] Space OS interactive session",
+    TERMINAL_READY,
+    // Each typed command is answered.
+    "[shell] commands: help, status, ls",
+    "MODEL.SLM",
+    "[shell] started worker 'hang'",
+    // Stop reaches a worker that never calls the kernel again...
+    "[shell] worker 'hang' ended: stopped",
+    // ...and the session is still serving afterwards.
+    "session: worker stopped (hang)",
+    "[shell] closing the session",
+    "[term] session ended",
+];
 
 const SCENARIOS: &[Scenario] = &[
     Scenario {
@@ -795,8 +1035,12 @@ const SCENARIOS: &[Scenario] = &[
             "[ai] generated 128 tokens offline, all matching the pinned baseline",
             "[init] ALL TESTS PASSED",
         ],
+        must_contain_extra: &[],
         must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"],
         runs: 1,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
     },
     Scenario {
         name: "panic-diagnosis",
@@ -808,8 +1052,12 @@ const SCENARIOS: &[Scenario] = &[
             "backtrace (frame pointers):",
             "spacekernel: halted after panic",
         ],
+        must_contain_extra: &[],
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
     },
     Scenario {
         name: "kernel-fault-diagnosis",
@@ -820,16 +1068,24 @@ const SCENARIOS: &[Scenario] = &[
             "cr2=0xfffff000dead0000",
             "!!! KERNEL PANIC !!!",
         ],
+        must_contain_extra: &[],
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
     },
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
         cmdline: "selftest=stack",
         expect_exit: EXIT_PANIC,
         must_contain: &["!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!", "!!! KERNEL PANIC !!!"],
+        must_contain_extra: &[],
         must_not_contain: &["[init] Space OS init running"],
         runs: 1,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
     },
     Scenario {
         name: "storage-reboot",
@@ -841,8 +1097,42 @@ const SCENARIOS: &[Scenario] = &[
             "[init] PASS D01",
             "[init] ALL TESTS PASSED",
         ],
+        must_contain_extra: &[],
         must_not_contain: &["KERNEL PANIC", "[init] FAIL"],
         runs: 2,
+        typing: Typing::None,
+        type_lines: &[],
+        ready_marker: "",
+    },
+    Scenario {
+        name: "terminal",
+        // The same image, booted into a session instead of the acceptance run, and
+        // driven from the emulated keyboard: scan codes, IRQ 1, the kernel decoder.
+        cmdline: "init=bin/spaceterm",
+        expect_exit: EXIT_SUCCESS,
+        must_contain: TERMINAL_MARKERS,
+        // No second UART exists in this scenario, so every keystroke came from the
+        // emulated keyboard.
+        must_contain_extra: &["[kernel] console input: keyboard (IRQ1); no COM2 UART"],
+        must_not_contain: &["KERNEL PANIC", "unknown command"],
+        runs: 1,
+        typing: Typing::Keyboard,
+        type_lines: &["help", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        ready_marker: TERMINAL_READY,
+    },
+    Scenario {
+        name: "terminal-serial",
+        // The same session over a serial console: COM2, IRQ 3. A headless machine
+        // has no keyboard, and this is the path it uses.
+        cmdline: "init=bin/spaceterm",
+        expect_exit: EXIT_SUCCESS,
+        must_contain: TERMINAL_MARKERS,
+        must_contain_extra: &["[kernel] console input: keyboard (IRQ1) and COM2 serial (IRQ3)"],
+        must_not_contain: &["KERNEL PANIC", "unknown command"],
+        runs: 1,
+        typing: Typing::Serial,
+        type_lines: &["help", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        ready_marker: TERMINAL_READY,
     },
 ];
 
@@ -854,7 +1144,7 @@ fn check_run(s: &Scenario, run: &QemuRun) -> Vec<String> {
     if run.exit_code != Some(s.expect_exit) {
         problems.push(format!("QEMU exit code {:?}, expected {}", run.exit_code, s.expect_exit));
     }
-    for m in s.must_contain {
+    for m in s.must_contain.iter().chain(s.must_contain_extra.iter()) {
         if !run.log.contains(m) {
             problems.push(format!("missing marker {m:?}"));
         }
@@ -884,11 +1174,15 @@ fn cmd_test(release: bool) -> Result<(), String> {
             } else {
                 logs.join(format!("{}-boot{run_index}.log", s.name))
             };
-            let run = run_qemu_capture(
+            let run = run_qemu_capture_typing(
+                &LAB,
                 &image,
                 &data_image,
                 &log_path,
                 &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
+                s.typing,
+                s.type_lines,
+                s.ready_marker,
             )?;
             let problems = check_run(s, &run);
             if problems.is_empty() {
@@ -1064,7 +1358,7 @@ fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
-    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None)?;
+    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, Typing::None, None)?;
     println!("== {} {}", qemu_bin(), args.join(" "));
     let st = Command::new(qemu_bin()).args(&args).status().map_err(|e| e.to_string())?;
     println!(

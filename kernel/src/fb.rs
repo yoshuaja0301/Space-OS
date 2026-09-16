@@ -86,6 +86,22 @@ impl Fb {
             self.col = 0;
             return;
         }
+        if c == '\u{8}' {
+            // Backspace: step back and blank the cell, so a person editing a command
+            // line sees the same thing on the screen as on the serial console.
+            if self.col > 0 {
+                self.col -= 1;
+            }
+            let x0 = self.col * self.glyph_w;
+            let y0 = self.row * FONT_H;
+            let bg = self.pack(BG);
+            for dy in 0..FONT_H {
+                for dx in 0..self.glyph_w {
+                    self.put_pixel(x0 + dx, y0 + dy, bg);
+                }
+            }
+            return;
+        }
         if self.col >= self.cols {
             self.newline();
         }

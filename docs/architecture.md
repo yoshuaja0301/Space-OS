@@ -49,8 +49,9 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
 - **`bin/spaceshell`** (U01): memiliki sesi konsol, daftar berkas, dan masa hidup
   worker. Loopnya tidak pernah memblokir pada worker (`recv` non-blocking +
   `SYS_WAIT` bendera `NONBLOCK`), jadi worker yang crash, tidur, atau macet tanpa
-  syscall tidak bisa menahan sesi. Diberi root yang dipersempit ke `SPAWN|FS`
-  (ADR-0011).
+  syscall tidak bisa menahan sesi. Punya terminal yang bisa diketik (`help`,
+  `status`, `ls`, `run`, `stop`, `quit`). Diberi root yang dipersempit ke
+  `SPAWN|FS|CONSOLE` (ADR-0011).
 - **`bin/spacebroker` + `bin/spaceagent`** (G01): agent lahir hanya dengan satu
   channel — `fs_open` miliknya ditolak kernel. Broker memegang satu-satunya
   kapabilitas file (`FS`), memeriksa setiap path terhadap workspace
@@ -63,6 +64,17 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
 - **`bin/spacepkg`** (P01): memasang paket yang terautentikasi HMAC-SHA256,
   menolak paket rusak/palsu/terpotong dengan alasannya tanpa mengubah apa pun, dan
   `ROLLBACK` mengembalikan payload versi sebelumnya (ADR-0014).
+
+## Masukan konsol
+
+Keyboard PS/2 (IRQ 1, scan code set 1) dan UART kedua COM2 (IRQ 3) mengisi satu
+ring buffer 256 byte di kernel. `SYS_CONSOLE_READ` menyerahkannya ke user space di
+balik hak root `CONSOLE` dan **tidak pernah memblokir**. Kernel tidak melakukan
+echo dan tidak mengenal baris; sesi yang menentukan semantik terminal. COM1 tetap
+khusus keluaran log, termasuk dari handler panic.
+
+`init=` pada command line kernel memilih proses user pertama: `bin/init` untuk
+acceptance run, `init=bin/spaceterm` untuk sesi interaktif dari image yang sama.
 
 ## Objek kernel
 

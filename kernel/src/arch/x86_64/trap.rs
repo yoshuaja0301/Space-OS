@@ -3,7 +3,8 @@
 //! * A fault raised in ring 3 kills the offending process (K02: "akses memori
 //!   terlarang mematikan proses uji, bukan kernel").
 //! * A fault raised in ring 0 is a kernel bug: dump the frame and panic.
-//! * IRQ 0 (PIT) drives the scheduler tick; other IRQs are acknowledged and ignored.
+//! * IRQ 0 (PIT) drives the scheduler tick, IRQ 1 and IRQ 3 feed console input;
+//!   other IRQs are acknowledged and ignored.
 
 use spaceabi::syscall::{ExitStatus, kill_reason};
 
@@ -49,6 +50,8 @@ static NMI_COUNT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64:
 pub const IRQ_BASE: u64 = 32;
 pub const IRQ_TIMER: u64 = IRQ_BASE;
 pub const IRQ_KEYBOARD: u64 = IRQ_BASE + 1;
+/// COM2 receive: the serial side of the console.
+pub const IRQ_SERIAL_IN: u64 = IRQ_BASE + 3;
 
 fn exception_name(v: u64) -> &'static str {
     match v {
@@ -195,10 +198,16 @@ fn handle_irq(frame: &mut TrapFrame) {
             sched::timer_tick();
         }
         IRQ_KEYBOARD => {
-            // Drain the controller so it keeps raising interrupts; input handling is
-            // a Developer Preview item (Space Shell).
-            // SAFETY: reading the PS/2 data port.
-            let _scancode = unsafe { x86_64::instructions::port::Port::<u8>::new(0x60).read() };
+            // SAFETY: reading the PS/2 data port. The controller must be drained
+            // whether or not the key means anything, or it stops interrupting.
+            let scancode = unsafe { x86_64::instructions::port::Port::<u8>::new(0x60).read() };
+            if let Some(byte) = crate::input::scancode(scancode) {
+                crate::input::push(byte);
+            }
+            pic::eoi(irq);
+        }
+        IRQ_SERIAL_IN => {
+            super::serial::drain_input();
             pic::eoi(irq);
         }
         _ => {

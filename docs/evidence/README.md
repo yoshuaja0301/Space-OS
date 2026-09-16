@@ -4,10 +4,12 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 
 | File | Skenario | Hasil |
 |---|---|---|
-| `acceptance.log` | boot normal, `init` menjalankan 51 uji K01–K03, D01, C01, A01, U01, G01, L01–L03 dan P01 | `ALL TESTS PASSED (51/51, 0 skipped)`, exit QEMU 33; termasuk 128 token inferensi yang cocok dengan baseline, sesi yang bertahan melewati empat worker, agent yang tidak bisa keluar workspace, context bundle yang diverifikasi provenance-nya, dan paket yang ditolak dengan alasannya masing-masing |
+| `acceptance.log` | boot normal, `init` menjalankan 52 uji K01–K03, D01, C01, A01, U01, G01, L01–L03 dan P01 | `ALL TESTS PASSED (52/52, 0 skipped)`, exit QEMU 33; termasuk 128 token inferensi yang cocok dengan baseline, sesi yang bertahan melewati empat worker, agent yang tidak bisa keluar workspace, context bundle yang diverifikasi provenance-nya, dan paket yang ditolak dengan alasannya masing-masing |
 | `panic-diagnosis.log` | `selftest=panic` | pesan panic + lokasi + backtrace, exit 127 |
 | `kernel-fault-diagnosis.log` | `selftest=kfault` | dump register page fault ring 0 (`cr2=0xfffff000dead0000`) lalu panic, exit 127 |
 | `kernel-stack-overflow-diagnosis.log` | `selftest=stack` | double fault dari guard page kernel stack (stack IST), exit 127 |
+| `terminal.log` | sesi interaktif dikendalikan dari **keyboard** (monitor QEMU `sendkey`; mesin ini tidak punya COM2) | tiap perintah yang diketik dijawab, `stop` menghentikan worker yang macet, `quit` menutup sesi; exit 33 |
+| `terminal-serial.log` | sesi yang sama lewat **konsol serial** COM2 (pty) | sama, dengan `console input: keyboard (IRQ1) and COM2 serial (IRQ3)` |
 | `storage-reboot-boot1.log`, `storage-reboot-boot2.log` | image yang sama di-boot dua kali (D01 setelah reboot) | virtio-blk siap, FAT32 ter-mount, checksum model cocok pada kedua boot |
 | `compat-summary.txt` | `cargo xtask compat`: sembilan konfigurasi mesin (ADR-0010) | semuanya boot dan lulus; image yang sama untuk semua |
 | `compat-no-disk.log` | mesin tanpa perangkat blok | `virtio-blk: no device present`, uji berbasis disk dilewati, `ALL TESTS PASSED (41/41, 10 skipped)` |

@@ -517,6 +517,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spaceterm"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spin"
 version = "0.1.0"
 dependencies = [

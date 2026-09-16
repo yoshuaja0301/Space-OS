@@ -1437,8 +1437,9 @@ pub extern "C" fn space_main() -> i32 {
             // The session gets exactly two powers: start jobs and list files. No
             // shutdown, no kernel stats, no debug - a crashed session cannot take the
             // machine down even if it wanted to.
-            let shell_root = sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::TRANSFER)
-                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let shell_root =
+                sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::CONSOLE | rights::TRANSFER)
+                    .map_err(|e| alloc::format!("dup root: {e}"))?;
             let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
 
             let check_alive = |what: &str| -> Result<(), String> {
@@ -1541,6 +1542,38 @@ pub extern "C" fn space_main() -> i32 {
         sys::handle_close(shell).ok();
         sys::handle_close(mine).ok();
         expect_exit("spaceshell", st, 0)
+    });
+
+    r.run("U01", "console input is a capability of its own and never blocks", || {
+        // Nothing has been typed on this machine, so the read must come back empty
+        // rather than waiting for a keystroke that will never come.
+        let mut buf = [0u8; 32];
+        let before = sys::ticks_ms();
+        let n = sys::console_read(ROOT, &mut buf).map_err(|e| alloc::format!("console_read: {e}"))?;
+        let waited = sys::ticks_ms().saturating_sub(before);
+        if n != 0 {
+            return Err(alloc::format!("console_read returned {n} bytes on a machine nobody typed on"));
+        }
+        if waited > 50 {
+            return Err(alloc::format!("console_read blocked for {waited} ms"));
+        }
+        // The right is separate from every other root right: a handle without it
+        // cannot read what is being typed, however much else it can do.
+        let no_console = sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::STATS)
+            .map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::console_read(no_console, &mut buf);
+        sys::handle_close(no_console).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("console_read without the right gave {other:?}")),
+        }
+        // A kernel pointer is refused, not dereferenced.
+        let bad =
+            decode(unsafe { sys::raw(nr::CONSOLE_READ, ROOT as u64, 0xFFFF_8000_0000_0000, 8, 0, 0, 0) });
+        if bad != Err(Error::Fault) {
+            return Err(alloc::format!("console_read into kernel memory gave {bad:?}"));
+        }
+        Ok(())
     });
 
     r.run_if(disk, "no disk on this machine", "U01", "the file manager lists the guest volume", || {

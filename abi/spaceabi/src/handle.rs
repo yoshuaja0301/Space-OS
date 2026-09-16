@@ -46,12 +46,18 @@ pub mod rights {
     pub const MAP: u32 = 1 << 12;
     /// Map a memory object writable.
     pub const WRITE: u32 = 1 << 13;
+    /// Root capability: read what a person types on the console.
+    ///
+    /// Separate from every other root right on purpose: a session service needs the
+    /// keystrokes and nothing else, and nothing that does not own the session should
+    /// be able to read them.
+    pub const CONSOLE: u32 = 1 << 14;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
     pub const FILE_ALL: u32 = READ | TRANSFER | DUP;
     pub const MEMORY_ALL: u32 = READ | WRITE | MAP | TRANSFER | DUP;
-    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | TRANSFER | DUP;
+    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | CONSOLE | TRANSFER | DUP;
 }
 
 /// Kind of kernel object behind a handle (returned by `SYS_HANDLE_INFO`).

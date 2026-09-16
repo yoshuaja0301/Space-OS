@@ -197,6 +197,11 @@ pub fn fs_list(root: Handle, path: &str, out: &mut [DirEntry]) -> Result<usize, 
     )
 }
 
+/// Read what has been typed on the console; 0 when nothing is waiting.
+pub fn console_read(root: Handle, buf: &mut [u8]) -> Result<usize, Error> {
+    call(nr::CONSOLE_READ, [root as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0])
+}
+
 pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {
     let mut st = FileStat::default();
     call(nr::FS_STAT, [file as u64, &mut st as *mut FileStat as u64, 0, 0, 0, 0])?;

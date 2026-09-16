@@ -11,6 +11,8 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `kernel-fault-diagnosis` | `selftest=kfault` | `!!! CPU EXCEPTION IN KERNEL MODE: page fault !!!`, `cr2=0xfffff000dead0000`, lalu panic; exit 127 |
 | `kernel-stack-overflow-diagnosis` | `selftest=stack` | `!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!` (guard page kernel stack), lalu panic; exit 127 |
 | `storage-reboot` | — | image yang sama di-boot dua kali; kedua boot harus memuat virtio-blk, mount FAT32, dan lulus D01 (checksum model) |
+| `terminal` | `init=bin/spaceterm` | image yang **sama**, di-boot ke sesi interaktif dan dikendalikan dari **keyboard**: harness menekan tombol lewat monitor QEMU (`sendkey`), jadi jalurnya scan code → IRQ 1 → decoder kernel. Mesin ini tidak punya COM2 sama sekali (log wajib memuat `no COM2 UART`), jadi tiap ketikan pasti datang dari keyboard. Diketik `help`, `status`, `ls /spaceos`, `run hang`, `status`, `stop`, `status`, `quit`; exit 33 |
+| `terminal-serial` | `init=bin/spaceterm` | sesi yang sama lewat **konsol serial**: COM2 sebagai pty, harness menulis byte ke sana (IRQ 3). Log wajib memuat `keyboard (IRQ1) and COM2 serial (IRQ3)`. Perintah dan harapan sama dengan `terminal` |
 
 ## Matriks kompatibilitas `cargo xtask compat` (ADR-0010)
 
@@ -85,6 +87,18 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
 `wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena
 time-out, bukan gagal dengan rapi.
+
+Kedua skenario `terminal` menutup sisi lain U01: perintah datang dari **ketikan**,
+bukan dari channel kontrol. Boot yang sama membuktikan bahwa `stop` yang diketik
+orang menghentikan worker yang tidak pernah memanggil kernel lagi, dan sesi tetap
+menjawab `status` sesudahnya — sekali lewat keyboard, sekali lewat serial.
+
+Catatan harness: masukan **tidak** boleh dialirkan lewat chardev socket pada port
+serial kedua. OVMF memakai setiap port serial yang ditemukannya sebagai konsol,
+dan backpressure chardev socket membuat tulisan konsol firmware gagal sehingga
+bootloader panik berulang sebelum kernel sempat jalan. Yang dipakai karena itu
+monitor QEMU (untuk keyboard) dan chardev **pty** (untuk COM2); keduanya tidak
+mengganggu konsol firmware.
 
 ### Uji G01 (agent dan Tool Broker)
 

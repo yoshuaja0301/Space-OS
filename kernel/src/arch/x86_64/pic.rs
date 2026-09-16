@@ -36,8 +36,9 @@ pub fn init() {
         io_wait();
         d2.write(0x01);
         io_wait();
-        // Unmask timer (IRQ0), keyboard (IRQ1) and the cascade (IRQ2); mask everything else.
-        d1.write(0xF8);
+        // Unmask timer (IRQ0), keyboard (IRQ1), the cascade (IRQ2) and COM2 receive
+        // (IRQ3); mask everything else.
+        d1.write(0xF0);
         d2.write(0xFF);
     }
     println!("[kernel] pic remapped to vectors 32..47");

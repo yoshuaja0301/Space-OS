@@ -21,6 +21,7 @@ mod dev;
 mod fb;
 mod fs;
 mod initrd;
+mod input;
 mod ipc;
 mod mm;
 mod panic;
@@ -113,6 +114,10 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     dev::init();
     fs::init();
     arch::pic::init();
+    println!(
+        "[kernel] console input: keyboard (IRQ1){}",
+        if arch::serial::init_input() { " and COM2 serial (IRQ3)" } else { "; no COM2 UART" }
+    );
     arch::pit::init(sched::TICK_HZ);
     arch::syscall::init();
     sched::init(top);

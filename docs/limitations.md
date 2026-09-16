@@ -19,7 +19,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Linear map hanya memuat RAM dan framebuffer; MMIO perangkat dipetakan uncached on demand (ADR-0010). Framebuffer sendiri masih write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
 - Granularitas linear map 2 MiB: satu halaman besar yang sebagian RAM dan sebagian MMIO tetap dipetakan write-back seluruhnya. Pada q35/i440fx batas PCI hole sejajar 2 MiB sehingga tidak terjadi.
 - Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).
-- Keyboard hanya dikuras (IRQ1), tidak diteruskan ke user-space.
+- Masukan konsol (IRQ1 keyboard, IRQ3 COM2) masuk ke satu ring buffer dan diambil user space lewat `SYS_CONSOLE_READ` di balik hak root `CONSOLE`; kernel tidak melakukan echo maupun line editing.
 
 ## Penyimpanan
 
@@ -49,8 +49,10 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 - `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
 - Loop sesi memakai polling 2 ms karena belum ada `select`, `recv` bertimeout, atau notifikasi exit lewat channel. Itu kompromi yang disengaja (ADR-0011), bukan desain akhir.
-- **Belum ada masukan keyboard ke user space**: IRQ1 dikuras kernel dan tidak diteruskan. Perintah sesi datang lewat channel kontrol, jadi "terminal" belum bisa diketik manusia.
-- Belum ada window manager, font selain 8x16 bawaan, atau grafik selain teks di framebuffer.
+- Masukan konsol datang dari keyboard PS/2 (scan code set 1, tata letak US, hanya tombol yang dibutuhkan baris perintah) dan COM2. Tombol extended (`0xE0`) diabaikan kecuali Enter dan `/` pada keypad — termasuk shift palsu yang menyertai tombol panah, yang kalau didekode akan membuat keyboard tersangkut huruf besar.
+- Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
+- Belum ada window manager, GUI, font selain 8x16 bawaan, atau grafik selain teks di framebuffer. "Desktop" berarti konsol teks.
+- Ring buffer masukan 256 byte; yang tertua dibuang saat penuh dan kejadian itu dicetak sekali.
 - `SYS_FS_LIST` mengembalikan maksimum 64 entri per panggilan dan tidak punya kursor; direktori yang lebih besar terpotong tanpa cara melanjutkan. Entri `.` dan `..` ikut dikembalikan apa adanya.
 
 ## Agent dan Tool Broker

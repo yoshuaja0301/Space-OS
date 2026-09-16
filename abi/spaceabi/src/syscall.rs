@@ -64,8 +64,11 @@ pub mod nr {
     pub const VMO_SIZE: usize = 25;
     /// `fs_list(root_handle, path_ptr, path_len, out: *mut DirEntry, cap) -> entries`
     pub const FS_LIST: usize = 26;
+    /// `console_read(root_handle, buf_ptr, len) -> bytes` – what has been typed.
+    /// Never blocks: 0 means nothing is waiting.
+    pub const CONSOLE_READ: usize = 27;
 
-    pub const COUNT: usize = 27;
+    pub const COUNT: usize = 28;
 }
 
 /// Maximum inline message payload in bytes.

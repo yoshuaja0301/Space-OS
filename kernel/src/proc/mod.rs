@@ -46,9 +46,13 @@ pub fn live_count() -> usize {
     PROCESSES.lock().len()
 }
 
+/// Spawn the first user process. `init=` on the kernel command line selects which
+/// program that is, so the same image can boot into the acceptance run or into an
+/// interactive session without rebuilding anything.
 pub fn spawn_init() -> Result<Arc<Process>, Error> {
     let root = HandleEntry { object: Object::Root, rights: rights::ROOT_ALL };
-    spawn("bin/init", INIT_QUOTA_PAGES, Some(root))
+    let name = crate::cmdline::get("init").unwrap_or("bin/init");
+    spawn(name, INIT_QUOTA_PAGES, Some(root))
 }
 
 /// Load `name` from the initrd into a fresh address space and schedule its main thread.

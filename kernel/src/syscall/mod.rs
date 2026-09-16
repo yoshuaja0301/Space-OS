@@ -60,6 +60,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::VMO_MAP => sys_vmo_map(a[0] as Handle, a[1] as u32),
         nr::VMO_SIZE => sys_vmo_size(a[0] as Handle),
         nr::FS_LIST => sys_fs_list(a[0] as Handle, a[1], a[2], a[3], a[4]),
+        nr::CONSOLE_READ => sys_console_read(a[0] as Handle, a[1], a[2]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -146,6 +147,18 @@ fn sys_fs_list(root: Handle, path_ptr: u64, path_len: u64, out: u64, cap: u64) -
         unsafe { core::ptr::write_unaligned(dst[off..].as_mut_ptr() as *mut DirEntry, *e) };
     }
     Ok(entries.len())
+}
+
+/// Hand user space whatever has been typed. Never blocks: a session service polls
+/// this alongside its control channel, and blocking here would be one more way for
+/// it to stop answering.
+fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error> {
+    require_root(root, rights::CONSOLE)?;
+    if len > MAX_USER_COPY {
+        return Err(Error::Invalid);
+    }
+    let buf = user_bytes(buf_ptr, len, true)?;
+    Ok(crate::input::read(buf))
 }
 
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {

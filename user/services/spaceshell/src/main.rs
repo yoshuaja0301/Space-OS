@@ -20,7 +20,7 @@ use alloc::string::String;
 
 use libspace::spaceabi::error::Error;
 use libspace::spaceabi::handle::rights;
-use libspace::spaceabi::shell::{ABI_VERSION, Command, Reply, cmd, worker_state};
+use libspace::spaceabi::shell::{ABI_VERSION, Command, Reply, cmd, job, worker_state};
 use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry, ExitStatus, kill_reason};
 use libspace::{Handle, handle, println, sys};
 
@@ -41,6 +41,13 @@ struct Shell {
     last_code: i64,
     last_reason: u32,
     served: u32,
+    /// What has been typed since the last newline.
+    line: String,
+    /// True once the terminal has printed its first prompt.
+    terminal: bool,
+    /// Last byte was a carriage return, so a following line feed is the other half
+    /// of one CRLF and not a second empty line.
+    last_cr: bool,
 }
 
 fn as_bytes<T>(v: &T) -> &[u8] {
@@ -70,6 +77,9 @@ impl Shell {
             last_code: 0,
             last_reason: 0,
             served: 0,
+            line: String::new(),
+            terminal: false,
+            last_cr: false,
         }
     }
 
@@ -143,25 +153,29 @@ impl Shell {
         if self.worker.is_some() {
             return self.reply_err(Error::WouldBlock);
         }
-        let Some(root) = self.root else {
-            return self.reply_err(Error::Denied);
-        };
-        let (mine, theirs) = match sys::channel_create() {
-            Ok(v) => v,
-            Err(e) => return self.reply_err(e),
-        };
+        match self.start_worker(name) {
+            Ok(()) => self.reply(Reply::default()),
+            Err(e) => self.reply_err(e),
+        }
+    }
+
+    /// Spawn a job. Shared by the control protocol and the terminal, so both take
+    /// exactly the same path.
+    fn start_worker(&mut self, name: &str) -> Result<(), Error> {
+        let root = self.root.ok_or(Error::Denied)?;
+        let (mine, theirs) = sys::channel_create()?;
         let p = match sys::spawn(root, "bin/uiworker", WORKER_QUOTA, Some(theirs)) {
             Ok(p) => p,
             Err(e) => {
                 sys::handle_close(mine).ok();
-                return self.reply_err(e);
+                return Err(e);
             }
         };
         if let Err(e) = sys::send(mine, name.as_bytes(), None) {
             sys::kill(p).ok();
             sys::handle_close(p).ok();
             sys::handle_close(mine).ok();
-            return self.reply_err(e);
+            return Err(e);
         }
         // The job channel has done its work; the worker reports through its exit
         // status, which the kernel keeps for us.
@@ -174,20 +188,26 @@ impl Shell {
         self.last_reason = 0;
         println!("[shell] started worker '{name}'");
         self.paint();
-        self.reply(Reply::default());
+        Ok(())
     }
 
     fn stop(&mut self) {
         let Some(h) = self.worker else {
             return self.reply_err(Error::NotFound);
         };
-        // `kill` works whatever the worker is doing: computing, blocked in a syscall,
-        // or spinning without ever entering the kernel again.
         if let Err(e) = sys::kill(h) {
             return self.reply_err(e);
         }
-        // Reap it here so STOP is synchronous from the caller's point of view. The
-        // target is already dead, so this cannot block for long.
+        self.stop_worker(h);
+        self.reply(Reply::default());
+    }
+
+    /// Kill and reap the running job. `kill` works whatever the worker is doing:
+    /// computing, blocked in a syscall, or spinning without ever entering the kernel
+    /// again. Reaping here keeps Stop synchronous; the target is already dead, so it
+    /// cannot block for long.
+    fn stop_worker(&mut self, h: Handle) {
+        sys::kill(h).ok();
         match sys::wait(h) {
             Ok(st) => self.finish(st),
             Err(e) => {
@@ -197,7 +217,6 @@ impl Shell {
         }
         sys::handle_close(h).ok();
         self.worker = None;
-        self.reply(Reply::default());
     }
 
     fn list(&mut self, path: &str) {
@@ -286,6 +305,114 @@ impl Shell {
         true
     }
 
+    /// Show the prompt. Written with `print!` so the cursor stays on the line the
+    /// person is typing on.
+    fn prompt(&self) {
+        libspace::print!("space> ");
+    }
+
+    /// Feed one typed byte to the line editor. Returns false when the session
+    /// should end (the person typed `quit`).
+    fn typed(&mut self, byte: u8) -> bool {
+        let was_cr = core::mem::replace(&mut self.last_cr, byte == b'\r');
+        match byte {
+            b'\n' if was_cr => true,
+            b'\r' | b'\n' => {
+                println!();
+                let mut line = core::mem::take(&mut self.line);
+                let ok = self.command(line.trim());
+                line.clear();
+                self.line = line;
+                if ok {
+                    self.prompt();
+                }
+                ok
+            }
+            // Backspace and delete: erase one character, and erase it on screen too.
+            0x08 | 0x7F => {
+                if self.line.pop().is_some() {
+                    libspace::print!("\u{8} \u{8}");
+                }
+                true
+            }
+            b if (0x20..0x7F).contains(&b) => {
+                if self.line.len() < 96 {
+                    self.line.push(b as char);
+                    // SAFETY-free echo: one printable ASCII byte.
+                    libspace::print!("{}", b as char);
+                }
+                true
+            }
+            // Anything else (escape sequences, control keys) is not a character this
+            // terminal knows; ignoring it is better than pretending.
+            _ => true,
+        }
+    }
+
+    /// Run one typed command. Returns false only for `quit`.
+    fn command(&mut self, line: &str) -> bool {
+        if line.is_empty() {
+            return true;
+        }
+        self.served = self.served.saturating_add(1);
+        let (verb, rest) = match line.split_once(' ') {
+            Some((v, r)) => (v, r.trim()),
+            None => (line, ""),
+        };
+        match verb {
+            "help" => println!(
+                "[shell] commands: help, status, ls [path], run <{}|{}|{}|{}>, stop, quit",
+                job::OK,
+                job::CRASH,
+                job::HANG,
+                job::SLOW
+            ),
+            "status" => println!(
+                "[shell] worker {} ({}), last exit code {}, commands served {}",
+                state_name(self.state),
+                if self.job.is_empty() { "-" } else { self.job.as_str() },
+                self.last_code,
+                self.served
+            ),
+            "ls" => {
+                let path = if rest.is_empty() { "/spaceos" } else { rest };
+                if let Err(e) = self.list_to_console(path) {
+                    println!("[shell] ls {path}: {e}");
+                }
+            }
+            "run" => {
+                if rest.is_empty() {
+                    println!("[shell] run needs a job name; try 'help'");
+                } else if self.worker.is_some() {
+                    println!("[shell] a worker is already running; 'stop' it first");
+                } else if let Err(e) = self.start_worker(rest) {
+                    println!("[shell] run {rest}: {e}");
+                }
+            }
+            "stop" => match self.worker {
+                Some(h) => self.stop_worker(h),
+                None => println!("[shell] nothing to stop"),
+            },
+            "quit" => {
+                println!("[shell] closing the session");
+                return false;
+            }
+            other => println!("[shell] unknown command {other:?}; try 'help'"),
+        }
+        true
+    }
+
+    fn list_to_console(&mut self, path: &str) -> Result<(), Error> {
+        let root = self.root.ok_or(Error::Denied)?;
+        let mut entries = [DirEntry::default(); DIR_ENTRIES_MAX];
+        let n = sys::fs_list(root, path, &mut entries)?;
+        println!("[shell] {path}: {n} entr{}", if n == 1 { "y" } else { "ies" });
+        for e in entries.iter().take(n) {
+            println!("[shell]   {:<12} {:>8} {}", e.name(), e.size, if e.is_dir != 0 { "dir" } else { "" });
+        }
+        Ok(())
+    }
+
     fn shutdown(&mut self) {
         if let Some(h) = self.worker.take() {
             sys::kill(h).ok();
@@ -303,8 +430,39 @@ pub extern "C" fn space_main() -> i32 {
     println!("[shell] Space OS session service, ABI v{ABI_VERSION}");
     let mut sh = Shell::new(handle::BOOTSTRAP);
     let mut buf = [0u8; core::mem::size_of::<Command>()];
+    let mut typed = [0u8; 64];
     loop {
         sh.poll_worker();
+        // The terminal only exists once a capability arrives that can read it.
+        let mut busy = false;
+        if let Some(root) = sh.root {
+            if !sh.terminal {
+                sh.terminal = true;
+                println!("[shell] terminal ready on the console; type 'help'");
+                sh.prompt();
+            }
+            match sys::console_read(root, &mut typed) {
+                Ok(0) => {}
+                Ok(n) => {
+                    busy = true;
+                    let mut alive = true;
+                    for byte in typed.iter().take(n) {
+                        if !sh.typed(*byte) {
+                            alive = false;
+                            break;
+                        }
+                    }
+                    if !alive {
+                        break;
+                    }
+                }
+                // No console right: this session is driven by its channel only.
+                Err(_) => sh.terminal = true,
+            }
+        }
+        // Both inputs are served on every pass. Handling the console and looping
+        // straight back would let a stream of keystrokes starve the control channel,
+        // which is the failure this loop exists to avoid.
         match sys::recv(sh.control, &mut buf, true) {
             Ok((n, transferred)) if n == buf.len() => {
                 // SAFETY: a front end sends exactly one `Command`.
@@ -321,7 +479,13 @@ pub extern "C" fn space_main() -> i32 {
                 sh.served = sh.served.saturating_add(1);
                 sh.reply_err(Error::MsgSize);
             }
-            Err(Error::WouldBlock) => sys::sleep_ms(POLL_MS),
+            // Only idle when neither input had anything: a pause here would add
+            // latency to every keystroke.
+            Err(Error::WouldBlock) => {
+                if !busy {
+                    sys::sleep_ms(POLL_MS)
+                }
+            }
             Err(Error::PeerClosed) => {
                 println!("[shell] front end disconnected; closing the session");
                 break;
@@ -339,4 +503,4 @@ pub extern "C" fn space_main() -> i32 {
 
 /// Kept so the linker never drops the rights constants the service documents it
 /// needs; the front end narrows the root handle to exactly these.
-pub const NEEDED_ROOT_RIGHTS: u32 = rights::SPAWN | rights::FS;
+pub const NEEDED_ROOT_RIGHTS: u32 = rights::SPAWN | rights::FS | rights::CONSOLE;
