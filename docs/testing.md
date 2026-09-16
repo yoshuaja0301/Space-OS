@@ -130,6 +130,7 @@ mengganggu konsol firmware.
 | ID | Uji | Program |
 |---|---|---|
 | G01 | agent tanpa kapabilitas apa pun selain satu channel: `fs_open` miliknya ditolak kernel, lalu ia membaca `task.txt`/`input.txt`, menambal, menulis `output.txt` ke overlay, membacanya kembali, dan check `verify` lulus terhadap `expect.txt` buatan host | `bin/spacebroker`, `bin/spaceagent` |
+| G01 | tambalan mendarat di volume, bukan di memori broker: setelah broker keluar, `init` membuka `/spaceos/ws/output.txt` dengan handle-nya sendiri dan isinya harus sama dengan berkas harapan | `bin/init`, `bin/spacebroker` |
 | G01 | audit operator mencatat pembacaan yang diizinkan, pembacaan di luar scope, percobaan keluar lewat `..`, akses agent ke audit, dan check yang lulus; jumlah penolakan yang dilaporkan broker sama dengan isi audit | `bin/spacebroker` |
 | G01 | delapan bentuk jalan keluar ditolak `denied-scope`: `/spaceos/manifest.txt`, `..`, subdirektori, `//`, awalan mirip (`/spaceos/wsx`), path relatif, `/`, `/spaceos`. Tool operator (`AUDIT`, `ATTACH`, `QUIT`) dan tool tak dikenal ditolak `denied-tool` dari sisi agent. Berkas hilang dan check tak dikenal → `failed` (bukan `denied`). Pesan cacat dijawab `MsgSize` dan sesi berlanjut | `bin/spacebroker` |
 | G01 | broker bertahan saat agent menghilang tanpa `DONE` (channel tertutup) dan masih melayani audit serta quit | `bin/spacebroker` |

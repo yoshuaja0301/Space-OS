@@ -1879,7 +1879,7 @@ pub extern "C" fn space_main() -> i32 {
                 .map_err(|e| alloc::format!("spawn broker: {e}"))?;
             // The broker is the only process in this picture with a file capability, and
             // it is narrowed to FS: it cannot spawn, shut down, or read kernel state.
-            let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+            let broker_root = sys::handle_dup(ROOT, rights::FS | rights::FS_WRITE | rights::TRANSFER)
                 .map_err(|e| alloc::format!("dup root: {e}"))?;
             broker_hello(op, broker_root)?;
 
@@ -1932,7 +1932,38 @@ pub extern "C" fn space_main() -> i32 {
             let st = sys::wait(broker).map_err(|e| alloc::format!("wait broker: {e}"))?;
             sys::handle_close(broker).ok();
             sys::handle_close(op).ok();
-            expect_exit("spacebroker", st, 0)
+            expect_exit("spacebroker", st, 0)?;
+
+            // The broker is gone. If the patch had lived in its overlay it would be
+            // gone with it, so read the file the ordinary way -- init's own handle,
+            // the real volume -- and require it to be the patched one.
+            let read_file = |path: &str| -> Result<Vec<u8>, String> {
+                let h = sys::fs_open(ROOT, path).map_err(|e| alloc::format!("open {path}: {e}"))?;
+                let st = sys::fs_stat(h).map_err(|e| alloc::format!("stat {path}: {e}"))?;
+                let mut out = alloc::vec![0u8; st.size as usize];
+                let mut done = 0usize;
+                while done < out.len() {
+                    let n = sys::fs_read(h, done as u64, &mut out[done..])
+                        .map_err(|e| alloc::format!("read {path}: {e}"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    done += n;
+                }
+                sys::handle_close(h).ok();
+                out.truncate(done);
+                Ok(out)
+            };
+            let produced = read_file("/spaceos/ws/output.txt")?;
+            let expected = read_file("/spaceos/ws/expect.txt")?;
+            if produced != expected {
+                return Err(alloc::format!(
+                    "the patch did not survive the broker: {} bytes on the volume, {} expected",
+                    produced.len(),
+                    expected.len()
+                ));
+            }
+            Ok(())
         },
     );
 
@@ -1941,7 +1972,7 @@ pub extern "C" fn space_main() -> i32 {
         let (op, op_broker) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
         let broker = sys::spawn(ROOT, "bin/spacebroker", BROKER_QUOTA, Some(op_broker))
             .map_err(|e| alloc::format!("spawn broker: {e}"))?;
-        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::FS_WRITE | rights::TRANSFER)
             .map_err(|e| alloc::format!("dup root: {e}"))?;
         broker_hello(op, broker_root)?;
 
@@ -2032,7 +2063,7 @@ pub extern "C" fn space_main() -> i32 {
         let (op, op_broker) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
         let broker = sys::spawn(ROOT, "bin/spacebroker", BROKER_QUOTA, Some(op_broker))
             .map_err(|e| alloc::format!("spawn broker: {e}"))?;
-        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+        let broker_root = sys::handle_dup(ROOT, rights::FS | rights::FS_WRITE | rights::TRANSFER)
             .map_err(|e| alloc::format!("dup root: {e}"))?;
         broker_hello(op, broker_root)?;
         let (broker_side, mine) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;

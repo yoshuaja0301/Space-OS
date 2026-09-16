@@ -6,7 +6,11 @@
 //! allowed or refused - lands in an append-only audit log the operator can read
 //! back afterwards.
 //!
-//! Patches land in an in-memory overlay rather than on the disk, because the volume
+//! Patches are written through to the volume, inside the workspace and nowhere else.
+//! The overlay is still the buffer a partial write lands in, but every write is
+//! flushed, so a patch outlives the broker that applied it.
+//!
+//! (Historically: patches stayed in the overlay because the volume
 //! is mounted read-only (ADR-0007). The agent cannot tell the difference: it writes
 //! and reads back what it wrote, and the check runs against the patched view.
 #![no_std]
@@ -152,6 +156,21 @@ impl Broker {
         n
     }
 
+    /// Put the overlay's copy of `path` on the volume.
+    ///
+    /// The path has already been checked against the workspace by the caller -- this
+    /// writes exactly what the agent was allowed to write, and the file is rewritten
+    /// whole, because that is the only shape `SYS_FS_CREATE` offers.
+    fn flush(&mut self, path: &str) -> Result<(), Error> {
+        let Some(root) = self.root else { return Err(Error::Denied) };
+        let Some(o) = self.overlay_of(path) else { return Ok(()) };
+        let data = o.data.clone();
+        let file = sys::fs_create(root, path)?;
+        let r = sys::fs_write(file, 0, &data);
+        sys::handle_close(file).ok();
+        r.map(|_| ())
+    }
+
     fn write_overlay(&mut self, path: &str, offset: u32, data: &[u8]) -> Result<usize, Error> {
         let end = (offset as usize).checked_add(data.len()).ok_or(Error::Invalid)?;
         if end > OVERLAY_BYTES {
@@ -175,7 +194,12 @@ impl Broker {
             o.data.resize(end, 0);
         }
         o.data[offset as usize..end].copy_from_slice(data);
-        Ok(data.len())
+        // Write through. A patch that exists only in this process is a patch that
+        // disappears when it exits, which is not what the agent was told it did. A
+        // volume that refuses the write is reported to the agent, not swallowed.
+        let written = data.len();
+        self.flush(path)?;
+        Ok(written)
     }
 
     /// Compare the patched file with the expected one, byte for byte.
