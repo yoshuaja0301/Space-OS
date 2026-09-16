@@ -2,13 +2,13 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 283392 bytes, initrd 980992 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 276 KiB at phys 0x7d76b000, entry 0xffffffff80100000
+spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 73 bytes
+spaceboot: kernel 3 segments, 280 KiB at phys 0x7d768000, entry 0xffffffff80110f10
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 980992 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 36 memory regions, initrd 976896 bytes, cmdline 14 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] frames: 2095086 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
@@ -20,8 +20,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/hello"
-[kernel] initrd: 980992 bytes, 22 files
-[kernel]   bin/init (254904 bytes)
+[kernel] initrd: 976896 bytes, 22 files
+[kernel]   bin/init (250808 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/abi_negative (53912 bytes)
@@ -53,7 +53,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/hello': entry=0x4004e4, 21 pages mapped, quota 2048 pages
+[kernel] spawn pid 1 'bin/hello': entry=0x400510, 21 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/hello
 [kernel] entering idle loop; scheduler live
 [hello] hello from user space, pid 1 (21 of 2048 pages used)
