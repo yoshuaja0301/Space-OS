@@ -34,10 +34,16 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Matematika f32 diimplementasikan sendiri (tanpa libm); akurasinya memadai untuk model uji, bukan pustaka numerik umum.
 - Backend hanya CPU skalar, tanpa SIMD, tanpa GPU/NPU.
 
+## Inferensi
+
+- Model referensi **tidak dilatih** (bobot dari PRNG ber-seed) dan hanya 115 ribu parameter; keluarannya tidak bermakna sebagai teks. A01 membuktikan pipeline-nya benar dan deterministik, bukan kualitas model.
+- Belum ada model terlatih berlisensi, tokenizer sub-word, quantization, batching, atau sampling; dekode greedy dengan KV cache f32 penuh.
+- Satu langkah dekode memakai 54 round trip IPC; cukup untuk model uji, bukan untuk throughput.
+- Angka kecepatan berasal dari QEMU TCG, bukan perangkat fisik.
+
 ## Belum ada (tahap berikutnya)
 
 - VirtIO net/input/display, jaringan (sisa tahap 3).
-- Tokenizer dan inferensi model (tahap 5, A01).
 - SpaceLink, Tool Broker, Agent Runtime, Space Guard sebagai layanan, Space Shell, package service, tanda tangan paket (5A).
 - GPU, ARM64 (6–7).
 

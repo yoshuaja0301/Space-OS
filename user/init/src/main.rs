@@ -215,6 +215,9 @@ fn manifest_value<'a>(manifest: &'a str, key: &str) -> Option<&'a str> {
 
 /// Quota for the compute service: it pays for every buffer it hands out.
 const COMPUTE_QUOTA: u64 = 4096;
+/// Quota for the AI runtime: its own code, stack and heap; compute buffers are
+/// charged to the service that creates them.
+const AI_QUOTA: u64 = 512;
 
 fn as_bytes<T>(v: &T) -> &[u8] {
     // SAFETY: `T` is a `repr(C)` plain-data message.
@@ -955,6 +958,30 @@ pub extern "C" fn space_main() -> i32 {
             ));
         }
         Ok(())
+    });
+
+    r.run("A01", "native inference: a small model generates 128 tokens matching the pinned baseline", || {
+        let (svc_client, svc_server) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let compute = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(svc_server))
+            .map_err(|e| alloc::format!("spawn compute: {e}"))?;
+        let (ai_mine, ai_theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let ai = sys::spawn(ROOT, "bin/spaceai", AI_QUOTA, Some(ai_theirs))
+            .map_err(|e| alloc::format!("spawn ai: {e}"))?;
+
+        // The runtime gets exactly two capabilities: a compute connection and
+        // read-only file system access. It cannot spawn, kill or inspect anything.
+        sys::send(ai_mine, b"compute", Some(svc_client)).map_err(|e| alloc::format!("pass compute: {e}"))?;
+        let fs = sys::handle_dup(ROOT, rights::FS | rights::TRANSFER)
+            .map_err(|e| alloc::format!("dup fs: {e}"))?;
+        sys::send(ai_mine, b"fs", Some(fs)).map_err(|e| alloc::format!("pass fs: {e}"))?;
+
+        let st = sys::wait(ai).map_err(|e| alloc::format!("wait ai: {e}"))?;
+        sys::handle_close(ai).ok();
+        sys::kill(compute).ok();
+        sys::wait(compute).ok();
+        sys::handle_close(compute).ok();
+        sys::handle_close(ai_mine).ok();
+        expect_exit("spaceai", st, 0)
     });
 
     let total = r.passed + r.failed.len() as u32;

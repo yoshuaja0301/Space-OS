@@ -37,6 +37,10 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 
 Kernel menambahkan satu objek: *memory object* (kumpulan frame yang dapat dipetakan beberapa proses) dengan `SYS_VMO_CREATE/MAP/SIZE`. Di atasnya, `bin/spacecompute` mengimplementasikan Space Compute ABI v0 di user space: kontrol lewat pesan channel berukuran tetap, tensor di memory object yang dipetakan kedua sisi, eksekusi bertahap dengan tenggat sehingga `WAIT` dapat timeout dan `CANCEL` dapat menghentikan pekerjaan.
 
+## Inferensi (tahap 5)
+
+`bin/spaceai` memuat model SpaceLM v0 dari disk guest, memverifikasi checksum-nya, lalu menjalankan dekode greedy: runtime memegang tata letak (cache KV, transposisi V, potongan buffer) sementara seluruh aritmetika berjalan lewat Compute ABI ke `bin/spacecompute`. Satu langkah dekode adalah 54 operasi Compute. Token yang dihasilkan dibandingkan dengan baseline yang dipatok di `/spaceos/baseline.txt`.
+
 ## Objek kernel
 
 - **Process**: address space + tabel handle + kuota + status keluar + antrean penunggu `wait`.

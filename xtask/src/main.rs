@@ -10,6 +10,8 @@
 //! Environment: `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS` override firmware discovery,
 //! `SPACEOS_QEMU` overrides the QEMU binary.
 
+mod reference;
+
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -27,6 +29,7 @@ const USER_PROGRAMS: &[&str] = &[
     "worker",
     "blocker",
     "spacecompute",
+    "spaceai",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -250,18 +253,53 @@ fn make_image(built: &Built, cmdline: &str, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Deterministic model payload. Stage 5 replaces the body with a real SpaceLM
-/// model; the bytes only have to be reproducible for the D01 checksum test.
-fn model_blob() -> Vec<u8> {
-    let mut out = Vec::with_capacity(256 * 1024);
-    let mut x: u64 = 0x5061_6365_4F53_0001; // "SpaceOS" seed
-    while out.len() < 256 * 1024 {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        out.extend_from_slice(&x.to_le_bytes());
-    }
-    out
+/// Build the reference model, its manifest and the pinned inference baseline.
+///
+/// The baseline is produced by the host reference implementation in
+/// [`reference`], which shares its math and tensor layout with the guest, so the
+/// guest must reproduce the token sequence exactly.
+fn build_model() -> (Vec<u8>, String, String) {
+    let header = reference::config();
+    let weights = reference::weights(&header);
+    let bytes = reference::serialise(&header, &weights);
+    let start = Instant::now();
+    let tokens = reference::generate(&header, &weights, reference::PROMPT, reference::GENERATE);
+    let elapsed = start.elapsed();
+    let distinct = {
+        let mut seen: Vec<u32> = tokens.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        seen.len()
+    };
+    let prompt_hex: String = reference::PROMPT.iter().map(|b| format!("{b:02x}")).collect();
+    let token_list: Vec<String> = tokens.iter().map(|t| t.to_string()).collect();
+    let baseline = format!(
+        "# Space OS inference baseline (host reference, pinned)\nmodel={MODEL_PATH}\nprompt_hex={prompt_hex}\ngenerate={}\ndistinct={distinct}\ntokens={}\n",
+        reference::GENERATE,
+        token_list.join(",")
+    );
+    println!(
+        "== model: {} layers, d_model {}, {} params ({} KiB); baseline {} tokens, {distinct} distinct, host {:.0} ms",
+        header.n_layers,
+        header.d_model,
+        header.weight_floats(),
+        bytes.len() / 1024,
+        tokens.len(),
+        elapsed.as_secs_f64() * 1000.0
+    );
+    let digest = sha256_hex(&bytes);
+    (bytes, baseline, digest)
+}
+
+/// Deliberately broken models the runtime must reject without crashing.
+fn bad_models(good: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
+    let mut bad_magic = good.to_vec();
+    bad_magic[1] = b'X';
+    let mut bad_dims = good.to_vec();
+    // d_model = 4096: beyond MAX_D_MODEL and inconsistent with heads * head_dim.
+    bad_dims[16..20].copy_from_slice(&4096u32.to_le_bytes());
+    let truncated = good[..good.len() / 2].to_vec();
+    vec![("BADMAGIC.SLM", bad_magic), ("BADDIMS.SLM", bad_dims), ("TRUNC.SLM", truncated)]
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -274,12 +312,9 @@ fn sha256_hex(data: &[u8]) -> String {
 /// Build the guest data disk: a bare FAT32 volume (no partition table) with the
 /// model and a manifest naming its size and SHA-256.
 fn make_data_disk(out: &Path) -> Result<(), String> {
-    let model = model_blob();
-    let manifest = format!(
-        "# Space OS model manifest\npath={MODEL_PATH}\nsize={}\nsha256={}\n",
-        model.len(),
-        sha256_hex(&model)
-    );
+    let (model, baseline, digest) = build_model();
+    let manifest =
+        format!("# Space OS model manifest\npath={MODEL_PATH}\nsize={}\nsha256={digest}\n", model.len());
     fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
     let f = fs::OpenOptions::new()
         .read(true)
@@ -306,9 +341,20 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
             .map_err(|e| e.to_string())?
             .write_all(manifest.as_bytes())
             .map_err(|e| e.to_string())?;
+        dir.create_file("BASELINE.TXT")
+            .map_err(|e| e.to_string())?
+            .write_all(baseline.as_bytes())
+            .map_err(|e| e.to_string())?;
+        for (name, data) in bad_models(&model) {
+            dir.create_file(name).map_err(|e| e.to_string())?.write_all(&data).map_err(|e| e.to_string())?;
+        }
     }
     disk.flush().map_err(|e| e.to_string())?;
-    println!("== data disk {} ({} KiB model, FAT32)", out.display(), model.len() / 1024);
+    println!(
+        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures, FAT32)",
+        out.display(),
+        model.len() / 1024
+    );
     Ok(())
 }
 
@@ -474,6 +520,8 @@ const SCENARIOS: &[Scenario] = &[
             "[kernel] virtio-blk: ready",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
+            "[ai] model verified: sha256",
+            "[ai] generated 128 tokens offline, all matching the pinned baseline",
             "[init] ALL TESTS PASSED",
         ],
         must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"],
@@ -671,6 +719,38 @@ fn cmd_run(gui: bool, cmdline: &str, release: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Score candidate seeds for the reference model: an untrained model can collapse
+/// into one repeated token, which would make the pinned baseline a weak check.
+fn cmd_seedsearch() -> Result<(), String> {
+    let header = reference::config();
+    let mut best: Vec<(usize, usize, u64)> = Vec::new();
+    for seed in 1..=120u64 {
+        let seed = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5061_6365_4F53_0000;
+        let w = reference::weights_seeded(&header, seed);
+        let tokens = reference::generate(&header, &w, reference::PROMPT, reference::GENERATE);
+        let mut sorted = tokens.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let mut longest = 1usize;
+        let mut run = 1usize;
+        for i in 1..tokens.len() {
+            if tokens[i] == tokens[i - 1] {
+                run += 1;
+                longest = longest.max(run);
+            } else {
+                run = 1;
+            }
+        }
+        best.push((sorted.len(), longest, seed));
+    }
+    // Most distinct tokens first, then the shortest longest-run.
+    best.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for (distinct, longest, seed) in best.iter().take(8) {
+        println!("seed {seed:#018x}: {distinct} distinct, longest run {longest}");
+    }
+    Ok(())
+}
+
 fn cmd_clippy() -> Result<(), String> {
     sh(cargo().args([
         "clippy",
@@ -743,6 +823,8 @@ fn main() {
                 .unwrap_or(100);
             cmd_soak(boots, release)
         }
+        "model" => make_data_disk(&root().join("build/data.img")),
+        "seedsearch" => cmd_seedsearch(),
         "clippy" => cmd_clippy(),
         "fmt" => sh(cargo().args(["fmt", "--all"])),
         "fmt-check" => sh(cargo().args(["fmt", "--all", "--", "--check"])),

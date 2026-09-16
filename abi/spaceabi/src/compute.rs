@@ -72,6 +72,8 @@ pub mod op {
     pub const EMBED: u32 = 10;
     /// Index of the largest element of `a` over `dims[0]` values, returned in the reply.
     pub const ARGMAX: u32 = 11;
+    /// `dst = a * scalar` over `dims[0]` elements.
+    pub const SCALE: u32 = 13;
     /// Burn `dims[0]` work units. Exists so timeout and cancellation can be tested
     /// deterministically.
     pub const SPIN: u32 = 12;

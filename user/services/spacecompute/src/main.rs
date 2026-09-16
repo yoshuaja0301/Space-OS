@@ -20,7 +20,11 @@ use libspace::spaceabi::compute::{
     backend, op, req, state,
 };
 use libspace::spaceabi::error::Error;
+use libspace::spaceabi::math::{cos_f32, exp_f32, powf_f32, silu_f32, sin_f32, sqrt_f32};
 use libspace::{Handle, handle, println, sys};
+
+/// Rotary embedding base, pinned so the guest and the baseline tool agree.
+const ROPE_THETA: f32 = 10000.0;
 
 /// Work units executed between two deadline checks.
 const STEP_UNITS: u64 = 250_000;
@@ -114,6 +118,10 @@ impl Service {
                 self.slice(&o.dst, d[0] as usize)?;
             }
             op::COPY => {
+                self.slice(&o.dst, d[0] as usize)?;
+                self.slice(&o.a, d[0] as usize)?;
+            }
+            op::SCALE => {
                 self.slice(&o.dst, d[0] as usize)?;
                 self.slice(&o.a, d[0] as usize)?;
             }
@@ -219,6 +227,15 @@ impl Service {
                 dst[..n].copy_from_slice(&a[..n]);
                 true
             }
+            op::SCALE => {
+                let n = d[0] as usize;
+                let dst = self.slice(&o.dst, n).expect("validated");
+                let a = self.slice(&o.a, n).expect("validated");
+                for i in 0..n {
+                    dst[i] = a[i] * o.scalar;
+                }
+                true
+            }
             op::ADD | op::MUL => {
                 let n = d[0] as usize;
                 let dst = self.slice(&o.dst, n).expect("validated");
@@ -235,8 +252,7 @@ impl Service {
                 let a = self.slice(&o.a, n).expect("validated");
                 let b = self.slice(&o.b, n).expect("validated");
                 for i in 0..n {
-                    let x = a[i];
-                    dst[i] = (x / (1.0 + exp_f32(-x))) * b[i];
+                    dst[i] = silu_f32(a[i]) * b[i];
                 }
                 true
             }
@@ -278,7 +294,7 @@ impl Service {
                 let x = self.slice(&o.dst, heads * head_dim).expect("validated");
                 for h in 0..heads {
                     for i in (0..head_dim).step_by(2) {
-                        let freq = 1.0 / powf_f32(10000.0, i as f32 / head_dim as f32);
+                        let freq = 1.0 / powf_f32(ROPE_THETA, i as f32 / head_dim as f32);
                         let angle = pos as f32 * freq;
                         let (s, c) = (sin_f32(angle), cos_f32(angle));
                         let base = h * head_dim + i;
@@ -500,107 +516,6 @@ impl Service {
             }
         }
     }
-}
-
-// ---- minimal f32 math (no libm in a no_std freestanding program) ----
-
-fn sqrt_f32(x: f32) -> f32 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    let mut g = x;
-    for _ in 0..24 {
-        g = 0.5 * (g + x / g);
-    }
-    g
-}
-
-fn exp_f32(x: f32) -> f32 {
-    if x < -60.0 {
-        return 0.0;
-    }
-    if x > 60.0 {
-        return f32::MAX;
-    }
-    // exp(x) = 2^k * exp(r), |r| <= ln2/2, with exp(r) from its Taylor series.
-    let k = (x / core::f32::consts::LN_2 + if x >= 0.0 { 0.5 } else { -0.5 }) as i32;
-    let r = x - k as f32 * core::f32::consts::LN_2;
-    let mut term = 1.0f32;
-    let mut sum = 1.0f32;
-    for i in 1..14 {
-        term *= r / i as f32;
-        sum += term;
-    }
-    sum * pow2i(k)
-}
-
-fn pow2i(k: i32) -> f32 {
-    let mut out = 1.0f32;
-    let mut i = 0;
-    while i < k.abs() {
-        out *= if k > 0 { 2.0 } else { 0.5 };
-        i += 1;
-    }
-    out
-}
-
-fn ln_f32(x: f32) -> f32 {
-    if x <= 0.0 {
-        return f32::MIN;
-    }
-    // Normalise into [1, 2) using the exponent bits, then use atanh series.
-    let bits = x.to_bits();
-    let exponent = ((bits >> 23) & 0xFF) as i32 - 127;
-    let mantissa = f32::from_bits((bits & 0x807F_FFFF) | 0x3F80_0000);
-    let z = (mantissa - 1.0) / (mantissa + 1.0);
-    let z2 = z * z;
-    let mut term = z;
-    let mut sum = 0.0f32;
-    for i in 0..12 {
-        sum += term / (2 * i + 1) as f32;
-        term *= z2;
-    }
-    2.0 * sum + exponent as f32 * core::f32::consts::LN_2
-}
-
-fn powf_f32(base: f32, exp: f32) -> f32 {
-    exp_f32(exp * ln_f32(base))
-}
-
-fn sin_f32(x: f32) -> f32 {
-    let x = wrap_pi(x);
-    let mut term = x;
-    let mut sum = x;
-    let x2 = x * x;
-    for i in 1..10 {
-        term *= -x2 / ((2 * i) as f32 * (2 * i + 1) as f32);
-        sum += term;
-    }
-    sum
-}
-
-fn cos_f32(x: f32) -> f32 {
-    let x = wrap_pi(x);
-    let mut term = 1.0f32;
-    let mut sum = 1.0f32;
-    let x2 = x * x;
-    for i in 1..10 {
-        term *= -x2 / ((2 * i - 1) as f32 * (2 * i) as f32);
-        sum += term;
-    }
-    sum
-}
-
-fn wrap_pi(x: f32) -> f32 {
-    let two_pi = core::f32::consts::TAU;
-    let mut v = x;
-    while v > core::f32::consts::PI {
-        v -= two_pi;
-    }
-    while v < -core::f32::consts::PI {
-        v += two_pi;
-    }
-    v
 }
 
 #[unsafe(no_mangle)]

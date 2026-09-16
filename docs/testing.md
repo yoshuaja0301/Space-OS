@@ -35,6 +35,9 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K03 | 20 siklus "kill saat blocking di `recv`" → peer melihat `PeerClosed`, frame bebas dan heap kernel identik | `bin/ipc_echo` |
 | K03 | 20 siklus kill saat `sleep(1 jam)`, 20 siklus kill saat blocking `recv` dengan peer tetap terbuka, 20 siklus kill saat `wait` pada proses yang terus berjalan → frame bebas dan heap kernel identik (tanpa perbaikan: ~180 frame dan ~12 KiB heap bocor per 20 siklus) | `bin/blocker` |
 | K02 | tabel handle penuh → `spawn` ditolak `TooManyHandles` dan tidak ada proses yatim | `bin/hello` |
+| A01 | tiga model rusak (`badmagic`, `baddims`, `trunc`) ditolak dengan alasan, tanpa crash | `bin/spaceai` |
+| A01 | model diverifikasi SHA-256 terhadap manifest saat dimuat ke buffer compute | `bin/spaceai` |
+| A01 | 128 token dihasilkan offline lewat Compute ABI dan **identik** dengan baseline host; TTFT, token/detik, working set dan RSS dilaporkan | `bin/spaceai` |
 | D01 | SHA-256 guest cocok dengan vektor FIPS (kosong, "abc", sejuta 'a') | `bin/init` |
 | D01 | `/spaceos/model.slm` dibaca dari disk guest; ukuran dan SHA-256 cocok dengan `/spaceos/manifest.txt` yang dibuat host | `bin/init` |
 | C01 | negosiasi versi (permintaan sebelum `HELLO` → `Denied`, versi salah → `Invalid`), device query, antrean habis → `NoMemory`, submit pada antrean tak dikenal → `BadHandle` | `bin/spacecompute` |

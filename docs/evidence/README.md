@@ -4,7 +4,7 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 
 | File | Skenario | Hasil |
 |---|---|---|
-| `acceptance.log` | boot normal, `init` menjalankan 37 uji K01–K03, D01 dan C01 | `ALL TESTS PASSED (37/37)`, exit QEMU 33 |
+| `acceptance.log` | boot normal, `init` menjalankan 38 uji K01–K03, D01, C01 dan A01 | `ALL TESTS PASSED (38/38)`, exit QEMU 33; termasuk 128 token inferensi yang cocok dengan baseline |
 | `panic-diagnosis.log` | `selftest=panic` | pesan panic + lokasi + backtrace, exit 127 |
 | `kernel-fault-diagnosis.log` | `selftest=kfault` | dump register page fault ring 0 (`cr2=0xfffff000dead0000`) lalu panic, exit 127 |
 | `kernel-stack-overflow-diagnosis.log` | `selftest=stack` | double fault dari guard page kernel stack (stack IST), exit 127 |

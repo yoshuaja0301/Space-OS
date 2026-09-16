@@ -442,6 +442,14 @@ name = "spaceabi"
 version = "0.1.0"
 
 [[package]]
+name = "spaceai"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spaceboot"
 version = "0.1.0"
 dependencies = [
@@ -736,5 +744,6 @@ dependencies = [
  "fatfs",
  "fscommon",
  "sha2",
+ "spaceabi",
  "tar",
 ]
