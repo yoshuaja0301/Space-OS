@@ -26,6 +26,7 @@ use libspace::spaceabi::link::{self as link_abi, LinkReply, LinkRequest, req as 
 use libspace::spaceabi::pkg::{PkgReply, PkgRequest, reject_code, req as preq};
 use libspace::spaceabi::shell::{Reply as ShellReply, job as shell_job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
+use libspace::spaceabi::syscall::PS2_INJECT_CHAR;
 use libspace::spaceabi::syscall::debug_op;
 use libspace::spaceabi::syscall::nr;
 use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
@@ -1584,6 +1585,46 @@ pub extern "C" fn space_main() -> i32 {
             decode(unsafe { sys::raw(nr::CONSOLE_READ, ROOT as u64, 0xFFFF_8000_0000_0000, 8, 0, 0, 0) });
         if bad != Err(Error::Fault) {
             return Err(alloc::format!("console_read into kernel memory gave {bad:?}"));
+        }
+        Ok(())
+    });
+
+    r.run("U01", "a key press reaches user space through IRQ 1 and the decoder", || {
+        // Nothing else in an automated run proves the keyboard works: the two typed
+        // scenarios need a harness to press keys, and no machine in the compatibility
+        // matrix has anybody sitting at it. The controller can be told to deliver a
+        // key press itself, which exercises the whole path -- 8042, IRQ 1, the drain,
+        // the decoder, the ring -- exactly as a finger would.
+        let mut buf = [0u8; 32];
+        for _ in 0..64 {
+            match sys::console_read(ROOT, &mut buf) {
+                Ok(0) => break,
+                Ok(_) | Err(Error::DataLoss) => {}
+                Err(e) => return Err(alloc::format!("draining the console: {e}")),
+            }
+        }
+        sys::debug(ROOT, debug_op::PS2_INJECT).map_err(|e| alloc::format!("inject: {e}"))?;
+        // The interrupt is delivered by the machine, not by this process, so the byte
+        // may not be queued by the time the syscall returns.
+        for attempt in 0..50 {
+            match sys::console_read(ROOT, &mut buf) {
+                Ok(0) | Err(Error::DataLoss) => {}
+                Ok(n) => {
+                    if buf[..n] != [PS2_INJECT_CHAR] {
+                        return Err(alloc::format!(
+                            "keyboard delivered {:?}, expected {:?}",
+                            &buf[..n],
+                            [PS2_INJECT_CHAR]
+                        ));
+                    }
+                    return Ok(());
+                }
+                Err(e) => return Err(alloc::format!("console_read: {e}")),
+            }
+            if attempt == 49 {
+                return Err(String::from("no key press arrived from the PS/2 controller"));
+            }
+            sys::sleep_ms(10);
         }
         Ok(())
     });

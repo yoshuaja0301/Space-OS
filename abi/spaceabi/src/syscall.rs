@@ -269,7 +269,13 @@ pub mod debug_op {
     /// which cannot be provoked from user space any other way (the ring is fed by
     /// interrupts). Pushes [`CONSOLE_FLOOD_LEN`] bytes of a known pattern.
     pub const CONSOLE_FLOOD: u64 = 3;
+    /// Make the PS/2 controller deliver one key press ([`PS2_INJECT_CHAR`]), so the
+    /// keyboard interrupt path can be tested on a machine nobody is typing at.
+    pub const PS2_INJECT: u64 = 4;
 }
+
+/// The character [`debug_op::PS2_INJECT`] makes the keyboard produce.
+pub const PS2_INJECT_CHAR: u8 = b'a';
 
 /// Bytes pushed by [`debug_op::CONSOLE_FLOOD`], and the pattern they follow:
 /// byte `i` is `b'A' + (i % 26)`. Larger than the kernel ring, so the oldest bytes

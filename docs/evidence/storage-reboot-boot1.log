@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x7d768000, entry 0xffffffff80110f10
+spaceboot: kernel 3 segments, 280 KiB at phys 0x7d769000, entry 0xffffffff80110180
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -52,7 +52,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/init': entry=0x423c60, 77 pages mapped, quota 2048 pages
+[kernel] spawn pid 1 'bin/init': entry=0x424380, 77 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/init
 [kernel] entering idle loop; scheduler live
 [init] Space OS init running: pid 1, ABI v0, quota 2048 pages (77 used)
@@ -138,13 +138,13 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: syscall with a non-canonical user rsp returns normally
 [kernel] spawn pid 14 'bin/fault': entry=0x400a70, 22 pages mapped, quota 128 pages
 [fault] pid 14 performing 'noncanon_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=127
+[fault] syscall with a hostile rsp returned ticks=124
 [kernel] pid 14 'bin/fault' exited with code 0
 [init] PASS K02: syscall with a non-canonical user rsp returns normally
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
 [kernel] spawn pid 15 'bin/fault': entry=0x400a70, 22 pages mapped, quota 128 pages
 [fault] pid 15 performing 'kernel_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=136
+[fault] syscall with a hostile rsp returned ticks=133
 [kernel] pid 15 'bin/fault' exited with code 0
 [init] PASS K02: syscall with rsp pointing into the kernel returns normally
 [init] --- K02: malformed executables are rejected (bad entry, bad magic, truncated, huge segment)
@@ -340,7 +340,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 74 'bin/worker' exited with code 0
 [kernel] spawn pid 75 'bin/worker': entry=0x400300, 23 pages mapped, quota 128 pages
 [kernel] pid 75 'bin/worker' exited with code 0
-[init] frames free before=2090829 after=2090829 ; heap used before=1840 after=1840 ; switches=161
+[init] frames free before=2090829 after=2090829 ; heap used before=1840 after=1840 ; switches=163
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [kernel] spawn pid 76 'bin/ipc_echo': entry=0x400840, 21 pages mapped, quota 128 pages
@@ -592,8 +592,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS C01: compute service teardown returns every frame it allocated
 [init] --- A01: native inference: a small model generates 128 tokens matching the pinned baseline
 [kernel] spawn pid 176 'bin/spacecompute': entry=0x404580, 28 pages mapped, quota 4096 pages
-[compute] Space Compute service, ABI v0, CPU backend
 [kernel] spawn pid 177 'bin/spaceai': entry=0x4079a0, 34 pages mapped, quota 512 pages
+[compute] Space Compute service, ABI v0, CPU backend
 [ai] Space OS AI runtime starting
 [ai] rejected /spaceos/badmagic.slm: not a SpaceLM model
 [ai] rejected /spaceos/baddims.slm: dimensions out of range
@@ -604,7 +604,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [ai] working set: 711 KiB in 4 compute buffers
 [ai] baseline: 10 prompt bytes, 128 tokens to generate
 [ai] generated 128 tokens offline, all matching the pinned baseline
-[ai] metrics: ttft=390 ms, total=5622 ms, 24.464 tokens/s, working set 711 KiB, runtime rss 264 KiB
+[ai] metrics: ttft=413 ms, total=5589 ms, 24.729 tokens/s, working set 711 KiB, runtime rss 264 KiB
 [ai] first tokens: ".Oq..NN..\\..L.:.-..:.6.." ...
 [compute] shutdown requested; exiting
 [kernel] pid 176 'bin/spacecompute' exited with code 0
@@ -619,12 +619,12 @@ spacekernel 0.1.0: Space OS kernel booting
 [shell] terminal ready on the console; type 'help'
 space> [shell] files in /spaceos: 11 entries [./ ../ MODEL.SLM MANIFEST.TXT BASELINE.TXT BADMAGIC.SLM BADDIMS.SLM TRUNC.SLM WS/ DOCS/ PKG/]
 [kernel] spawn pid 179 'bin/uiworker': entry=0x400710, 21 pages mapped, quota 128 pages
+[shell] started worker 'crash'
+[shell] session: worker running (crash), commands served 4
 [worker] job 'crash' starting
 [worker] job 'crash' is about to fault
 [kernel] pid 179 'bin/uiworker' killed: page fault at rip=0x400280 (error=0x4, addr=0x0)
 [kernel] pid 179 'bin/uiworker' killed (page fault, addr 0x0)
-[shell] started worker 'crash'
-[shell] session: worker running (crash), commands served 4
 [shell] worker 'crash' was killed: page fault (fault at 0x0); the session is unaffected
 [shell] session: worker crashed (crash), commands served 4
 [shell] files in /spaceos: 11 entries [./ ../ MODEL.SLM MANIFEST.TXT BASELINE.TXT BADMAGIC.SLM BADDIMS.SLM TRUNC.SLM WS/ DOCS/ PKG/]
@@ -681,6 +681,8 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] PASS U01: a session cannot exceed the capabilities it was given
 [init] --- U01: console input is a capability of its own and never blocks
 [init] PASS U01: console input is a capability of its own and never blocks
+[init] --- U01: a key press reaches user space through IRQ 1 and the decoder
+[init] PASS U01: a key press reaches user space through IRQ 1 and the decoder
 [init] --- U01: input lost to a full buffer is reported before the bytes that survived
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
@@ -806,5 +808,5 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [pkg] closing with 2 version(s) held
 [kernel] pid 193 'bin/spacepkg' exited with code 0
 [init] PASS P01: rollback returns the previous version, and only as far as the history goes
-[init] ALL TESTS PASSED (53/53, 0 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 9136 ms, 37669 context switches)
+[init] ALL TESTS PASSED (54/54, 0 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 9089 ms, 37665 context switches)

@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x7d76a000, entry 0xffffffff80110f10
+spaceboot: kernel 3 segments, 280 KiB at phys 0x7d778000, entry 0xffffffff80110180
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -57,7 +57,7 @@ spacekernel 0.1.0: Space OS kernel booting
 
 !!! CPU EXCEPTION IN KERNEL MODE: double fault !!!
   vector=8 (double fault) error=0x0 cr2=0x0
-  rip=0xffffffff80104e20 cs=0x8 rflags=0x46 rsp=0xffffa00000017ff0 ss=0x10
+  rip=0xffffffff8010aef0 cs=0x8 rflags=0x46 rsp=0xffffa00000017ff0 ss=0x10
   rax=0x0000000000000047 rbx=0x000000000000001e rcx=0x0000000000000000 rdx=0x0000000000000200
   rsi=0xffffa000000181f0 rdi=0xffffa00000017ff0 rbp=0xffffa00000018400 r8 =0x0000000000000000
   r9 =0x0000000000000003 r10=0x0000000000280000 r11=0x000000000000a000 r12=0x0000000000000046
@@ -68,7 +68,7 @@ at kernel/src/arch/x86_64/trap.rs:190:5
 message: unhandled kernel-mode double fault (vector 8)
 current: idle
 backtrace (frame pointers):
-  #00 0xffffffff80122fec
-  #01 0xffffffff80118b7f
-  #02 0xffffffff80100020
+  #00 0xffffffff8012314c
+  #01 0xffffffff80117b38
+  #02 0xffffffff8010f6f7
 spacekernel: halted after panic (uptime 0 ms)

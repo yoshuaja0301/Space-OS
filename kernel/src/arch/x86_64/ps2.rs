@@ -11,6 +11,12 @@ const DATA: u16 = 0x60;
 const STATUS: u16 = 0x64;
 /// Bit 0 of the status port: a byte is waiting in the output buffer.
 const OUTPUT_FULL: u8 = 0x01;
+/// Bit 1 of the status port: the controller has not taken the last byte written to
+/// it yet.
+const INPUT_FULL: u8 = 0x02;
+/// Controller command: place the following byte in the output buffer as though the
+/// keyboard had sent it, raising IRQ 1 with it.
+const CMD_WRITE_OUTPUT: u8 = 0xD2;
 /// Bit 5: the waiting byte came from the auxiliary device (the mouse), not the
 /// keyboard. It still has to be read — it is what blocks the keyboard's own byte —
 /// but decoding it as a scan code would type characters nobody pressed.
@@ -78,4 +84,40 @@ pub fn read_scancodes() {
             }
         }
     }
+}
+
+/// Hand the CPU one scan code as though a key had been pressed.
+///
+/// This is the only way software can exercise the path a real key press takes --
+/// controller, IRQ 1, the drain above, the decoder, the input ring -- and without it
+/// nothing in an automated run proves that path works at all on a machine nobody is
+/// sitting at. Returns false if the controller never accepted the command.
+pub fn inject(scancode: u8) -> bool {
+    // SAFETY: the 8042 command and data ports.
+    unsafe {
+        let mut status = Port::<u8>::new(STATUS);
+        let mut port = Port::<u8>::new(STATUS);
+        let mut data = Port::<u8>::new(DATA);
+        if !wait_writable(&mut status) {
+            return false;
+        }
+        port.write(CMD_WRITE_OUTPUT);
+        if !wait_writable(&mut status) {
+            return false;
+        }
+        data.write(scancode);
+    }
+    true
+}
+
+/// Spin until the controller has taken what was last written to it. Bounded: a
+/// controller that never drains its input buffer must not hang the kernel.
+fn wait_writable(status: &mut Port<u8>) -> bool {
+    for _ in 0..100_000 {
+        // SAFETY: reading the 8042 status port has no side effects.
+        if unsafe { status.read() } & INPUT_FULL == 0 {
+            return true;
+        }
+    }
+    false
 }

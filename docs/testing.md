@@ -86,11 +86,15 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | U01 | sesi tanpa hak `FS` → daftar berkas `Denied` tetapi job tetap jalan; perintah tak dikenal → `NoSys`; sesi tidak bisa memperluas kapabilitas yang diberikan | `bin/spaceshell` |
 | U01 | `fs_list` pada volume guest: `/` memuat `SPACEOS/`, ukuran `MODEL.SLM` cocok dengan `fs_stat`, melist berkas (bukan direktori) → `Invalid`, tanpa hak `FS` → `Denied` | `bin/init` |
 | U01 | `console_read` tanpa hak `CONSOLE` → `Denied`, ke memori kernel → `Fault`, dan tidak pernah memblokir | `bin/init` |
+| U01 | satu tombol ditekan oleh controller sendiri (`debug_op::PS2_INJECT`, perintah 8042 0xD2): byte itu harus melewati IRQ 1, pengurasan controller, decoder, ring, lalu sampai ke `console_read` sebagai `a` | `bin/init` |
 | U01 | ring masukan diluapkan dengan sengaja (`debug_op::CONSOLE_FLOOD`, 264 byte ke ring 256 byte): pembacaan berikutnya → `DataLoss` **sebelum** byte apa pun, laporan itu tidak memakan byte, dan byte yang selamat masih berupa potongan pola yang berurutan | `bin/init` |
 
 Gigi uji ini terbukti: dengan `poll_worker` memakai `wait` yang memblokir (bukan
 `wait_nonblocking`), job `hang` mengunci sesi dan skenario acceptance mati karena
-time-out, bukan gagal dengan rapi. Uji kehilangan masukan juga: dengan
+time-out, bukan gagal dengan rapi. Uji tombol juga: dengan satu byte sengaja
+ditinggalkan di buffer keluaran 8042 sebelum IRQ 1 dibuka — persis serah terima
+firmware yang `ps2::init()` cegah — uji itu gagal dengan `no key press arrived from
+the PS/2 controller`, dan keyboard memang tuli sepanjang boot. Uji kehilangan masukan juga: dengan
 `sys_console_read` kembali menyerahkan byte tanpa melaporkan yang hilang, uji itu
 gagal dengan `read after an overflow gave Ok(32), expected DataLoss`.
 

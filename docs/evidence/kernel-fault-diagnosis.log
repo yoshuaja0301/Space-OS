@@ -3,12 +3,12 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 74 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x7d778000, entry 0xffffffff80110f10
+spaceboot: kernel 3 segments, 280 KiB at phys 0x7d767000, entry 0xffffffff80110180
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 976896 bytes, cmdline 15 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 38 memory regions, initrd 976896 bytes, cmdline 15 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] frames: 2095086 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
@@ -57,10 +57,10 @@ spacekernel 0.1.0: Space OS kernel booting
 
 !!! CPU EXCEPTION IN KERNEL MODE: page fault !!!
   vector=14 (page fault) error=0x0 cr2=0xfffff000dead0000
-  rip=0xffffffff80105017 cs=0x8 rflags=0x46 rsp=0xffffa0000000ff10 ss=0x10
+  rip=0xffffffff8010b0e7 cs=0x8 rflags=0x46 rsp=0xffffa0000000ff10 ss=0x10
   rax=0xfffff000dead0000 rbx=0x0000000000000046 rcx=0x000000000000023f rdx=0x0000000000001200
-  rsi=0x000000000000000a rdi=0x0000000000000024 rbp=0xffffa0000000ff40 r8 =0xffff8000802d07c4
-  r9 =0xffffffff80126491 r10=0x0000000000000000 r11=0x0000000000000500 r12=0x0000000000000046
+  rsi=0x000000000000000a rdi=0x0000000000000000 rbp=0xffffa0000000ff40 r8 =0x0000000000000024
+  r9 =0x00000000000008f7 r10=0x0000000000000100 r11=0x0000000000000500 r12=0x0000000000000046
   r13=0x0000000001000000 r14=0x0000000000000001 r15=0x8000000000000000
 
 !!! KERNEL PANIC !!!
@@ -68,9 +68,9 @@ at kernel/src/arch/x86_64/trap.rs:190:5
 message: unhandled kernel-mode page fault (vector 14)
 current: idle
 backtrace (frame pointers):
-  #00 0xffffffff80122fec
-  #01 0xffffffff80118b7f
-  #02 0xffffffff80100020
-  #03 0xffffffff80111b0c
-  #04 0xffffffff801133a6
+  #00 0xffffffff8012314c
+  #01 0xffffffff80117b38
+  #02 0xffffffff8010f6f7
+  #03 0xffffffff80110a21
+  #04 0xffffffff80112390
 spacekernel: halted after panic (uptime 0 ms)

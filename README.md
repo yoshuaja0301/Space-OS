@@ -27,7 +27,7 @@ ditulis, dan alasannya ada di sana.
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 53 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 54 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
@@ -62,7 +62,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [shell] input was lost; the line was discarded
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
-[init] ALL TESTS PASSED (53/53, 0 skipped)
+[init] ALL TESTS PASSED (54/54, 0 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 491 ms, 147 context switches)
 ```
 

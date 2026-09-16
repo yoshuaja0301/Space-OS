@@ -677,6 +677,12 @@ fn sys_debug(root: Handle, op: u64) -> Result<usize, Error> {
             }
             Ok(0)
         }
+        debug_op::PS2_INJECT => {
+            // Scan code set 1 make code for the letter the ABI promises.
+            const MAKE_A: u8 = 0x1E;
+            debug_assert_eq!(spaceabi::syscall::PS2_INJECT_CHAR, b'a');
+            if crate::arch::ps2::inject(MAKE_A) { Ok(0) } else { Err(Error::NoSys) }
+        }
         _ => Err(Error::Invalid),
     }
 }

@@ -2,7 +2,7 @@ BdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 287488 bytes, initrd 976896 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x7dbfe000, entry 0xffffffff80110f10
+spaceboot: kernel 3 segments, 280 KiB at phys 0x7dbff000, entry 0xffffffff80110180
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -50,7 +50,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/init': entry=0x423c60, 77 pages mapped, quota 2048 pages
+[kernel] spawn pid 1 'bin/init': entry=0x424380, 77 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/init
 [kernel] entering idle loop; scheduler live
 [init] Space OS init running: pid 1, ABI v0, quota 2048 pages (77 used)
@@ -136,7 +136,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: syscall with a non-canonical user rsp returns normally
 [kernel] spawn pid 14 'bin/fault': entry=0x400a70, 22 pages mapped, quota 128 pages
 [fault] pid 14 performing 'noncanon_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=119
+[fault] syscall with a hostile rsp returned ticks=120
 [kernel] pid 14 'bin/fault' exited with code 0
 [init] PASS K02: syscall with a non-canonical user rsp returns normally
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
@@ -624,9 +624,9 @@ space> [kernel] spawn pid 177 'bin/uiworker': entry=0x400710, 21 pages mapped, q
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
 [kernel] pid 180 'bin/uiworker' exited with code 0
 [shell] worker 'ok' ended: done
-[shell] session: worker done (ok), commands served 16
-[init] session served 19 commands and outlived 4 workers
-[shell] session closed after 20 commands
+[shell] session: worker done (ok), commands served 15
+[init] session served 18 commands and outlived 4 workers
+[shell] session closed after 19 commands
 [kernel] pid 176 'bin/spaceshell' exited with code 0
 [init] PASS U01: session service survives a crashed worker and keeps serving Stop and the file manager
 [init] --- U01: a session cannot exceed the capabilities it was given
@@ -651,6 +651,8 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] PASS U01: a session cannot exceed the capabilities it was given
 [init] --- U01: console input is a capability of its own and never blocks
 [init] PASS U01: console input is a capability of its own and never blocks
+[init] --- U01: a key press reaches user space through IRQ 1 and the decoder
+[init] PASS U01: a key press reaches user space through IRQ 1 and the decoder
 [init] --- U01: input lost to a full buffer is reported before the bytes that survived
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
@@ -707,5 +709,5 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] skipped: L03 a context bundle fits its budget, is reproducible and carries provenance: no disk on this machine
 [init] skipped: P01 packages install only when they authenticate, and a refusal changes nothing: no disk on this machine
 [init] skipped: P01 rollback returns the previous version, and only as far as the history goes: no disk on this machine
-[init] ALL TESTS PASSED (43/43, 10 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 2945 ms, 2257 context switches)
+[init] ALL TESTS PASSED (44/44, 10 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 2924 ms, 2252 context switches)
