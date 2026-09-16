@@ -1547,9 +1547,7 @@ pub extern "C" fn space_main() -> i32 {
         sys::debug(ROOT, debug_op::CONSOLE_FLOOD).map_err(|e| alloc::format!("flood: {e}"))?;
         // The session polls the console every pass; give it several passes.
         sys::sleep_ms(100);
-        s.status()
-            .and_then(|r| r.result())
-            .map_err(|e| alloc::format!("status after lost input: {e}"))?;
+        s.status().and_then(|r| r.result()).map_err(|e| alloc::format!("status after lost input: {e}"))?;
         s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
         let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
         sys::handle_close(shell).ok();
@@ -1636,7 +1634,8 @@ pub extern "C" fn space_main() -> i32 {
             if w[1] != next {
                 return Err(alloc::format!(
                     "surviving bytes are not the flood pattern: {} then {}",
-                    w[0] as char, w[1] as char
+                    w[0] as char,
+                    w[1] as char
                 ));
             }
         }
