@@ -1,11 +1,14 @@
 # Space OS
 
 Sistem operasi AI-native dengan kernel baru yang dibangun dari nol (Rust, x86-64, UEFI).
-Repo ini mengimplementasikan **tahap 1–5** dari roadmap [PRD v0.1](docs/prd/Space_OS_PRD_v0_1.md):
-bootloader UEFI sendiri, microkernel berorientasi capability, user-space dengan syscall/IPC/kuota,
-VirtIO block + FAT32 + ABI file, objek memori bersama + Space Compute ABI v0, dan inferensi model
-native yang cocok dengan baseline yang dipatok — dengan bukti uji otomatis untuk persyaratan
-**K01, K02, K03, D01, C01, A01** di QEMU.
+Repo ini mengimplementasikan **tahap 1–5** dan sebagian **5A** dari roadmap
+[PRD v0.1](docs/prd/Space_OS_PRD_v0_1.md): bootloader UEFI sendiri, microkernel berorientasi
+capability, user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 + ABI file, objek memori
+bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baseline yang dipatok,
+serta layanan Developer Preview (sesi terminal, tool broker, SpaceLink, paket bertanda tangan) —
+dengan bukti uji otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01**
+di QEMU. Tahap 6 dijawab sebatas [studi kelayakannya](docs/gpu-feasibility.md); drivernya belum
+ditulis, dan alasannya ada di sana.
 
 > Status: MVP kernel, bukan produk. Lihat [docs/limitations.md](docs/limitations.md) sebelum
 > menyimpulkan apa pun dari angka di sini.
@@ -16,12 +19,16 @@ native yang cocok dengan baseline yang dipatok — dengan bukti uji otomatis unt
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
 | `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, page table higher-half, memory map, GOP, lompat ke kernel |
-| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, tabel capability, kuota, crash log, PCI + virtio-blk + FAT32 read-only |
+| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, tabel capability, kuota, crash log, PCI + virtio-blk + FAT32 read-only, konsol framebuffer + masukan keyboard/serial |
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!` |
 | `spacecompute` | `user/services/spacecompute` | `x86_64-unknown-none` | Layanan Space Compute ABI v0 di user space, backend CPU |
 | `spaceai` | `user/services/spaceai` | `x86_64-unknown-none` | Runtime AI: memuat SpaceLM v0 dari disk, verifikasi checksum, generate token lewat Compute ABI |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak uji penerimaan K01–K03, D01, C01 |
-| `xtask` | `xtask` | host | `cargo xtask build/run/test/soak/ci`: image FAT (MBR+ESP), QEMU + OVMF, verifikasi log dan exit code |
+| `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
+| `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
+| `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03) |
+| `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 53 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 |
+| `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
 
@@ -29,8 +36,10 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
-cargo xtask test                           # build semua target, buat image, 4 skenario boot di QEMU
-cargo xtask run                            # boot interaktif, serial di terminal (Ctrl-A X keluar)
+cargo xtask test                           # build semua target, buat image, 9 skenario boot di QEMU
+cargo xtask compat                         # image yang sama di 9 konfigurasi mesin (ADR-0010)
+cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
+cargo xtask run --cmdline "init=bin/spaceterm"   # boot ke sesi yang bisa diketik: help, status, ls, run, stop, quit
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
 ```
 
@@ -49,7 +58,10 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [ai] model verified: sha256 a1955def6c7b4e8e...
 [ai] generated 128 tokens offline, all matching the pinned baseline
-[init] ALL TESTS PASSED (38/38)
+[kernel] console input: 8 byte(s) dropped, the buffer was full
+[shell] input was lost; the line was discarded
+[init] PASS U01: input lost to a full buffer is reported before the bytes that survived
+[init] ALL TESTS PASSED (53/53, 0 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 491 ms, 147 context switches)
 ```
 
@@ -62,6 +74,7 @@ spacekernel 0.1.0: Space OS kernel booting
 - [docs/build.md](docs/build.md) — prasyarat dan perintah.
 - [docs/limitations.md](docs/limitations.md) — batas yang diketahui.
 - [docs/roadmap.md](docs/roadmap.md) — tahap PRD vs kondisi repo, backlog berikutnya.
+- [docs/gpu-feasibility.md](docs/gpu-feasibility.md) — studi kelayakan akselerator (tahap 6): apa yang sudah siap, apa yang menghalangi, dan kenapa drivernya belum ditulis.
 
 ## Lisensi
 
