@@ -1,0 +1,67 @@
+BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/Pci(0x3,0x0): Not Found
+BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+spaceboot 0.1.0: Space OS UEFI bootloader
+spaceboot: kernel 295680 bytes, initrd 1013760 bytes, config 73 bytes
+spaceboot: kernel 3 segments, 288 KiB at phys 0x7d75a000, entry 0xffffffff80100000
+spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
+spaceboot: exiting boot services and jumping to kernel
+
+spacekernel 0.1.0: Space OS kernel booting
+[kernel] boot info ok: 38 memory regions, initrd 1013760 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
+[kernel] idt loaded (256 vectors)
+[kernel] frames: 2095075 usable (8183 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 1 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
+[kernel] heap: 16 MiB at 0xffff900000000000
+[kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
+[kernel] mmio window: 1024 MiB at 0xffffb00000000000
+[kernel] memory: 8183 MiB usable, 8167 MiB free after kernel init
+[kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
+[kernel] framebuffer: 1280x800 (BGRX), text console 182x50
+[kernel] cmdline: "selftest=panic"
+[kernel] initrd: 1013760 bytes, 22 files
+[kernel]   bin/init (275384 bytes)
+[kernel]   bin/hello (21064 bytes)
+[kernel]   bin/fault (25168 bytes)
+[kernel]   bin/abi_negative (53912 bytes)
+[kernel]   bin/ipc_echo (21064 bytes)
+[kernel]   bin/quota (25160 bytes)
+[kernel]   bin/spin (21064 bytes)
+[kernel]   bin/worker (29296 bytes)
+[kernel]   bin/blocker (25176 bytes)
+[kernel]   bin/spacecompute (49912 bytes)
+[kernel]   bin/spaceai (74544 bytes)
+[kernel]   bin/spaceshell (45744 bytes)
+[kernel]   bin/uiworker (21064 bytes)
+[kernel]   bin/spacebroker (53936 bytes)
+[kernel]   bin/spaceagent (45776 bytes)
+[kernel]   bin/spacelink (58032 bytes)
+[kernel]   bin/spacepkg (49792 bytes)
+[kernel]   bin/spaceterm (33464 bytes)
+[kernel]   fixtures/bad_entry (21064 bytes)
+[kernel]   fixtures/bad_magic (21064 bytes)
+[kernel]   fixtures/truncated (600 bytes)
+[kernel]   fixtures/huge_segment (21064 bytes)
+[kernel] pci: 7 functions present
+[kernel] virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+[kernel] virtio-blk: ready, 64 MiB (131072 sectors)
+[kernel] vfs: FAT32 mounted from virtio-blk (512 byte clusters, 64 MiB volume)
+[kernel] vfs: volume is writable
+[kernel] pic remapped to vectors 32..47
+[kernel] console input: keyboard (IRQ1); no COM2 UART
+[kernel] pit: 1000 Hz (divisor 1193)
+[kernel] syscall/sysret enabled (ABI v0)
+[kernel] scheduler: 1000 Hz tick, 10 ms quantum
+[kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
+
+!!! KERNEL PANIC !!!
+at kernel/src/selftest.rs:152:26
+message: deliberate kernel panic (cmdline selftest=panic)
+current: idle
+backtrace (frame pointers):
+  #00 0xffffffff80124dac
+  #01 0xffffffff8010ce13
+  #02 0xffffffff80100c1a
+  #03 0xffffffff80103649
+spacekernel: halted after panic (uptime 0 ms)

@@ -1,0 +1,16 @@
+[package]
+name = "worker"
+description = "Test: short-lived worker used for reclamation cycles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "worker"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "spaceterm"
+description = "Interactive front end: boots straight into a spaceshell session on the console (U01)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spaceterm"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

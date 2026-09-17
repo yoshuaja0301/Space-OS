@@ -1,0 +1,21 @@
+soak: 100/100 consecutive cold boots passed; per boot min 14.3s mean 15.1s max 18.0s; total 1510s
+
+Build: commit 6980fe9 (tahap 1-5 lengkap + layanan 5A + penyimpanan yang bisa ditulis).
+Setiap boot menjalankan acceptance run penuh, jadi 100 kali berturut-turut: virtio-blk
+siap, FAT32 ter-mount, model diverifikasi SHA-256 dari disk, 128 token inferensi cocok
+dengan baseline, sesi bertahan melewati empat worker, dan 59 uji lulus. Diperiksa ulang
+satu per satu: kesembilan puluh sembilan log lain juga memuat "ALL TESTS PASSED (59/59,
+0 skipped)" -- tidak ada boot yang lulus dengan uji yang dilewati.
+
+Penghitung persistensi naik tanpa putus dari boot pertama sampai terakhir:
+
+  boot-001: persistence: first boot on this volume, wrote generation 1
+  boot-002: persistence: generation 1 survived the reboot, wrote 2
+  ...
+  boot-100: persistence: generation 99 survived the reboot, wrote 100
+
+Itu 99 bukti berturut-turut bahwa yang ditulis satu boot ditemukan lagi oleh boot
+berikutnya. Skenario `storage-reboot` hanya menuntut satu; soak ini memberi 99, dan
+tidak ada satu pun yang putus -- artinya jalur tulis FAT32 (alokasi cluster, pembaruan
+setiap salinan FAT, entri direktori, flush) tidak pernah meninggalkan volume dalam
+keadaan yang tidak bisa dibaca boot berikutnya.

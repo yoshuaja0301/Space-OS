@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "abi/spaceabi",
+    "boot/spaceboot",
+    "kernel",
+    "user/libspace",
+    "user/init",
+    "user/tests/hello",
+    "user/tests/fault",
+    "user/services/spaceai",
+    "user/services/spacecompute",
+    "user/tests/abi_negative",
+    "user/tests/blocker",
+    "user/tests/ipc_echo",
+    "user/tests/quota",
+    "user/tests/spin",
+    "user/tests/worker",
+    "user/tests/uiworker",
+    "user/services/spaceshell",
+    "user/services/spacebroker",
+    "user/services/spaceagent",
+    "user/services/spacelink",
+    "user/services/spacepkg",
+    "user/services/spaceterm",
+    "xtask",
+]
+# Plain `cargo build` at the root only builds the host-side xtask.
+# Everything else is cross-compiled by `cargo xtask build` (see xtask/).
+default-members = ["xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/yoshuaja0301/Space-OS"
+
+[workspace.dependencies]
+spaceabi = { path = "abi/spaceabi" }
+libspace = { path = "user/libspace" }
+x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
+uefi = { version = "0.35.0", features = ["alloc", "global_allocator", "logger", "panic_handler"] }
+linked_list_allocator = { version = "0.10.6", default-features = false }
+noto-sans-mono-bitmap = { version = "0.3.2", default-features = false, features = ["regular", "size_16", "unicode-basic-latin"] }
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+debug = true
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+debug = true
+codegen-units = 4
