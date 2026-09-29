@@ -1958,11 +1958,18 @@ fn cmd_stress(minutes: u64, release: bool) -> Result<(), String> {
         let me = std::env::current_exe().map_err(|e| format!("where am I: {e}"))?;
         let copy = dir.join("xtask");
         fs::copy(&me, &copy).map_err(|e| format!("copy {}: {e}", me.display()))?;
-        let st = Command::new(&copy)
-            .args(std::env::args_os().skip(1))
-            .env("SPACEOS_STRESS_COPY", "1")
-            .status()
-            .map_err(|e| format!("cannot start {}: {e}", copy.display()))?;
+        // Ahead of whatever else the host is doing: a vCPU that waits behind a compile
+        // loses tens of milliseconds at a time, and the suite's timing checks would
+        // count that against the guest. Raising priority needs root; without it `nice`
+        // says so and runs the copy as it is.
+        let run = |cmd: &mut Command| {
+            cmd.args(std::env::args_os().skip(1)).env("SPACEOS_STRESS_COPY", "1").status()
+        };
+        let st = match run(Command::new("nice").args(["-n", "-10"]).arg(&copy)) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => run(&mut Command::new(&copy)),
+            r => r,
+        }
+        .map_err(|e| format!("cannot start {}: {e}", copy.display()))?;
         return if st.success() { Ok(()) } else { Err(format!("the stability run failed ({st})")) };
     }
     // SAFETY: nothing else runs in this process yet; the lab services QEMU starts

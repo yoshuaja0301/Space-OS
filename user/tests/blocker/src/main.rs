@@ -44,13 +44,13 @@ pub extern "C" fn space_main() -> i32 {
             return 6;
         }
         // The parent is about to sleep in wait_any on its network lease. Transmit
-        // the frame it handed over 150 ms from now, so the answer arrives while the
+        // the frame it handed over 300 ms from now, so the answer arrives while the
         // parent is blocked, then report when the frame left.
         "net_send_later" => {
             let nic = passed.expect("network lease");
             let mut frame = [0u8; 64];
             let (n, _) = sys::recv(handle::BOOTSTRAP, &mut frame, false).expect("frame from parent");
-            sys::sleep_ms(150);
+            sys::sleep_ms(300);
             let sent_at = sys::ticks_ms();
             if let Err(e) = sys::net_send(nic, &frame[..n]) {
                 println!("[blocker] net_send: {e}");

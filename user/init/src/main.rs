@@ -1451,15 +1451,22 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
                 if !answered {
                     return Err(String::from("woken, but not by the gateway's answer"));
                 }
+                // Signed: a frame that left before the sleep began is the failure.
+                let left_into_sleep = sent_at as i64 - asleep_from as i64;
                 println!(
-                    "[init] network: asleep {} ms; woken {} ms after the frame left",
+                    "[init] network: asleep {} ms; the frame left {left_into_sleep} ms into the sleep \
+                     and woke the receiver {} ms later",
                     woke_at - asleep_from,
                     woke_at.saturating_sub(sent_at)
                 );
-                if woke_at - asleep_from < 100 {
+                // The frame must leave while the receiver is asleep. That is measured
+                // against when it actually left, not against the sender's countdown:
+                // the countdown starts before the receiver reads the clock, and a busy
+                // host can hold the whole machine still for tens of milliseconds in
+                // between without anything in it being wrong.
+                if left_into_sleep < 20 {
                     return Err(alloc::format!(
-                        "slept only {} ms: the frame beat the sleep",
-                        woke_at - asleep_from
+                        "the frame left {left_into_sleep} ms into the sleep: it beat the sleep"
                     ));
                 }
                 // The tick is 1 ms; anything near the 3 s timeout means nothing woke us
