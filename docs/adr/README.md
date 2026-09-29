@@ -19,3 +19,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0013](0013-spacelink-index-revocation-bundle.md) | SpaceLink: indeks, revokasi, dan context bundle | Diterima |
 | [0014](0014-package-format-and-rollback.md) | Format paket, autentikasi HMAC, dan rollback | Diterima |
 | [0015](0015-writable-storage.md) | Penyimpanan yang bisa ditulis: hak terpisah, FAT32 tulis, durabilitas | Diterima |
+| [0016](0016-network-stack.md) | Jaringan: kernel memindahkan frame, TCP/IP di user space, tujuan sebagai kapabilitas | Diterima |

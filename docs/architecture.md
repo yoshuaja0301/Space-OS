@@ -1,6 +1,6 @@
-# Arsitektur yang diimplementasikan (tahap 1–5 dan sebagian 5A)
+# Arsitektur yang diimplementasikan (tahap 1–5, jaringan tahap 3, dan sebagian 5A)
 
-Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
+Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
 
 ```
 UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──► bin/init (user/init) ──► program uji (user/tests/*)
@@ -32,6 +32,29 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 ## Penyimpanan (tahap 3)
 
 `pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan **dan penulisan** dengan polling berbatas (`VIRTIO_BLK_F_FLUSH` dinegosiasikan bila ditawarkan, `VIRTIO_BLK_F_RO` dicatat sehingga tulisan ditolak di depan); register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca dan menulis volume FAT32 dari perangkat itu, `SYS_FS_OPEN/READ/STAT` memberi user space akses baca berbasis capability, dan `SYS_FS_CREATE/WRITE` akses tulis di balik hak root `FS_WRITE` yang terpisah (ADR-0015). Hanya disk data yang terjangkau: ESP tempat firmware boot bukan perangkat virtio.
+
+## Jaringan (tahap 3, ADR-0016)
+
+```
+program ──sesi (allowlist)──► bin/spacenet ──SYS_NET_SEND/RECV──► virtio_net (kernel) ──► kartu
+   ▲                            DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP
+   └──── satu channel per koneksi TCP ────┘
+```
+
+Kernel hanya memindahkan frame Ethernet. `virtio_net` memakai transport virtio yang
+sama dengan `virtio_blk` (`dev/virtio.rs`), polling, dengan 32 buffer terima dan 32
+buffer kirim; INTx dimatikan dan tick timer yang membangunkan penunggu saat ring
+terima berisi. Kartu diwakili objek kernel **lease** yang hanya bisa dipegang satu
+proses (`SYS_NET_OPEN` di balik hak root `NET`). `SYS_WAIT_ANY` menunggu channel,
+proses, dan lease sekaligus, dengan batas waktu.
+
+`bin/spacenet` adalah satu-satunya pemegang lease dan satu-satunya yang berbicara
+TCP/IP. Operatornya (siapa pun yang menjalankannya — di uji, `init`) menyerahkan
+lease, menunjuk server DNS, lalu membuat sesi dengan allowlist `host:port`. Program
+yang memegang sesi bisa `HELLO`, `RESOLVE`, `CONNECT`, dan `STATS`; tujuan di luar
+allowlist ditolak sebelum pencarian DNS atau paket apa pun. Setiap koneksi adalah
+channel sendiri yang dibawa `CONNECT`; `libspace::net` membungkusnya sebagai
+`Session` dan `TcpStream`.
 
 ## Komputasi (tahap 4)
 
@@ -89,11 +112,12 @@ acceptance run, `init=bin/spaceterm` untuk sesi interaktif dari image yang sama.
 - **Channel/Endpoint**: dua sisi, antrean pesan terbatas, wait queue penerima, penutupan sisi membangunkan peer.
 - **File**: berkas terbuka pada volume FAT32 (hak `READ`).
 - **Memory**: frame bersama yang dapat dipetakan beberapa proses (hak `READ|WRITE|MAP`).
+- **Nic**: lease atas kartu jaringan (hak `READ` menerima, `WRITE` mengirim); hanya ada satu, dan lepas saat handle terakhirnya ditutup.
 - **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection, akses berkas). Setiap layanan menerima turunan yang **sudah dipersempit**: `spaceshell` hanya `SPAWN|FS`, `spacebroker`/`spacelink`/`spacepkg` hanya `FS`, `spaceagent` tidak menerima root sama sekali.
 
 ## Scheduler
 
-Round-robin preemptif, tick 1 ms, kuantum 10 ms, satu CPU. Thread yang mati direklamasi oleh thread yang berjalan berikutnya (`finish_switch`), sehingga stack kernel tidak dibebaskan oleh pemiliknya sendiri. Semua blocking (`recv`, `wait`, `sleep`) mendaftar ke wait queue/sleepers dengan interrupt mati sebelum `schedule()` agar wake-up tidak hilang.
+Round-robin preemptif, tick 1 ms, kuantum 10 ms, satu CPU. Thread yang mati direklamasi oleh thread yang berjalan berikutnya (`finish_switch`), sehingga stack kernel tidak dibebaskan oleh pemiliknya sendiri. Semua blocking (`recv`, `wait`, `sleep`, `wait_any`) mendaftar ke wait queue/sleepers dengan interrupt mati sebelum `schedule()` agar wake-up tidak hilang; `wait_any` mendaftar ke setiap antrean yang ditunggunya sekaligus dan keluar dari semuanya, apa pun yang membangunkannya.
 
 ## Terminasi dan diagnosis
 

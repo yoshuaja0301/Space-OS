@@ -12,6 +12,8 @@
 //! * [`handle`]  – capability handle type and rights bits.
 //! * [`elf`]     – a minimal ELF64 program-header parser shared by the bootloader
 //!   (kernel image) and the kernel (user programs).
+//! * [`net`]     – the network service contract (sessions, allowlists, sockets);
+//!   [`dns`] is the resolver's message codec.
 //!
 //! It is `no_std`, allocation free, and must stay `#[repr(C)]`-stable: changing a
 //! layout here means bumping [`ABI_VERSION`] (see docs/adr/0004-syscall-abi-v0.md).
@@ -22,6 +24,7 @@
 pub mod agent;
 pub mod boot;
 pub mod compute;
+pub mod dns;
 pub mod elf;
 pub mod error;
 pub mod handle;
@@ -29,6 +32,7 @@ pub mod hmac;
 pub mod link;
 pub mod math;
 pub mod model;
+pub mod net;
 pub mod pkg;
 pub mod sha256;
 pub mod shell;

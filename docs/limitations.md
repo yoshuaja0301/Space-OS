@@ -1,4 +1,4 @@
-# Keterbatasan dan batas yang diketahui (milestone tahap 1–5)
+# Keterbatasan dan batas yang diketahui (milestone tahap 1–5, jaringan tahap 3)
 
 Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti tidak ada kode, bukan "hampir".
 
@@ -8,7 +8,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - **Satu thread per proses**; tidak ada `thread_create`.
 - **Pesan IPC ≤ 256 byte + 1 handle**; data besar memakai memory object (`VMO_CREATE`/`VMO_MAP`, tahap 4). Belum ada `VMO_UNMAP` khusus: pemetaan dilepas lewat `mem_unmap` dengan alamat dan panjang yang sama.
 - **Memory object tidak dapat diperbesar, dipotong, atau dipetakan sebagian**; satu objek dipetakan utuh pada alamat yang dipilih kernel.
-- **Tidak ada timeout** pada `recv`/`wait`; `send` tidak pernah memblokir (antrean 64 → `WouldBlock`).
+- `recv`/`wait` sendiri tidak punya timeout; yang punya adalah `SYS_WAIT_ANY` (maksimum 32 handle: channel, proses, lease jaringan), setelah itu `recv` non-blocking. `send` tidak pernah memblokir (antrean 64 → `WouldBlock`), dan belum ada cara **menunggu antrean peer punya ruang** — pengirim yang menemukan antrean penuh harus mencoba lagi (`spacenet` mundur 2 → 64 ms).
 - **Stack user tetap 64 KiB**, dipetakan penuh saat spawn; tidak ada demand paging atau pertumbuhan stack.
 - **Heap kernel tetap 16 MiB**; kehabisan heap = panic (alloc error), bukan penolakan bertahap.
 - **Kuota menghitung halaman user saja**; frame page-table dan objek kernel (thread, channel) belum dibebankan ke proses. Headroom heap kernel dan `try_reserve` mengubah kehabisan heap menjadi error syscall (`NoMemory`), tetapi satu proses masih dapat menghabiskan headroom bersama (ancaman PRD §5 "resource exhaustion" baru ditutup sebagian).
@@ -48,7 +48,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Sesi dan antarmuka
 
 - `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
-- Loop sesi memakai polling 2 ms karena belum ada `select`, `recv` bertimeout, atau notifikasi exit lewat channel. Itu kompromi yang disengaja (ADR-0011), bukan desain akhir.
+- Loop sesi memakai polling 2 ms. Waktu ADR-0011 ditulis belum ada multi-wait; sekarang ada (`SYS_WAIT_ANY`, ADR-0016), tetapi `spaceshell` belum dipindahkan ke sana.
 - Masukan konsol datang dari keyboard PS/2 (scan code set 1, tata letak US, hanya tombol yang dibutuhkan baris perintah) dan COM2. Tombol extended (`0xE0`) diabaikan kecuali Enter dan `/` pada keypad — termasuk shift palsu yang menyertai tombol panah, yang kalau didekode akan membuat keyboard tersangkut huruf besar.
 - Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
 - Belum ada window manager, GUI, font selain 8x16 bawaan, atau grafik selain teks di framebuffer. "Desktop" berarti konsol teks.
@@ -59,7 +59,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Agent dan Tool Broker
 
-- Tambalan agent mendarat di **overlay dalam memori** (4 berkas, 8 KiB per berkas) karena volume ter-mount read-only; tidak bertahan melewati reboot.
+- Tambalan agent mendarat di volume (ADR-0015) lewat broker, hanya di dalam workspace; berkas dibatasi 8 KiB, dan tulisan tidak berjurnal (lihat Penyimpanan).
 - "Menguji" berarti satu check bawaan (`verify`) yang membandingkan hasil dengan berkas harapan. Belum ada runner uji umum — menjalankan proses atas nama agent berarti memberi broker hak `SPAWN`, dan itu belum dilakukan.
 - Satu agent per broker; broker melayani agent sampai selesai sebelum menjawab operator lagi.
 - Audit log dibatasi 64 entri dan hanya ada di memori: panggilan setelah itu tetap dilayani dan dihitung, tetapi tidak dicatat, dan seluruh log hilang saat broker keluar.
@@ -69,7 +69,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 - Peringkat **leksikal**: jumlah kemunculan istilah kueri per chunk, seri dipecah oleh posisi. Tidak ada embedding, TF-IDF, stemming, atau tokenizer.
 - Batas keras: 16 dokumen, 128 chunk, 8 KiB per dokumen, 192 byte per chunk, 8 entri per bundle.
-- Indeks **dan** daftar revokasi hanya ada di memori layanan; keduanya hilang saat layanan keluar. Revokasi yang bertahan melewati reboot memerlukan penyimpanan yang bisa ditulis.
+- Indeks hanya ada di memori layanan dan dibangun ulang saat layanan mulai; **daftar revokasi ada di disk** (`/spaceos/var/revoked.txt`, ADR-0015) dan bertahan melewati matinya layanan maupun reboot.
 - Kueri memindai seluruh chunk secara linear; belum ada indeks terbalik.
 - Satu hasil per panggilan (dengan `total`), jadi menelusuri N hasil butuh N round trip; teks per balasan dipotong 128 byte (batas pesan IPC).
 - Repo SpaceLink dari PRD §10 tidak tersedia di lingkungan ini; yang diimplementasikan adalah kontrak L01–L03, bukan mesin retrieval SpaceLink yang dimaksud PRD.
@@ -77,7 +77,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Paket
 
 - Autentikasi memakai **HMAC-SHA256**, bukan tanda tangan kunci publik, dan **kunci rilis ada di dalam image**. Siapa pun yang bisa membaca image bisa membuat paket yang sah; yang diberikan adalah integritas terhadap pihak tanpa kunci, bukan distribusi tepercaya (ADR-0014).
-- Store paket ada di **memori**; instalasi tidak bertahan melewati reboot.
+- Store paket ada di disk (`/spaceos/var/pkgstore.dat`, ADR-0015), ditulis utuh setelah setiap install dan rollback, tanpa jurnal: kehilangan daya di tengah tulisan bisa merusaknya, dan store yang rusak dibaca sebagai "tidak ada store".
 - Riwayat rollback dibatasi 4 versi; yang tertua dibuang saat penuh.
 - Payload maksimum 64 KiB dan paket tidak punya struktur internal (bukan arsip): "memasang" berarti menyimpan payload terverifikasi, bukan membongkar berkas.
 - Tidak ada dependensi antar paket, batas versi minimum, hook pra/pasca instalasi, atau rotasi kunci.
@@ -85,12 +85,23 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Kompatibilitas
 
 - Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
-- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), dan filesystem selain FAT32 read-only.
+- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
+
+## Jaringan
+
+- Driver virtio-net ada **di dalam kernel** dan hanya memindahkan frame; TCP/IP ada di satu proses user space (`spacenet`, smoltcp — pustaka yang di-port, ADR-0016). Satu kartu, satu lease: pemegang lease adalah satu-satunya yang bisa memakai jaringan.
+- Polling pada tick 1 ms, tanpa interupsi dan tanpa MSI-X: latensi menerima hingga satu tick, dan throughput terbatas oleh 32 buffer penerima dan satu frame per syscall.
+- **IPv4 saja**; tidak ada IPv6. Klien TCP saja: tidak ada socket yang mendengarkan, tidak ada UDP untuk program lain. DNS hanya lewat TCP, tanpa cache; DNS lewat UDP belum ada.
+- smoltcp membatasi permintaan ARP **satu per detik untuk seluruh antarmuka**: koneksi pertama ke host yang belum dikenal bisa tertunda hingga satu detik bila host lain baru dicari.
+- TIME-WAIT dipersingkat menjadi 250 ms (bukan 2 MSL) agar socket yang menutup tidak menahan buffer 16 KiB berdetik-detik; FIN yang diulang peer setelah itu dijawab RST.
+- Batas: 8 sesi, 8 allowlist entri per sesi, 8 koneksi (4 per sesi), pesan data 255 byte. Keadilan antar-sesi hanya sebatas batas per sesi itu.
+- Jaringan lab tertutup (QEMU `restrict=on`): DHCP-nya tidak memberi router maupun DNS, dan semua layanan uji dibuat `xtask lab`. **Tidak ada uji terhadap internet.** Perpanjangan sewa DHCP (sewa QEMU 24 jam) belum teruji.
+- **Tanpa TLS.** Apa pun yang melewati jaringan ini bisa dibaca dan diubah di jalan; itulah sebabnya I01 belum diklaim.
 
 ## Belum ada (tahap berikutnya)
 
-- VirtIO net/input/display, jaringan (sisa tahap 3).
+- VirtIO input/display di luar keyboard PS/2, COM2 dan konsol teks (sisa tahap 3); TLS.
 - Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud I01 (5A).
 - GPU, ARM64 (6–7).
 

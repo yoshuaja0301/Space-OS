@@ -1,10 +1,10 @@
-# Bukti uji (sesi verifikasi 2026-09-16)
+# Bukti uji (sesi verifikasi 2026-09-16; jaringan dan acceptance diperbarui 2026-09-29)
 
 Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boots 100`, dibersihkan dari escape ANSI OVMF. Semua berasal dari profil ADR-0003 (QEMU TCG); bukan performa perangkat fisik.
 
 | File | Skenario | Hasil |
 |---|---|---|
-| `acceptance.log` | boot normal, `init` menjalankan 59 uji K01–K03, D01, C01, A01, U01, G01, L01–L03 dan P01 | `ALL TESTS PASSED (59/59, 0 skipped)`, exit QEMU 33; termasuk 128 token inferensi yang cocok dengan baseline, sesi yang bertahan melewati empat worker, agent yang tidak bisa keluar workspace, context bundle yang diverifikasi provenance-nya, dan paket yang ditolak dengan alasannya masing-masing. Volume data ditulis dan dibaca ulang byte demi byte, dan store paket, daftar revokasi serta tambalan agent semuanya mendarat di disk. Controller PS/2 juga disuruh menekan satu tombol sendiri, jadi IRQ 1 terbukti hidup tanpa ada orang di depan mesin. Ring masukan konsol diluapkan dengan sengaja di bawah sesi yang hidup: `console input: 8 byte(s) dropped` lalu `[shell] input was lost; the line was discarded` |
+| `acceptance.log` | boot normal, `init` menjalankan 82 uji K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 dan jaringan (`NET`) | `ALL TESTS PASSED (82/82, 0 skipped)`, exit QEMU 33; termasuk 128 token inferensi yang cocok dengan baseline, sesi yang bertahan melewati empat worker, agent yang tidak bisa keluar workspace, context bundle yang diverifikasi provenance-nya, dan paket yang ditolak dengan alasannya masing-masing. Volume data ditulis dan dibaca ulang byte demi byte, dan store paket, daftar revokasi serta tambalan agent semuanya mendarat di disk. Controller PS/2 juga disuruh menekan satu tombol sendiri, jadi IRQ 1 terbukti hidup tanpa ada orang di depan mesin. Ring masukan konsol diluapkan dengan sengaja di bawah sesi yang hidup: `console input: 8 byte(s) dropped` lalu `[shell] input was lost; the line was discarded` |
 | `panic-diagnosis.log` | `selftest=panic` | pesan panic + lokasi + backtrace, exit 127 |
 | `kernel-fault-diagnosis.log` | `selftest=kfault` | dump register page fault ring 0 (`cr2=0xfffff000dead0000`) lalu panic, exit 127 |
 | `kernel-stack-overflow-diagnosis.log` | `selftest=stack` | double fault dari guard page kernel stack (stack IST), exit 127 |
@@ -13,8 +13,9 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 | `terminal.log` | sesi interaktif dikendalikan dari **keyboard** (monitor QEMU `sendkey`; mesin ini tidak punya COM2) | tiap perintah yang diketik dijawab, `stop` menghentikan worker yang macet, `quit` menutup sesi; exit 33 |
 | `terminal-serial.log` | sesi yang sama lewat **konsol serial** COM2 (pty) | sama, dengan `console input: keyboard (IRQ1) and COM2 serial (IRQ3)` |
 | `storage-reboot-boot1.log`, `storage-reboot-boot2.log` | image yang sama di-boot dua kali (D01 setelah reboot) | virtio-blk siap, FAT32 ter-mount, checksum model cocok pada kedua boot, dan boot kedua **menemukan penghitung yang ditinggalkan boot pertama** (`persistence: generation N survived the reboot`) |
-| `compat-summary.txt` | `cargo xtask compat`: sembilan konfigurasi mesin (ADR-0010) | semuanya boot dan lulus; image yang sama untuk semua |
-| `compat-no-disk.log` | mesin tanpa perangkat blok | `virtio-blk: no device present`, uji berbasis disk dilewati, `ALL TESTS PASSED (44/44, 15 skipped)` |
+| `compat-summary.txt` | `cargo xtask compat`: sepuluh konfigurasi mesin (ADR-0010) | semuanya boot dan lulus; image yang sama untuk semua, dengan kartu jaringan dan ringkasan TCP-nya per mesin |
+| `network-summary.txt` | jaringan (ADR-0016): driver, 15 uji `NET`, layanan `spacenet`, layanan lab, dan pemeriksaan pcap dari skenario acceptance | lease, ARP/ICMP, bangun saat tidur, DHCP, DNS, 64 KiB TCP utuh, 4 penolakan dengan 0 frame terkirim, timeout, `Refused`, `Reset`, 20 koneksi tanpa kebocoran, layanan dibunuh lalu dijalankan ulang; di kabel: setiap FIN peer di-ACK, 0 segmen dikirim ulang |
+| `compat-no-disk.log` | mesin tanpa perangkat blok | `virtio-blk: no device present`, uji berbasis disk dilewati, `ALL TESTS PASSED (67/67, 15 skipped)`; uji jaringan tetap jalan karena kartunya ada |
 | `compat-virtio-small-queue.log` | virtio-blk dengan `queue-size=4` | antrean hasil negosiasi 4 deskriptor, 2 halaman data per permintaan, FAT32 tetap ter-mount |
 | `soak-summary.txt` | 100 cold boot skenario acceptance pada build lengkap tahap 5 (K01) | lihat isi file; setiap boot memuat model dari disk, memverifikasi checksum, dan menghasilkan 128 token |
 

@@ -8,8 +8,12 @@
 //!   clippy | fmt | fmt-check | ci
 //!
 //! Environment: `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS` override firmware discovery,
-//! `SPACEOS_QEMU` overrides the QEMU binary.
+//! `SPACEOS_QEMU` overrides the QEMU binary, `SPACEOS_PCAP=<file>` records every
+//! frame on the guest's network during `run` (test runs always record, next to the
+//! serial log).
 
+mod lab;
+mod pcap;
 mod reference;
 
 use std::fs;
@@ -37,6 +41,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spacelink",
     "spacepkg",
     "spaceterm",
+    "spacenet",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -515,6 +520,36 @@ struct QemuRun {
     /// harness that could not type is not a guest that stopped answering, and
     /// reporting the first as the second sends the reader looking in the wrong place.
     input_error: Option<String>,
+    /// The guest's TCP as captured on the lab network, for machines with a card.
+    tcp: Option<Result<pcap::TcpReport, String>>,
+}
+
+/// The guest's address on the lab network (QEMU's DHCP gives the first guest this).
+const GUEST_IP: [u8; 4] = [10, 0, 2, 15];
+
+/// What the capture says went wrong with the guest's TCP, if anything.
+fn tcp_problems(run: &QemuRun) -> Vec<String> {
+    match &run.tcp {
+        None => Vec::new(),
+        Some(Err(e)) => vec![format!("the network capture could not be read: {e}")],
+        Some(Ok(r)) if !r.unacked_fins.is_empty() => vec![format!(
+            "the guest never acknowledged the FIN of {} connection(s), leaving the peer retransmitting: {}",
+            r.unacked_fins.len(),
+            r.unacked_fins.join(", ")
+        )],
+        Some(Ok(_)) => Vec::new(),
+    }
+}
+
+/// One line about the guest's TCP for a passing run, or nothing if it used none.
+fn tcp_summary(run: &QemuRun) -> String {
+    match &run.tcp {
+        Some(Ok(r)) if r.connections > 0 => format!(
+            "; tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again",
+            r.connections, r.closed_cleanly, r.reset, r.peer_retransmits
+        ),
+        _ => String::new(),
+    }
 }
 
 /// A machine the image is expected to boot on. The first entry is the pinned lab
@@ -530,7 +565,9 @@ struct Machine {
     /// `-device` string for the block controller, empty for a machine with no disk.
     block_device: &'static str,
     /// `-device` string for the network card, empty for a machine with none. The
-    /// card is always attached to a restricted user-mode network (see `NETDEV`).
+    /// card is always attached to the restricted lab network ([`lab::netdev`]): the
+    /// virtual gateway, and the lab services through explicit forwarding rules --
+    /// no other host service, no internet.
     net_device: &'static str,
     /// Appended verbatim (display and other knobs).
     extra: &'static [&'static str],
@@ -553,11 +590,6 @@ const LAB: Machine = Machine {
 /// The network card most machines get: modern-only virtio-net with no option ROM
 /// (the firmware's own driver is enough, and nothing here boots from the network).
 const VIRTIO_NET: &str = "virtio-net-pci,netdev=spacenet,disable-legacy=on,romfile=";
-
-/// QEMU user-mode networking with `restrict=on`: the guest can reach the virtual
-/// gateway and nothing else -- no host services, no internet. Tests that need a
-/// host endpoint get it through explicit forwarding rules, never through a hole.
-const NETDEV: &str = "user,id=spacenet,restrict=on";
 
 /// Configurations the acceptance run must survive unchanged.
 const MACHINES: &[Machine] = &[
@@ -723,6 +755,7 @@ fn qemu_args(
     serial_path: Option<&Path>,
     typing: Typing,
     monitor: Option<&Path>,
+    pcap: Option<&Path>,
 ) -> Result<Vec<String>, String> {
     let mut a: Vec<String> = vec![
         "-machine".into(),
@@ -753,7 +786,15 @@ fn qemu_args(
     if m.net_device.is_empty() {
         a.extend(["-nic".into(), "none".into()]);
     } else {
-        a.extend(["-netdev".into(), NETDEV.into(), "-device".into(), m.net_device.into()]);
+        a.extend(["-netdev".into(), lab::netdev(), "-device".into(), m.net_device.into()]);
+        // Every frame on the lab network: the harness checks the guest's TCP in it,
+        // and it opens in Wireshark or `tcpdump -r`.
+        if let Some(pcap) = pcap {
+            a.extend([
+                "-object".into(),
+                format!("filter-dump,id=spacedump,netdev=spacenet,file={}", pcap.display()),
+            ]);
+        }
     }
     a.extend([
         "-device".into(),
@@ -830,6 +871,10 @@ fn run_qemu_capture_typing(
     if let Some(path) = &monitor {
         fs::remove_file(path).ok();
     }
+    let pcap = (!machine.net_device.is_empty()).then(|| log_path.with_extension("pcap"));
+    if let Some(p) = &pcap {
+        fs::remove_file(p).ok();
+    }
     let args = qemu_args(
         machine,
         image,
@@ -840,10 +885,14 @@ fn run_qemu_capture_typing(
         Some(log_path),
         typing,
         monitor.as_deref(),
+        pcap.as_deref(),
     )?;
     let start = Instant::now();
+    let lab_log = log_path.with_extension("lab.log");
+    let _ = fs::remove_file(&lab_log);
     let mut child = Command::new(qemu_bin())
         .args(&args)
+        .env("SPACEOS_LAB_LOG", &lab_log)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -909,7 +958,8 @@ fn run_qemu_capture_typing(
         log.push_str(&format!("\n[harness] console input failed: {e}\n"));
         fs::write(log_path, &log).ok();
     }
-    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error })
+    let tcp = pcap.map(|p| pcap::analyze(&p, GUEST_IP));
+    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error, tcp })
 }
 
 /// Wait for the guest to say it is ready, then type each line on its console.
@@ -1317,6 +1367,7 @@ fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
             problems.push(format!("unexpected marker {m:?}"));
         }
     }
+    problems.extend(tcp_problems(run));
     problems
 }
 
@@ -1357,11 +1408,12 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
             let problems = check_run(s, &run, run_index == s.runs);
             if problems.is_empty() {
                 println!(
-                    "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), log: {}",
+                    "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), log: {}{}",
                     s.runs,
                     run.elapsed.as_secs_f64(),
                     run.exit_code,
-                    log_path.display()
+                    log_path.display(),
+                    tcp_summary(&run)
                 );
                 continue;
             }
@@ -1454,12 +1506,14 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
                 problems.push(format!("unexpected marker {marker:?}"));
             }
         }
+        problems.extend(tcp_problems(&run));
         if problems.is_empty() {
             println!(
-                "   PASS in {:.1}s (exit {:?}), log: {}",
+                "   PASS in {:.1}s (exit {:?}), log: {}{}",
                 run.elapsed.as_secs_f64(),
                 run.exit_code,
-                log_path.display()
+                log_path.display(),
+                tcp_summary(&run)
             );
             continue;
         }
@@ -1543,7 +1597,9 @@ fn cmd_run(gui: bool, serial_input: bool, cmdline: &str, release: bool) -> Resul
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
     let typing = if serial_input { Typing::Serial } else { Typing::None };
-    let args = qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, typing, None)?;
+    let pcap = std::env::var_os("SPACEOS_PCAP").map(PathBuf::from);
+    let args =
+        qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, typing, None, pcap.as_deref())?;
     println!("== {} {}", qemu_bin(), args.join(" "));
     if serial_input {
         println!("== COM2 is a pty; QEMU prints its path below. Type into it with e.g. `screen <pty>`");
@@ -1629,17 +1685,27 @@ fn cmd_clippy() -> Result<(), String> {
     sh(cargo().args(["clippy", "-p", "xtask", "--", "-D", "warnings"]))
 }
 
+/// Host-side unit tests: the shared ABI crate (message layouts, the DNS codec) and
+/// the build tool itself (the lab DNS server among them).
+fn cmd_unit() -> Result<(), String> {
+    sh(cargo().args(["test", "-p", "spaceabi", "-p", "xtask"]))
+}
+
 fn usage() -> ! {
     eprintln!(
-        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|clippy|fmt|fmt-check|ci> [--debug]"
+        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|unit|tcpcheck FILE|clippy|fmt|fmt-check|ci> [--debug]"
     );
     std::process::exit(2)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let release = !args.iter().any(|a| a == "--debug");
     let cmd = args.first().map(String::as_str).unwrap_or("");
+    // Started by QEMU, once per guest connection to a lab service (see `lab`).
+    if cmd == "lab" {
+        std::process::exit(lab::main(args.get(1).map(String::as_str)));
+    }
+    let release = !args.iter().any(|a| a == "--debug");
     // `--only NAME`: one scenario (test) or one machine (compat), for iterating.
     let only = args.iter().position(|a| a == "--only").and_then(|i| args.get(i + 1)).cloned();
     let res = match cmd {
@@ -1673,8 +1739,25 @@ fn main() {
         "clippy" => cmd_clippy(),
         "fmt" => sh(cargo().args(["fmt", "--all"])),
         "fmt-check" => sh(cargo().args(["fmt", "--all", "--", "--check"])),
+        "unit" => cmd_unit(),
+        // Check a capture made earlier (e.g. with SPACEOS_PCAP during `run`).
+        "tcpcheck" => match args.get(1) {
+            Some(path) => pcap::analyze(Path::new(path), GUEST_IP).and_then(|r| {
+                println!(
+                    "{} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again",
+                    r.connections, r.closed_cleanly, r.reset, r.peer_retransmits
+                );
+                if r.unacked_fins.is_empty() {
+                    Ok(())
+                } else {
+                    Err(format!("FINs never acknowledged by the guest: {}", r.unacked_fins.join(", ")))
+                }
+            }),
+            None => usage(),
+        },
         "ci" => sh(cargo().args(["fmt", "--all", "--", "--check"]))
             .and_then(|_| cmd_clippy())
+            .and_then(|_| cmd_unit())
             .and_then(|_| cmd_test(true, None))
             .and_then(|_| cmd_compat(true, None)),
         _ => usage(),

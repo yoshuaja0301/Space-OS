@@ -12,6 +12,7 @@ extern crate alloc;
 pub mod compute;
 pub mod heap;
 pub mod io;
+pub mod net;
 pub mod shell;
 pub mod sys;
 

@@ -9,6 +9,7 @@
 extern crate alloc;
 
 mod netcheck;
+mod nettest;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -1345,6 +1346,75 @@ pub extern "C" fn space_main() -> i32 {
         }
         res
     });
+
+    // The network service: TCP/IP in user space, reached only through sessions
+    // whose allowlists say where they may go.
+    let mut lab: Option<nettest::Lab> = None;
+    let no_service = || String::from("the network service is not running");
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "the network service gets an address by DHCP and describes it",
+        || {
+            let l = nettest::start(ROOT)?;
+            let res = nettest::hello(&l);
+            lab = Some(l);
+            res
+        },
+    );
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "names resolve through the lab DNS server; unknown names do not",
+        || nettest::resolve(lab.as_ref().ok_or_else(no_service)?),
+    );
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "64 KiB go to the echo service and come back intact over TCP",
+        || nettest::echo_large(lab.as_ref().ok_or_else(no_service)?),
+    );
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "destinations off the allowlist are refused before a frame leaves",
+        || nettest::refused_before_sending(lab.as_ref().ok_or_else(no_service)?),
+    );
+    r.run_if(nic, "no network device", "NET", "a connection nobody answers times out", || {
+        nettest::timeout(lab.as_ref().ok_or_else(no_service)?)
+    });
+    r.run_if(nic, "no network device", "NET", "a port nobody listens on refuses the connection", || {
+        nettest::refused(lab.as_ref().ok_or_else(no_service)?)
+    });
+    r.run_if(nic, "no network device", "NET", "a connection the peer resets is reported as reset", || {
+        nettest::reset(lab.as_ref().ok_or_else(no_service)?)
+    });
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "20 connections open and close without leaking kernel memory",
+        || {
+            let l = lab.as_ref().ok_or_else(no_service)?;
+            no_leak_over(20, "network connections", || nettest::ping(l))
+        },
+    );
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "killing the service fails its clients and frees the device; a new one serves and quits",
+        || nettest::kill_and_restart(ROOT, lab.take().ok_or_else(no_service)?),
+    );
+    if let Some(l) = lab.take() {
+        sys::kill(l.process).ok();
+        sys::wait(l.process).ok();
+        l.release();
+    }
 
     r.run("D01", "SHA-256 in the guest matches the published test vectors", || {
         let empty = sha256::to_hex(&sha256::digest(b""));

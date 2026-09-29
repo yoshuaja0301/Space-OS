@@ -3,11 +3,28 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use linked_list_allocator::Heap;
 
-/// Pages mapped for the heap (counted against the process quota).
+/// Pages mapped for the heap (counted against the process quota), unless the
+/// program asks for another size with [`set_pages`].
 pub const HEAP_PAGES: usize = 32;
+
+static PAGES: AtomicUsize = AtomicUsize::new(HEAP_PAGES);
+
+/// Map `pages` pages for the heap instead of [`HEAP_PAGES`]. The heap is mapped
+/// once, on the first allocation, so this only works before that: call it first
+/// thing in `space_main`. Returns whether it took effect.
+pub fn set_pages(pages: usize) -> bool {
+    // SAFETY: single-threaded process; only reads whether the heap exists yet.
+    let mapped = unsafe { (*HEAP.0.get()).is_some() };
+    if mapped || pages == 0 {
+        return false;
+    }
+    PAGES.store(pages, Ordering::Relaxed);
+    true
+}
 
 struct UserHeap(UnsafeCell<Option<Heap>>);
 
@@ -23,7 +40,7 @@ impl UserHeap {
         // SAFETY: single-threaded process; no re-entrancy from signals.
         let slot = unsafe { &mut *self.0.get() };
         if slot.is_none() {
-            let size = HEAP_PAGES * spaceabi::PAGE_SIZE;
+            let size = PAGES.load(Ordering::Relaxed) * spaceabi::PAGE_SIZE;
             let base = crate::sys::mem_map(size).ok()?;
             let mut h = Heap::empty();
             // SAFETY: freshly mapped, zeroed, exclusively ours.

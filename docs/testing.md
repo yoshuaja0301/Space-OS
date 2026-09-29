@@ -32,6 +32,10 @@ Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
 | `no-disk` | tanpa perangkat blok | `virtio-blk: no device present`, `vfs: no block device`, `[init] storage: none`, `[init] SKIP A01` |
 | `no-vga` | `-vga none` | `framebuffer: none usable; serial console only` |
 | `vmware-vga` | `-vga vmware` | `framebuffer:` |
+| `e1000-only` | kartu jaringan e1000 saja (tanpa virtio-net) | `virtio-net: no device present`, `[init] network: none; network tests will be skipped`, `[init] SKIP NET` |
+
+Semua mesin lain membawa kartu virtio-net modern di jaringan lab (lihat di bawah);
+`virtio-transitional` memakai kartu transisional dan harus tetap lulus ICMP echo.
 
 Dua mesin ini punya gigi yang terbukti: dengan driver virtio sebelum perbaikan
 ukuran antrean, `virtio-small-queue` gagal (`read /spaceos/model.slm: bad address`,
@@ -61,6 +65,11 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K03 | 20 siklus "kill saat blocking di `recv`" → peer melihat `PeerClosed`, frame bebas dan heap kernel identik | `bin/ipc_echo` |
 | K03 | 20 siklus kill saat `sleep(1 jam)`, 20 siklus kill saat blocking `recv` dengan peer tetap terbuka, 20 siklus kill saat `wait` pada proses yang terus berjalan → frame bebas dan heap kernel identik (tanpa perbaikan: ~180 frame dan ~12 KiB heap bocor per 20 siklus) | `bin/blocker` |
 | K02 | tabel handle penuh → `spawn` ditolak `TooManyHandles` dan tidak ada proses yatim | `bin/hello` |
+| K02 | `wait_any` pada channel yang diam habis waktunya **setelah** batasnya, bukan sebelum (40–1000 ms untuk 100 ms); indeks handle yang siap dilaporkan, dan batas waktu 0 hanya melihat | `bin/init` |
+| K02 | `wait_any` dibangunkan balasan proses lain, oleh proses yang keluar, dan oleh peer yang menutup channel | `bin/ipc_echo`, `bin/hello` |
+| K02 | set cacat ditolak: kosong → `Invalid`, `WAIT_MAX + 1` → `Invalid`, handle tertutup → `BadHandle`, handle root dan channel tanpa `RECV` → `Denied`, pointer kernel → `Fault` | `bin/init` |
+| K03 | 20 siklus kill saat `wait_any` pada dua antrean tanpa batas waktu, dan 20 siklus dengan batas waktu satu jam → frame bebas dan heap kernel identik, entri timer dilepas saat itu juga | `bin/blocker` |
+| K02 | jam dinding (`SYS_CLOCK_REALTIME`, RTC CMOS) jatuh di antara 2024 dan 2100, dan `sleep(50 ms)` memajukannya 50–1000 ms | `bin/init` |
 | A01 | tiga model rusak (`badmagic`, `baddims`, `trunc`) ditolak dengan alasan, tanpa crash | `bin/spaceai` |
 | A01 | model diverifikasi SHA-256 terhadap manifest saat dimuat ke buffer compute | `bin/spaceai` |
 | A01 | 128 token dihasilkan offline lewat Compute ABI dan **identik** dengan baseline host; TTFT, token/detik, working set dan RSS dilaporkan | `bin/spaceai` |
@@ -165,6 +174,64 @@ Fixture paket itu sendiri adalah giginya: keempatnya dibuat host dengan implemen
 yang sama (`spaceabi::pkg`) dan masing-masing berbeda dari paket yang sah dalam
 tepat satu hal, sehingga verifier yang melewatkan satu pemeriksaan akan menerima
 salah satunya.
+
+### Uji NET (jaringan, ADR-0016)
+
+Semua dilewati (bukan digagalkan) pada mesin tanpa kartu virtio-net.
+
+| ID | Uji | Program |
+|---|---|---|
+| NET | lease butuh hak `NET` dan eksklusif (`Busy` untuk pemegang kedua); duplikat berbagi lease, dan lease lepas hanya setelah handle terakhirnya ditutup | `bin/init` |
+| NET | perangkat melaporkan MAC unicast bukan nol, link up, MTU 1500, frame maksimum 1514 | `bin/init` |
+| NET | ARP buatan tangan: gateway 10.0.2.2 menjawab dengan MAC-nya | `bin/init` |
+| NET | ICMP echo buatan tangan ke gateway dengan muatan 32, 512 dan 1472 byte (frame 1514 byte penuh) kembali utuh, dengan checksum IPv4 dan ICMP diverifikasi | `bin/init` |
+| NET | frame yang tiba **saat penerimanya tidur** membangunkannya: anak mengirim 150 ms setelah `init` tidur di `wait_any`, dan `init` harus bangun ≤ 100 ms setelah frame berangkat (terukur: tidur 151 ms, bangun 1 ms setelahnya) | `bin/blocker` |
+| NET | frame 13 byte → `Invalid`, 1515 byte → `MsgSize`, frame atau buffer di alamat kernel → `Fault`, buffer terima < 1514 → `Invalid`, lease tanpa `WRITE`/`READ` → `Denied`, handle channel → `Denied` | `bin/init` |
+| NET | `spacenet` dijalankan, diberi lease, dan mendapat 10.0.2.15/24 lewat DHCP (tanpa router dan DNS: jaringan lab tertutup); HELLO sesi melaporkan alamat, DNS lab, dan MAC perangkat yang sama | `bin/spacenet` |
+| NET | DNS lewat TCP: `echo.lab.test` → 10.0.2.101, `alias.lab.test` (CNAME) → alamat yang sama, huruf besar-kecil tidak berpengaruh, `nosuch.lab.test` → `NotFound` | `bin/spacenet` |
+| NET | 64 KiB pola tak berulang dikirim ke layanan echo sambil membaca, `shutdown`, lalu dibaca sampai EOF: setiap byte cocok (pola dihitung, tidak disimpan — heap `init` 128 KiB) | `bin/spacenet` |
+| NET | nama di luar daftar, port lain dari nama yang diizinkan, dan **alamat** dari nama yang diizinkan ditolak `Denied`, begitu juga pencarian nama di luar daftar; 4 penolakan dihitung dan **0 frame** keluar menurut penghitung perangkat | `bin/spacenet` |
+| NET | tujuan yang tidak pernah menjawab (10.0.2.77) → `TimedOut` setelah 400–3000 ms untuk batas 500 ms | `bin/spacenet` |
+| NET | port yang tidak mendengarkan (alamat layanan echo, port 8) → `Refused`: QEMU menjawab SYN-nya dengan RST | `bin/spacenet` |
+| NET | layanan yang pergi tanpa membaca → pembacaan berikutnya `Reset` | `bin/spacenet` |
+| NET | 20 koneksi (hubung, kirim `ping`, `shutdown`, baca sampai EOF) → frame bebas dan heap kernel identik | `bin/spacenet` |
+| NET | `spacenet` dibunuh saat koneksi terbuka: pembacaan klien → `PeerClosed`, sesi → `PeerClosed`, lease bisa dibuka lagi; instans baru melayani satu koneksi dan `QUIT` keluar dengan kode 0, lalu lease kembali | `bin/spacenet` |
+
+Gigi uji ini terbukti: dengan tick yang tidak lagi membangunkan penunggu kartu, uji
+tidur gagal (`woken 2850 ms after the frame left`) padahal uji ARP dan ICMP tetap
+hijau — jawaban QEMU sudah ada di ring sebelum penerimanya sempat tidur, jadi hanya
+uji ini yang benar-benar melewati jalur bangun. Dengan satu byte setiap frame masuk
+di atas 100 byte dibalik, uji ICMP gagal (`ICMP checksum does not verify`). Dengan
+allowlist yang mengabaikan port, `echo.lab.test:8` lolos dari pemeriksaan (`connection
+refused, expected Denied`); dengan RST yang dilaporkan sebagai akhir aliran, uji reset
+gagal (`read gave Ok(0), expected Reset`).
+
+## Jaringan lab dan pemeriksaan kabel
+
+Kartu setiap mesin tersambung ke jaringan QEMU user-mode dengan `restrict=on`: guest
+tidak bisa mencapai host maupun internet. Satu-satunya pintu adalah aturan
+`guestfwd` yang menjalankan `xtask lab <nama>` untuk setiap koneksi, dengan koneksi
+itu sebagai stdin/stdout (`xtask/src/lab.rs`): DNS lewat TCP di 10.0.2.53:53, echo di
+10.0.2.101:7, dan layanan yang me-reset koneksinya di 10.0.2.102:9. Port lain di alamat
+lab dijawab QEMU dengan RST (uji `Refused`), dan tidak ada yang
+menjawab di 10.0.2.77. Catatan layanan lab ditulis ke `build/logs/<skenario>.lab.log`.
+
+Setiap boot juga direkam ke `build/logs/<skenario>.pcap` (QEMU `filter-dump`) dan
+diperiksa harness (`xtask/src/pcap.rs`): **setiap FIN dari peer harus di-ACK oleh
+guest**, kecuali koneksinya di-reset. Hasilnya dicetak pada baris PASS, misalnya
+`tcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again`.
+Gigi pemeriksaan ini terbukti pada bug sungguhan: build yang membuang socket saat
+TIME-WAIT sebelum ACK tertundanya berangkat lulus semua uji di dalam guest, tetapi
+rekamannya gagal (`FINs never acknowledged by the guest: …` untuk 24 koneksi, 48
+segmen dikirim ulang peer). `cargo xtask tcpcheck <file.pcap>` memeriksa rekaman
+yang dibuat sendiri, misalnya dengan `SPACEOS_PCAP=<file> cargo xtask run`.
+
+## Uji unit host
+
+`cargo xtask unit` (juga bagian `cargo xtask ci`) menjalankan uji unit `spaceabi` —
+tata letak pesan jaringan tanpa padding implisit, pencocokan allowlist, codec DNS
+(kueri, jawaban, rantai CNAME, pointer kompresi yang bermusuhan) — dan `xtask`
+sendiri, termasuk server DNS lab.
 
 ## Selftest kernel (sebelum user-space)
 

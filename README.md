@@ -3,7 +3,8 @@
 Sistem operasi AI-native dengan kernel baru yang dibangun dari nol (Rust, x86-64, UEFI).
 Repo ini mengimplementasikan **tahap 1–5** dan sebagian **5A** dari roadmap
 [PRD v0.1](docs/prd/Space_OS_PRD_v0_1.md): bootloader UEFI sendiri, microkernel berorientasi
-capability, user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 baca-tulis + ABI file, objek memori
+capability, user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 baca-tulis + ABI file, jaringan
+(virtio-net + TCP/IP di user space dengan allowlist tujuan per sesi), objek memori
 bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baseline yang dipatok,
 serta layanan Developer Preview (sesi terminal, tool broker, SpaceLink, paket bertanda tangan) —
 dengan bukti uji otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01**
@@ -19,16 +20,17 @@ ditulis, dan alasannya ada di sana.
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
 | `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, page table higher-half, memory map, GOP, lompat ke kernel |
-| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, tabel capability, kuota, crash log, PCI + virtio-blk + FAT32 baca-tulis, konsol framebuffer + masukan keyboard/serial |
-| `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!` |
+| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif, ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk + FAT32 baca-tulis, virtio-net (lease frame), RTC, konsol framebuffer + masukan keyboard/serial |
+| `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!`, klien jaringan (`Session`, `TcpStream`) |
+| `spacenet` | `user/services/spacenet` | `x86_64-unknown-none` | Layanan jaringan: DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP; program lain hanya lewat sesi dengan allowlist `host:port` (ADR-0016) |
 | `spacecompute` | `user/services/spacecompute` | `x86_64-unknown-none` | Layanan Space Compute ABI v0 di user space, backend CPU |
 | `spaceai` | `user/services/spaceai` | `x86_64-unknown-none` | Runtime AI: memuat SpaceLM v0 dari disk, verifikasi checksum, generate token lewat Compute ABI |
 | `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 59 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 |
-| `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, verifikasi log dan exit code |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 82 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01 dan jaringan (`NET`) |
+| `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, layanan jaringan lab, rekaman pcap yang diperiksa, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
 
@@ -37,7 +39,8 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
 cargo xtask test                           # build semua target, buat image, 9 skenario boot di QEMU
-cargo xtask compat                         # image yang sama di 9 konfigurasi mesin (ADR-0010)
+cargo xtask compat                         # image yang sama di 10 konfigurasi mesin (ADR-0010)
+cargo xtask unit                           # uji unit host (codec DNS, tata letak pesan, server DNS lab)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
 cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU
 cargo xtask run --serial-input --cmdline "init=bin/spaceterm"  # sama, tanpa jendela: ketik ke pty COM2 yang dicetak QEMU
@@ -62,14 +65,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [shell] input was lost; the line was discarded
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
-[init] ALL TESTS PASSED (59/59, 0 skipped)
+[init] ALL TESTS PASSED (82/82, 0 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 491 ms, 147 context switches)
 ```
 
 ## Dokumentasi
 
 - [docs/architecture.md](docs/architecture.md) — rantai boot, layout memori, objek kernel, scheduler, diagnosis.
-- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT).
+- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT, storage, compute, layanan 5A, jaringan).
 - [docs/requirements.md](docs/requirements.md) — traceability K01…H02 dengan status planned/experimental/verified.
 - [docs/testing.md](docs/testing.md) dan [docs/evidence/](docs/evidence/) — skenario uji, marker, kode keluar, log bukti.
 - [docs/build.md](docs/build.md) — prasyarat dan perintah.
@@ -79,4 +82,4 @@ spacekernel 0.1.0: Space OS kernel booting
 
 ## Lisensi
 
-MIT (lihat `LICENSE`). Dependensi: `x86_64`, `linked_list_allocator`, `noto-sans-mono-bitmap`, `fatfs`, `tar` (MIT/Apache-2.0), `uefi` (MPL-2.0).
+MIT (lihat `LICENSE`). Dependensi: `x86_64`, `linked_list_allocator`, `noto-sans-mono-bitmap`, `fatfs`, `tar` (MIT/Apache-2.0), `uefi` (MPL-2.0), `smoltcp` (0BSD) beserta `managed` (0BSD), `heapless`, `byteorder`, `bitflags`, `cfg-if`, `hash32`, `stable_deref_trait` (MIT/Apache-2.0).

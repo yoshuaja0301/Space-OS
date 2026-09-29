@@ -69,6 +69,12 @@ errors! {
     Busy = 17, "resource busy";
     /// A wait ran out of time before anything it watched became ready.
     TimedOut = 18, "timed out";
+    /// The remote end refused the connection (a TCP reset answered the opening SYN).
+    Refused = 19, "connection refused";
+    /// The remote end reset an established connection.
+    Reset = 20, "connection reset";
+    /// No address or no route: the network interface is not configured.
+    Unreachable = 21, "network unreachable";
 }
 
 impl core::fmt::Display for Error {
