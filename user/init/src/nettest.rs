@@ -313,6 +313,79 @@ pub fn ping(lab: &Lab) -> Result<(), String> {
     Ok(())
 }
 
+/// Pages for a TLS probe: about a megabyte of code (most of it TLS and its
+/// cryptography), a 512 KiB heap and the stack.
+const PROBE_QUOTA: u64 = 1024;
+/// Every lab TLS service answers as this name (10.0.2.103), one port for each way a
+/// connection can go right or wrong.
+const TLS_HOST: &str = "tls.lab.test";
+/// Longest a probe may take: a handshake in software on an emulated CPU, then its
+/// case.
+const PROBE_MS: u64 = 60_000;
+
+/// Run one case of `bin/tlsprobe` in a process of its own and return its one-line
+/// answer. The probe gets a session of its own that may reach tls.lab.test on
+/// `port` and nowhere else, and a root handle narrowed to reading files: the lab
+/// authority's certificate is on the data disk.
+pub fn tls_probe(lab: &Lab, root: Handle, case: &str, port: u16) -> Result<String, String> {
+    let (session, theirs) = sys::channel_create().map_err(|e| format!("channel: {e}"))?;
+    let opened = op_call(lab.op, &NetRequest::new(req::SESSION), Some(theirs), 2000)
+        .and_then(|_| op_call(lab.op, &NetRequest::with_host(req::ALLOW, TLS_HOST, port), None, 2000))
+        .and_then(|_| sys::channel_create().map_err(|e| format!("channel: {e}")));
+    let (ctl, child) = match opened {
+        Ok(c) => c,
+        Err(e) => {
+            sys::handle_close(session).ok();
+            return Err(e);
+        }
+    };
+    let process = match sys::spawn(root, "bin/tlsprobe", PROBE_QUOTA, Some(child)) {
+        Ok(p) => p,
+        Err(e) => {
+            // Still ours if the kernel refused it before taking it; gone otherwise.
+            sys::handle_close(child).ok();
+            sys::handle_close(session).ok();
+            sys::handle_close(ctl).ok();
+            return Err(format!("spawn: {e}"));
+        }
+    };
+    let mut session = Some(session);
+    let answer = (|| {
+        let files =
+            sys::handle_dup(root, rights::FS | rights::TRANSFER).map_err(|e| format!("dup root: {e}"))?;
+        if let Err(e) = sys::send(ctl, format!("{case} {port}").as_bytes(), Some(files)) {
+            sys::handle_close(files).ok();
+            return Err(format!("sending the case: {e}"));
+        }
+        if let Some(s) = session.take()
+            && let Err(e) = sys::send(ctl, b"session", Some(s))
+        {
+            sys::handle_close(s).ok();
+            return Err(format!("sending the session: {e}"));
+        }
+        sys::wait_any(&[ctl], PROBE_MS).map_err(|e| format!("no answer: {e}"))?;
+        let mut buf = [0u8; libspace::spaceabi::syscall::MSG_MAX];
+        let (n, carried) = sys::recv(ctl, &mut buf, true).map_err(|e| format!("answer: {e}"))?;
+        if let Some(h) = carried {
+            sys::handle_close(h).ok();
+        }
+        Ok(String::from(core::str::from_utf8(&buf[..n]).unwrap_or("(not text)")))
+    })();
+    // A probe that answered exits by itself; one that did not, or lingers, is killed.
+    if answer.is_err() || sys::wait_any(&[process], 5000).is_err() {
+        sys::kill(process).ok();
+    }
+    let st = sys::wait(process);
+    for h in [ctl, process].into_iter().chain(session) {
+        sys::handle_close(h).ok();
+    }
+    let answer = answer?;
+    match st {
+        Ok(st) if st.is_exited_with(0) => Ok(answer),
+        other => Err(format!("the probe answered {answer:?}, then ended with {other:?}")),
+    }
+}
+
 /// Kill the service with a connection open: the client hears about it, the device
 /// lease comes back, and a new instance starts, serves and quits cleanly.
 pub fn kill_and_restart(root: Handle, lab: Lab) -> Result<(), String> {

@@ -24,6 +24,8 @@ members = [
     "user/services/spacepkg",
     "user/services/spaceterm",
     "user/services/spacenet",
+    "user/spacetls",
+    "user/tests/tlsprobe",
     "xtask",
 ]
 # Plain `cargo build` at the root only builds the host-side xtask.
@@ -41,6 +43,10 @@ spaceabi = { path = "abi/spaceabi" }
 libspace = { path = "user/libspace" }
 # The TCP/IP stack of the network service: a ported library (ADR-0016), 0BSD.
 smoltcp = { version = "0.12", default-features = false, features = ["alloc", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-dhcpv4"] }
+# TLS for user programs (ADR-0017): rustls without std, with the RustCrypto
+# provider -- pure Rust, no C, no assembly. TLS 1.3 only.
+rustls = { version = "0.23", default-features = false }
+rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, features = ["alloc"] }
 x86_64 = { version = "0.15.5", default-features = false, features = ["instructions"] }
 uefi = { version = "0.35.0", features = ["alloc", "global_allocator", "logger", "panic_handler"] }
 linked_list_allocator = { version = "0.10.6", default-features = false }

@@ -1,6 +1,6 @@
-# Arsitektur yang diimplementasikan (tahap 1–5, jaringan tahap 3, dan sebagian 5A)
+# Arsitektur yang diimplementasikan (tahap 1–5, jaringan dan TLS tahap 3, dan sebagian 5A)
 
-Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
+Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, TLS, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
 
 ```
 UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──► bin/init (user/init) ──► program uji (user/tests/*)
@@ -55,6 +55,27 @@ yang memegang sesi bisa `HELLO`, `RESOLVE`, `CONNECT`, dan `STATS`; tujuan di lu
 allowlist ditolak sebelum pencarian DNS atau paket apa pun. Setiap koneksi adalah
 channel sendiri yang dibawa `CONNECT`; `libspace::net` membungkusnya sebagai
 `Session` dan `TcpStream`.
+
+## Entropi, unit FPU, dan TLS (ADR-0017)
+
+`dev::entropy` mengisi `SYS_RANDOM` dari virtio-rng (transport virtio yang sama, polling)
+atau, tanpa itu, dari RDRAND; tanpa keduanya panggilan itu menjawab `NotFound` — tidak ada
+cadangan dari jam atau penghitung. `arch::cpu::init` mematikan unit FPU dan vektor untuk semua
+ring (CR0.EM; CR4.OSFXSR/OSXMMEXCPT/OSXSAVE), karena kernel tidak menyimpan state-nya per
+thread: instruksi x87 berakhir dengan kill `NO_FPU`, instruksi SSE/AVX dengan `INVALID_OPCODE`.
+`cargo xtask build` mendekode setiap instruksi kernel dan program untuk membuktikan tidak ada
+yang membutuhkan unit itu.
+
+```
+program ──► spacetls (pustaka) ──► rustls 0.23 (no_std, unbuffered) + penyedia RustCrypto
+               │  keacakan: getrandom → SYS_RANDOM     waktu: TimeProvider → SYS_CLOCK_REALTIME
+               └─ transport: TcpStream dari sesi spacenet (allowlist diperiksa lebih dulu)
+```
+
+`spacetls` bukan layanan melainkan pustaka yang ditautkan ke program yang membutuhkannya
+(di uji: `bin/tlsprobe`). TLS 1.3 saja; tidak ada root CA bawaan — pemanggil menyerahkan
+otoritas yang dipercayanya. Suite: ChaCha20-Poly1305, lalu AES-128/256-GCM dengan batas 2^24
+record per kunci.
 
 ## Komputasi (tahap 4)
 

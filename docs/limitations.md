@@ -97,11 +97,19 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - TIME-WAIT dipersingkat menjadi 250 ms (bukan 2 MSL) agar socket yang menutup tidak menahan buffer 16 KiB berdetik-detik; FIN yang diulang peer setelah itu dijawab RST.
 - Batas: 8 sesi, 8 allowlist entri per sesi, 8 koneksi (4 per sesi), pesan data 255 byte. Keadilan antar-sesi hanya sebatas batas per sesi itu.
 - Jaringan lab tertutup (QEMU `restrict=on`): DHCP-nya tidak memberi router maupun DNS, dan semua layanan uji dibuat `xtask lab`. **Tidak ada uji terhadap internet.** Perpanjangan sewa DHCP (sewa QEMU 24 jam) belum teruji.
-- **Tanpa TLS.** Apa pun yang melewati jaringan ini bisa dibaca dan diubah di jalan; itulah sebabnya I01 belum diklaim.
+
+## TLS dan entropi
+
+- TLS 1.3 saja (ADR-0017): tanpa TLS 1.2, tanpa resumption dan 0-RTT, tanpa sertifikat klien. Server yang hanya berbicara TLS 1.2 tidak bisa dicapai.
+- **Tidak ada root CA bawaan dan belum ada trust store sistem**: setiap program menyerahkan sendiri otoritas yang dipercayanya. Di lab itu satu otoritas yang dibuat baru setiap build data disk. Tidak ada pemeriksaan pencabutan (CRL/OCSP) maupun Certificate Transparency.
+- Penyedia kripto `rustls-rustcrypto` berlabel *alpha* dan belum diaudit sebagai satu kesatuan; primitifnya crate RustCrypto yang luas dipakai. Batas record AES-GCM yang tidak diberikannya dipasang oleh `spacetls`. RSA hanya dipakai untuk verifikasi (kunci publik), jadi advisory Marvin (RUSTSEC-2023-0071) tidak berlaku.
+- Kripto berjalan **tanpa instruksi vektor**: unit FPU/SSE dimatikan karena kernel tidak menyimpan state-nya per thread. Handshake 40–70 ms di TCG; throughput dibatasi AES/ChaCha perangkat lunak dan pesan channel 255 byte.
+- Waktu untuk memeriksa sertifikat berasal dari RTC yang dibaca sekali saat boot, tanpa sinkronisasi jaringan. Jam yang maju membuat sertifikat terlihat kedaluwarsa (gagal tertutup); jam yang mundur akan menerima sertifikat yang sudah kedaluwarsa sejak itu.
+- Tanpa virtio-rng dan tanpa RDRAND tidak ada entropi sama sekali: `SYS_RANDOM` menjawab `NotFound` dan semua yang membutuhkan kunci dilewati. Tidak ada kumpulan entropi (pool) atau DRBG di kernel; setiap permintaan diisi langsung dari perangkat.
 
 ## Belum ada (tahap berikutnya)
 
-- VirtIO input/display di luar keyboard PS/2, COM2 dan konsol teks (sisa tahap 3); TLS.
+- VirtIO input/display di luar keyboard PS/2, COM2 dan konsol teks (sisa tahap 3).
 - Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud I01 (5A).
 - GPU, ARM64 (6–7).
 

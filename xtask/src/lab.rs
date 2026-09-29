@@ -13,7 +13,12 @@
 
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
+
+use rustls::CipherSuite;
+
+use super::pki;
 
 /// Address, port and service name of every lab service.
 pub const SERVICES: &[(&str, u16, &str)] = &[
@@ -23,6 +28,21 @@ pub const SERVICES: &[(&str, u16, &str)] = &[
     ("10.0.2.101", 7, "echo"),
     // Leaves what it is sent unread and goes away: the guest sees a reset.
     ("10.0.2.102", 9, "reset"),
+    // TLS 1.3 echo, with a certificate from the lab authority for tls.lab.test.
+    ("10.0.2.103", 443, "tls-echo"),
+    // The same, offering one cipher suite only: every suite the guest offers is
+    // used for real.
+    ("10.0.2.103", 449, "tls-aes128"),
+    ("10.0.2.103", 450, "tls-aes256"),
+    // The same service behind each kind of certificate a client must refuse.
+    ("10.0.2.103", 444, "tls-expired"),
+    ("10.0.2.103", 445, "tls-wrongname"),
+    ("10.0.2.103", 446, "tls-untrusted"),
+    // A good handshake, then one bit flipped in the first record of data it sends.
+    ("10.0.2.103", 447, "tls-tamper"),
+    // A good handshake, a partial answer, then the connection closed without the
+    // TLS close_notify.
+    ("10.0.2.103", 448, "tls-truncate"),
 ];
 
 /// The zone the lab DNS server answers for. Nothing answers at 10.0.2.77 (not even
@@ -35,6 +55,7 @@ const ZONE: &[(&str, [u8; 4])] = &[
     ("reset.lab.test", [10, 0, 2, 102]),
     ("blackhole.lab.test", [10, 0, 2, 77]),
     ("api.cloud.test", [10, 0, 2, 100]),
+    ("tls.lab.test", [10, 0, 2, 103]),
 ];
 /// Names answered with a CNAME to a name in [`ZONE`], and that name's address.
 const ALIASES: &[(&str, &str)] = &[("alias.lab.test", "echo.lab.test")];
@@ -85,6 +106,18 @@ pub fn main(name: Option<&str>) -> i32 {
         Some("dns") => dns(),
         Some("echo") => echo(),
         Some("reset") => reset(),
+        Some(s @ "tls-echo") => tls_serve(s, "good", TlsMode::Echo, None),
+        Some(s @ "tls-aes128") => {
+            tls_serve(s, "good", TlsMode::Echo, Some(CipherSuite::TLS13_AES_128_GCM_SHA256))
+        }
+        Some(s @ "tls-aes256") => {
+            tls_serve(s, "good", TlsMode::Echo, Some(CipherSuite::TLS13_AES_256_GCM_SHA384))
+        }
+        Some(s @ "tls-expired") => tls_serve(s, "expired", TlsMode::Echo, None),
+        Some(s @ "tls-wrongname") => tls_serve(s, "wrongname", TlsMode::Echo, None),
+        Some(s @ "tls-untrusted") => tls_serve(s, "untrusted", TlsMode::Echo, None),
+        Some(s @ "tls-tamper") => tls_serve(s, "good", TlsMode::Tamper, None),
+        Some(s @ "tls-truncate") => tls_serve(s, "good", TlsMode::Truncate, None),
         other => {
             log(&format!("lab: unknown service {other:?}"));
             return 2;
@@ -121,6 +154,153 @@ fn reset() -> io::Result<()> {
     // makes the socket report a reset, which QEMU passes on to the guest as RST.
     std::thread::sleep(Duration::from_millis(300));
     log("reset: leaving with the guest's data unread");
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TlsMode {
+    Echo,
+    Tamper,
+    Truncate,
+}
+
+/// Inverts one bit of the first application-data record written once armed. The
+/// byte stream is followed record by record (a 5-byte header, then as many bytes
+/// as it says), so the flip lands in a record's payload wherever the writes split.
+#[derive(Default)]
+struct Tamper {
+    armed: bool,
+    done: bool,
+    flip_next: bool,
+    header: [u8; 5],
+    have: usize,
+    left: usize,
+}
+
+impl Tamper {
+    fn apply(&mut self, bytes: &mut [u8]) {
+        let mut i = 0;
+        while i < bytes.len() {
+            if self.left > 0 {
+                if self.flip_next {
+                    bytes[i] ^= 0x01;
+                    self.flip_next = false;
+                    self.done = true;
+                }
+                let n = self.left.min(bytes.len() - i);
+                i += n;
+                self.left -= n;
+            } else {
+                self.header[self.have] = bytes[i];
+                self.have += 1;
+                i += 1;
+                if self.have == 5 {
+                    self.have = 0;
+                    self.left = u16::from_be_bytes([self.header[3], self.header[4]]) as usize;
+                    self.flip_next = self.armed && !self.done && self.header[0] == 0x17 && self.left > 0;
+                }
+            }
+        }
+    }
+}
+
+/// The guest's connection as one stream: stdin in, stdout out, every write sent at
+/// once (and through the tamperer, if there is one).
+struct Wire {
+    input: io::Stdin,
+    output: io::Stdout,
+    tamper: Option<Tamper>,
+}
+
+impl Read for Wire {
+    fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
+        self.input.read(b)
+    }
+}
+
+impl Write for Wire {
+    fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+        match &mut self.tamper {
+            Some(t) => {
+                let mut v = b.to_vec();
+                t.apply(&mut v);
+                self.output.write_all(&v)?;
+            }
+            None => self.output.write_all(b)?,
+        }
+        self.output.flush()?;
+        Ok(b.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.output.flush()
+    }
+}
+
+/// A TLS 1.3 server presenting the lab leaf `stem`, echoing what it is sent (or,
+/// per `mode`, misbehaving in one precise way), offering every suite or `only` one.
+/// It logs how the client ended the connection: that is where a refusal and its
+/// alert show up.
+fn tls_serve(service: &str, stem: &str, mode: TlsMode, only: Option<CipherSuite>) -> io::Result<()> {
+    let (cert, key) = pki::load(stem).map_err(io::Error::other)?;
+    let mut provider = rustls::crypto::ring::default_provider();
+    if let Some(only) = only {
+        provider.cipher_suites.retain(|s| s.suite() == only);
+    }
+    let mut cfg = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(io::Error::other)?
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .map_err(io::Error::other)?;
+    // No session tickets: the first record after the handshake is then data -- the
+    // one the tamper service alters.
+    cfg.send_tls13_tickets = 0;
+    let mut conn = rustls::ServerConnection::new(Arc::new(cfg)).map_err(io::Error::other)?;
+    let mut wire = Wire {
+        input: io::stdin(),
+        output: io::stdout(),
+        tamper: (mode == TlsMode::Tamper).then(Tamper::default),
+    };
+    while conn.is_handshaking() {
+        if let Err(e) = conn.complete_io(&mut wire) {
+            log(&format!("{service}: the handshake ended: {e}"));
+            return Ok(());
+        }
+    }
+    let suite = conn.negotiated_cipher_suite().map(|s| format!("{:?}", s.suite())).unwrap_or_default();
+    log(&format!("{service}: handshake complete ({suite})"));
+    if let Some(t) = &mut wire.tamper {
+        t.armed = true;
+    }
+    let mut buf = vec![0u8; 16384];
+    let mut total = 0usize;
+    loop {
+        let n = match rustls::Stream::new(&mut conn, &mut wire).read(&mut buf) {
+            Ok(n) => n,
+            Err(e) => {
+                log(&format!("{service}: after {total} bytes: {e}"));
+                return Ok(());
+            }
+        };
+        if n == 0 {
+            break; // the client's close_notify
+        }
+        total += n;
+        let reply: &[u8] = if mode == TlsMode::Truncate { b"this answer is cut short" } else { &buf[..n] };
+        let mut tls = rustls::Stream::new(&mut conn, &mut wire);
+        tls.write_all(reply)?;
+        tls.flush()?;
+        if mode == TlsMode::Truncate {
+            log(&format!("{service}: answered, and left without close_notify"));
+            return Ok(());
+        }
+    }
+    conn.send_close_notify();
+    while conn.wants_write() {
+        conn.write_tls(&mut wire)?;
+    }
+    log(&format!("{service}: {total} bytes echoed, closed with close_notify both ways"));
     Ok(())
 }
 

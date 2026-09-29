@@ -13,7 +13,9 @@
 //! serial log).
 
 mod lab;
+mod nofpu;
 mod pcap;
+mod pki;
 mod reference;
 
 use std::fs;
@@ -42,6 +44,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spacepkg",
     "spaceterm",
     "spacenet",
+    "tlsprobe",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -64,6 +67,13 @@ fn cargo() -> Command {
     let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     c.current_dir(root());
     c
+}
+
+/// A `-p` argument naming one of our packages unambiguously: a dependency may share
+/// the name (the `spin` test program and the `spin` crate under `rsa`), never the
+/// workspace version.
+fn package_spec(name: &str) -> String {
+    format!("{name}@{}", env!("CARGO_PKG_VERSION"))
 }
 
 struct Built {
@@ -104,17 +114,33 @@ fn build(profile_release: bool) -> Result<Built, String> {
     let mut c = cargo();
     c.args(["build", "--profile", prof, "--target", "x86_64-unknown-none", "--target-dir", "target/user"]);
     for p in USER_PROGRAMS {
-        c.args(["-p", p]);
+        c.args(["-p", &package_spec(p)]);
     }
     sh(&mut c)?;
-    Ok(Built {
+    let built = Built {
         boot_efi: r.join(format!("target/boot/x86_64-unknown-uefi/{dir}/spaceboot.efi")),
         kernel_elf: r.join(format!("target/kernel/x86_64-unknown-none/{dir}/spacekernel")),
         user_bins: USER_PROGRAMS
             .iter()
             .map(|p| (p.to_string(), r.join(format!("target/user/x86_64-unknown-none/{dir}/{p}"))))
             .collect(),
-    })
+    };
+    // The kernel runs with the FPU and vector units off: an image that could reach
+    // one of their instructions is not built at all.
+    let mut total = 0;
+    for (name, path) in [("spacekernel", &built.kernel_elf)]
+        .into_iter()
+        .chain(built.user_bins.iter().map(|(n, p)| (n.as_str(), p)))
+    {
+        let elf = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        total += nofpu::check(name, &elf)?;
+    }
+    println!(
+        "== no x87/MMX/SSE/AVX instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
+         ({total} instructions decoded)",
+        built.user_bins.len()
+    );
+    Ok(built)
 }
 
 /// `llvm-objcopy` from the pinned toolchain (`llvm-tools` component), if present.
@@ -382,6 +408,13 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
                 .write_all(body.as_bytes())
                 .map_err(|e| e.to_string())?;
         }
+        // The one certificate authority the guest's TLS trusts (ADR-0017), made
+        // fresh with the leaves the lab's TLS services present.
+        let tls = dir.create_dir("TLS").map_err(|e| e.to_string())?;
+        tls.create_file("LABCA.DER")
+            .map_err(|e| e.to_string())?
+            .write_all(&pki::generate()?)
+            .map_err(|e| e.to_string())?;
         // Package fixtures (P01): two good versions and three that must be refused,
         // each for a different reason.
         let pkgs = dir.create_dir("PKG").map_err(|e| e.to_string())?;
@@ -394,7 +427,7 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
     }
     disk.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + 5 packages, FAT32)",
+        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + lab CA + 5 packages, FAT32)",
         out.display(),
         model.len() / 1024
     );
@@ -522,6 +555,8 @@ struct QemuRun {
     input_error: Option<String>,
     /// The guest's TCP as captured on the lab network, for machines with a card.
     tcp: Option<Result<pcap::TcpReport, String>>,
+    /// What the lab services wrote about their connections (empty if nothing).
+    lab_log: String,
 }
 
 /// The guest's address on the lab network (QEMU's DHCP gives the first guest this).
@@ -629,6 +664,7 @@ const MACHINES: &[Machine] = &[
             "[kernel] vfs: FAT32 mounted",
             "[kernel] entropy: none",
             "[init] entropy: none",
+            "[init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no entropy source)",
             "[init] ALL TESTS PASSED",
         ],
     },
@@ -643,7 +679,13 @@ const MACHINES: &[Machine] = &[
         // No entropy device, but `-cpu max` has RDRAND: the fallback source.
         rng_device: "",
         extra: &[],
-        must_contain: &["[kernel] entropy: RDRAND", "[init] entropy: available", "[init] ALL TESTS PASSED"],
+        // TLS keys come from RDRAND here.
+        must_contain: &[
+            "[kernel] entropy: RDRAND",
+            "[init] entropy: available",
+            "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact",
+            "[init] ALL TESTS PASSED",
+        ],
     },
     Machine {
         name: "virtio-transitional",
@@ -700,6 +742,7 @@ const MACHINES: &[Machine] = &[
             "[kernel] vfs: no block device",
             "[init] storage: none",
             "[init] SKIP A01",
+            "[init] SKIP TLS: an expired certificate is refused (no disk, which holds the lab authority's certificate)",
             "[init] ALL TESTS PASSED",
         ],
     },
@@ -987,7 +1030,8 @@ fn run_qemu_capture_typing(
         fs::write(log_path, &log).ok();
     }
     let tcp = pcap.map(|p| pcap::analyze(&p, GUEST_IP));
-    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error, tcp })
+    let lab_log = fs::read_to_string(&lab_log).unwrap_or_default();
+    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error, tcp, lab_log })
 }
 
 /// Wait for the guest to say it is ready, then type each line on its console.
@@ -1165,6 +1209,10 @@ struct Scenario {
     /// scenario nobody types into.
     type_lines: &'static [&'static str],
     ready_marker: &'static str,
+    /// Lines the lab services must have written: the server's own account of what
+    /// the guest did. A refusal the guest reports is half the story; the server
+    /// being told why (a TLS alert) is the other half.
+    lab_must_contain: &'static [&'static str],
 }
 
 /// QEMU exit status = (value << 1) | 1 for isa-debug-exit.
@@ -1214,6 +1262,15 @@ const SCENARIOS: &[Scenario] = &[
             "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",
             "[init] PASS NET: a frame arriving while the receiver sleeps wakes it",
+            // TLS ran here rather than being skipped: every case is required.
+            "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact",
+            "[init] PASS TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact",
+            "[init] PASS TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact",
+            "[init] PASS TLS: an expired certificate is refused",
+            "[init] PASS TLS: a certificate for another name is refused",
+            "[init] PASS TLS: a certificate from an unknown authority is refused",
+            "[init] PASS TLS: a record altered on the way is caught",
+            "[init] PASS TLS: a connection cut short without close_notify is reported as truncated",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
             "[ai] model verified: sha256",
@@ -1230,6 +1287,22 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        // The servers' side of the TLS cases: the echo went through and ended with
+        // close_notify, and every refusal reached the server as the alert that names
+        // it -- including bad_record_mac, which RFC 8446 requires.
+        lab_must_contain: &[
+            "tls-echo: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)",
+            "tls-echo: 16384 bytes echoed, closed with close_notify both ways",
+            "tls-aes128: handshake complete (TLS13_AES_128_GCM_SHA256)",
+            "tls-aes128: 16384 bytes echoed, closed with close_notify both ways",
+            "tls-aes256: handshake complete (TLS13_AES_256_GCM_SHA384)",
+            "tls-aes256: 16384 bytes echoed, closed with close_notify both ways",
+            "tls-expired: the handshake ended: received fatal alert: CertificateExpired",
+            "tls-wrongname: the handshake ended: received fatal alert: BadCertificate",
+            "tls-untrusted: the handshake ended: received fatal alert: UnknownCA",
+            "tls-tamper: after 23 bytes: received fatal alert: BadRecordMac",
+            "tls-truncate: answered, and left without close_notify",
+        ],
     },
     Scenario {
         name: "panic-diagnosis",
@@ -1248,6 +1321,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "kernel-fault-diagnosis",
@@ -1265,6 +1339,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
@@ -1278,6 +1353,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "storage-reboot",
@@ -1300,6 +1376,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &["survived the reboot, wrote"],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "init-exit-diagnosis",
@@ -1319,6 +1396,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "init-missing-diagnosis",
@@ -1333,6 +1411,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
     },
     Scenario {
         name: "terminal",
@@ -1350,6 +1429,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
     },
     Scenario {
         name: "terminal-serial",
@@ -1365,6 +1445,7 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
     },
 ];
 
@@ -1399,6 +1480,11 @@ fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
         }
     }
     problems.extend(tcp_problems(run));
+    for m in s.lab_must_contain {
+        if !run.lab_log.contains(m) {
+            problems.push(format!("the lab services never wrote {m:?}"));
+        }
+    }
     problems
 }
 
@@ -1709,9 +1795,9 @@ fn cmd_clippy() -> Result<(), String> {
     let mut c = cargo();
     c.args(["clippy", "--target", "x86_64-unknown-none", "--target-dir", "target/user"]);
     for p in USER_PROGRAMS {
-        c.args(["-p", p]);
+        c.args(["-p", &package_spec(p)]);
     }
-    c.args(["-p", "libspace", "--", "-D", "warnings"]);
+    c.args(["-p", "libspace", "-p", "spacetls", "--", "-D", "warnings"]);
     sh(&mut c)?;
     sh(cargo().args(["clippy", "-p", "xtask", "--", "-D", "warnings"]))
 }

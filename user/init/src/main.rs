@@ -1480,6 +1480,55 @@ pub extern "C" fn space_main() -> i32 {
             no_leak_over(20, "network connections", || nettest::ping(l))
         },
     );
+    // TLS 1.3 to the lab's TLS services, each case in a process of its own
+    // (user/tests/tlsprobe): keys from the entropy source, validity against the
+    // clock, trust in nothing but the lab authority whose certificate is on the disk.
+    let (tls_ready, tls_why) = match (nic, entropy, disk) {
+        (false, _, _) => (false, "no network device"),
+        (_, false, _) => (false, "no entropy source"),
+        (_, _, false) => (false, "no disk, which holds the lab authority's certificate"),
+        _ => (true, ""),
+    };
+    let tls_cases: [(&str, u16, &str, &str); 8] = [
+        (
+            "echo",
+            443,
+            "ok TLS13_CHACHA20_POLY1305_SHA256:",
+            "TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it",
+        ),
+        (
+            "echo",
+            449,
+            "ok TLS13_AES_128_GCM_SHA256:",
+            "TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it",
+        ),
+        (
+            "echo",
+            450,
+            "ok TLS13_AES_256_GCM_SHA384:",
+            "TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it",
+        ),
+        ("refuse", 444, "err expired ", "an expired certificate is refused"),
+        ("refuse", 445, "err wrong-name ", "a certificate for another name is refused"),
+        ("refuse", 446, "err unknown-issuer ", "a certificate from an unknown authority is refused"),
+        ("tamper", 447, "err bad-record ", "a record altered on the way is caught"),
+        (
+            "truncate",
+            448,
+            "err truncated ",
+            "a connection cut short without close_notify is reported as truncated",
+        ),
+    ];
+    for (case, port, want, name) in tls_cases {
+        r.run_if(tls_ready, tls_why, "TLS", name, || {
+            let answer = nettest::tls_probe(lab.as_ref().ok_or_else(no_service)?, ROOT, case, port)?;
+            if answer.starts_with(want) {
+                Ok(())
+            } else {
+                Err(alloc::format!("expected an answer starting {want:?}, the probe said {answer:?}"))
+            }
+        });
+    }
     r.run_if(
         nic,
         "no network device",

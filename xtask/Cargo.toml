@@ -11,4 +11,12 @@ fatfs = "0.3.6"
 tar = "0.4"
 fscommon = "0.1"
 sha2 = "0.10"
+# The lab's TLS services and their certificates (ADR-0017). ring on this side, so
+# the guest's RustCrypto-based TLS is checked against a different implementation.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+time = "0.3"
+# Decodes every instruction of the kernel and the programs, to prove none of them
+# needs the FPU or vector units the kernel switches off (ADR-0017).
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info", "gas"] }
 spaceabi.workspace = true

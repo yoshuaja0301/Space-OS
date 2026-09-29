@@ -2,65 +2,85 @@
 
 Sesi verifikasi 2026-09-29, QEMU 8.2.2 / OVMF 4M. Image yang sama untuk semua mesin;
 kesepuluh konfigurasi boot dan lulus (exit QEMU 33). Baris tcp berasal dari rekaman
-pcap setiap boot yang diperiksa harness (ADR-0016).
+pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari ADR-0017.
 
 == lab
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == q35-1cpu-2g
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == i440fx
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (85/85, 9 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: none
+   tls  : dilewati (no entropy source)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == cpu-max
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: RDRAND
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == virtio-transitional
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == virtio-small-queue
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 4 (max 4), 2 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == no-disk
-   init : ALL TESTS PASSED (67/67, 15 skipped)
+   init : ALL TESTS PASSED (71/71, 23 skipped)
    blok : virtio-blk: no device present
-   net  : virtio-net: pci 00:02.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : dilewati (no disk, which holds the lab authority's certificate)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == no-vga
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:01.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:02.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: none usable; serial console only
 == vmware-vga
-   init : ALL TESTS PASSED (82/82, 0 skipped)
+   init : ALL TESTS PASSED (94/94, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent againtcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
 == e1000-only
-   init : ALL TESTS PASSED (67/67, 15 skipped)
+   init : ALL TESTS PASSED (71/71, 23 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: no device present
    tcp  : tidak ada kartu yang didukung; uji NET dilewati
+   entr : entropy: virtio-rng
+   tls  : dilewati (no network device)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50

@@ -4,8 +4,8 @@ Diambil dari build/logs/acceptance.log, acceptance.lab.log dan acceptance.pcap s
 acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 
 ## Driver dan lease (kernel)
-[kernel] virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-[kernel] rtc: 1790678706 s since the Unix epoch (UTC)
+[kernel] virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+[kernel] rtc: 1790695712 s since the Unix epoch (UTC)
 
 ## Uji NET
 [init] network: virtio-net present
@@ -14,33 +14,33 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 [init] PASS NET: the device reports its address, link and frame size
 [init] network: 10.0.2.2 is at 52:55:0a:00:02:02 (1 ms)
 [init] PASS NET: ARP: the gateway answers who-has 10.0.2.2
-[init] network: echo 1 (32 byte payload) back in 1 ms
+[init] network: echo 1 (32 byte payload) back in 0 ms
 [init] network: echo 2 (512 byte payload) back in 1 ms
 [init] network: echo 3 (1472 byte payload) back in 1 ms
 [init] network: 5 frames received, 5 sent, 0 dropped
 [init] PASS NET: ICMP echo to the gateway comes back intact
-[init] network: asleep 151 ms; woken 1 ms after the frame left
+[init] network: asleep 150 ms; woken 1 ms after the frame left
 [init] PASS NET: a frame arriving while the receiver sleeps wakes it
 [init] PASS NET: malformed transmit and receive requests are refused
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 13 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 11 ms
 [init] PASS NET: the network service gets an address by DHCP and describes it
-[init] network: echo.lab.test is 10.0.2.101 (11 ms)
+[init] network: echo.lab.test is 10.0.2.101 (16 ms)
 [init] network: alias.lab.test is 10.0.2.101 (5 ms)
-[init] network: ECHO.Lab.Test is 10.0.2.101 (3 ms)
+[init] network: ECHO.Lab.Test is 10.0.2.101 (5 ms)
 [init] PASS NET: names resolve through the lab DNS server; unknown names do not
 [init] network: 65536 bytes to the echo service and back in 1037 ms
 [init] PASS NET: 64 KiB go to the echo service and come back intact over TCP
 [init] network: 4 refusals counted (0 -> 4); frames sent meanwhile: 0
 [init] PASS NET: destinations off the allowlist are refused before a frame leaves
-[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 501 ms
+[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 503 ms
 [init] PASS NET: a connection nobody answers times out
-[init] network: closed.lab.test:8 gave Err(Refused) after 6 ms
+[init] network: closed.lab.test:8 gave Err(Refused) after 8 ms
 [init] PASS NET: a port nobody listens on refuses the connection
-[init] network: the resetting service answered Err(Reset) after 302 ms
+[init] network: the resetting service answered Err(Reset) after 300 ms
 [init] PASS NET: a connection the peer resets is reported as reset
-[init] network connections: frames free 2090488 -> 2090488, heap used 11576 -> 11576, live processes 2
+[init] network connections: frames free 2090215 -> 2090215, heap used 11576 -> 11576, live processes 2
 [init] PASS NET: 20 connections open and close without leaking kernel memory
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 11 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 13 ms
 [init] PASS NET: killing the service fails its clients and frees the device; a new one serves and quits
 
 ## Layanan spacenet (baris pertama instans pertama, lalu penutupan instans kedua)
@@ -56,7 +56,7 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 [net] session 1: allow closed.lab.test, port 8
 [net] session 1: allow nosuch.lab.test, any port
 [net] DNS: alias.lab.test is 10.0.2.101 (3 ms)
-[net] DNS: ECHO.Lab.Test is 10.0.2.101 (2 ms)
+[net] DNS: ECHO.Lab.Test is 10.0.2.101 (3 ms)
 [net] DNS: nosuch.lab.test: not found
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1009 ms
 [net] session 1: echo.lab.test:7 closed: 65536 bytes out, 65536 in
@@ -64,30 +64,64 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 [net] session 1: refused to connect to echo.lab.test port 8: not on its allowlist
 [net] session 1: refused to connect to 10.0.2.101 port 7: not on its allowlist
 [net] session 1: refused to look up api.cloud.test: not on its allowlist
-[net] DNS: blackhole.lab.test is 10.0.2.77 (4 ms)
+[net] DNS: blackhole.lab.test is 10.0.2.77 (3 ms)
 [net] session 1: blackhole.lab.test:80: timed out after 500 ms
-[net] DNS: closed.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: closed.lab.test:8: connection refused after 4 ms
+[net] DNS: closed.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: closed.lab.test:8: connection refused after 6 ms
 [net] DNS: reset.lab.test is 10.0.2.102 (4 ms)
-[net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1006 ms
+[net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1007 ms
 [net] session 1: reset.lab.test:9: connection reset after 1307 ms
-[net] Space OS network service, ABI v0
-[net] attached: mac 52:54:00:12:34:56, link up; asking DHCP for an address
-[net] DHCP: address 10.0.2.15/24, router none, DNS server none
-[net] DNS: using 10.0.2.53:53 (over TCP)
-[net] session 1 opened; nothing is allowed yet
-[net] session 1: allow echo.lab.test, port 7
-[net] session 1: allow alias.lab.test, port 7
-[net] session 1: allow reset.lab.test, port 9
-[net] session 1: allow blackhole.lab.test, port 80
-[net] session 1: allow closed.lab.test, port 8
-[net] session 1: allow nosuch.lab.test, any port
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1012 ms
-[net] closing: 1 connections opened, 0 refused, 1 names resolved; 13 frames in, 15 out, 0 dropped
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
+[net] session 29 opened; nothing is allowed yet
+[net] session 29: allow tls.lab.test, port 443
+[net] DNS: tls.lab.test is 10.0.2.103 (4 ms)
+[net] session 29: connected to tls.lab.test:443 (10.0.2.103) in 1007 ms
+[net] session 29: tls.lab.test:443 closed: 17043 bytes out, 17230 in
+[net] session 31 opened; nothing is allowed yet
+[net] session 29 closed: 1 opened, 0 refused, 1 resolved
+[net] session 31: allow tls.lab.test, port 449
+[net] DNS: tls.lab.test is 10.0.2.103 (4 ms)
+[net] session 31: connected to tls.lab.test:449 (10.0.2.103) in 6 ms
+[net] session 31: tls.lab.test:449 closed: 17043 bytes out, 17317 in
+[net] session 33 opened; nothing is allowed yet
+[net] session 31 closed: 1 opened, 0 refused, 1 resolved
+[net] session 33: allow tls.lab.test, port 450
+[net] DNS: tls.lab.test is 10.0.2.103 (4 ms)
+[net] session 33: connected to tls.lab.test:450 (10.0.2.103) in 6 ms
+[net] session 33: tls.lab.test:450 closed: 17059 bytes out, 17225 in
+[net] session 35 opened; nothing is allowed yet
+[net] session 33 closed: 1 opened, 0 refused, 1 resolved
+[net] session 35: allow tls.lab.test, port 444
+[net] DNS: tls.lab.test is 10.0.2.103 (3 ms)
+[net] session 35: connected to tls.lab.test:444 (10.0.2.103) in 5 ms
+[net] session 35 closed: 1 opened, 0 refused, 1 resolved
+[net] session 37 opened; nothing is allowed yet
+[net] session 37: allow tls.lab.test, port 445
+[net] DNS: tls.lab.test is 10.0.2.103 (4 ms)
+[net] session 37: connected to tls.lab.test:445 (10.0.2.103) in 7 ms
+[net] session 37 closed: 1 opened, 0 refused, 1 resolved
+[net] session 39 opened; nothing is allowed yet
+[net] session 39: allow tls.lab.test, port 446
+[net] DNS: tls.lab.test is 10.0.2.103 (5 ms)
+[net] session 39: connected to tls.lab.test:446 (10.0.2.103) in 8 ms
 
 ## Layanan lab (xtask lab), jumlah per baris
      28 dns: echo.lab.test: 1 record(s)
      24 echo: 4 bytes echoed; the guest finished sending
+      8 dns: tls.lab.test: 1 record(s)
+      1 tls-wrongname: the handshake ended: received fatal alert: BadCertificate
+      1 tls-untrusted: the handshake ended: received fatal alert: UnknownCA
+      1 tls-truncate: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+      1 tls-truncate: answered, and left without close_notify
+      1 tls-tamper: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+      1 tls-tamper: after 23 bytes: received fatal alert: BadRecordMac
+      1 tls-expired: the handshake ended: received fatal alert: CertificateExpired
+      1 tls-echo: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+      1 tls-echo: 16384 bytes echoed, closed with close_notify both ways
+      1 tls-aes256: handshake complete (TLS13_AES_256_GCM_SHA384)
+      1 tls-aes256: 16384 bytes echoed, closed with close_notify both ways
+      1 tls-aes128: handshake complete (TLS13_AES_128_GCM_SHA256)
+      1 tls-aes128: 16384 bytes echoed, closed with close_notify both ways
       1 reset: leaving with the guest's data unread
       1 echo: 65536 bytes echoed; the guest finished sending
       1 echo: 0 bytes echoed; the guest finished sending
@@ -98,5 +132,5 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
       1 dns: alias.lab.test: 2 record(s)
 
 ## Kabel (pcap, diperiksa harness)
-tcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
-60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+tcp: 76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again
+76 connections, 74 closed cleanly, 1 reset, 0 segment(s) the peer sent again

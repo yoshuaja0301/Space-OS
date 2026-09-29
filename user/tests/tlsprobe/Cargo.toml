@@ -1,0 +1,17 @@
+[package]
+name = "tlsprobe"
+description = "Runs one TLS case against a lab service and reports how it ended"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "tlsprobe"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true
+spacetls = { path = "../../spacetls" }

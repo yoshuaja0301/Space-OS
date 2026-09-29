@@ -34,6 +34,11 @@ Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
 | `vmware-vga` | `-vga vmware` | `framebuffer:` |
 | `e1000-only` | kartu jaringan e1000 saja (tanpa virtio-net) | `virtio-net: no device present`, `[init] network: none; network tests will be skipped`, `[init] SKIP NET` |
 
+Sumber entropi ikut bervariasi: `i440fx` tidak punya virtio-rng maupun RDRAND (`qemu64`), jadi
+harus mengatakan `[kernel] entropy: none` dan melewati uji TLS; `cpu-max` tidak punya virtio-rng
+tetapi punya RDRAND, dan harus lulus uji TLS dengan kunci dari situ; `no-disk` melewati uji TLS
+karena sertifikat otoritas lab ada di disk; `virtio-transitional` memakai virtio-rng transisional.
+
 Semua mesin lain membawa kartu virtio-net modern di jaringan lab (lihat di bawah);
 `virtio-transitional` memakai kartu transisional dan harus tetap lulus ICMP echo.
 
@@ -52,6 +57,7 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | proses hello keluar 0 | `bin/hello` |
 | K02 | spawn program tak ada → `NotFound`; spawn dengan kuota 4 halaman → `Quota` | — |
 | K02 | tulis memori kernel / baca NULL / eksekusi stack NX / lompat ke alamat kernel → dibunuh `PAGE_FAULT`; `div` → `DIVIDE_ERROR`; `ud2` → `INVALID_OPCODE`; `cli` → `GENERAL_PROTECTION`; `int3` → `BREAKPOINT`; lompat ke alamat non-kanonik → `GENERAL_PROTECTION` (CPU asli) atau `PAGE_FAULT` (TCG) | `bin/fault` |
+| K02 | instruksi SSE (`pxor`) → `INVALID_OPCODE`, instruksi x87 (`fld1`) → `NO_FPU`: unit FPU/vektor dimatikan karena kernel tidak menyimpan state-nya per thread, jadi register tidak pernah dibagi antarproses (ADR-0017) | `bin/fault` |
 | K02 | TF disetel lalu `syscall`: `#DB` mendarat di ring 0 → kernel selamat, proses dimatikan `DEBUG` | `bin/fault` |
 | K02 | `syscall` dengan `rsp` non-kanonik dan dengan `rsp` = alamat kernel → kembali normal, proses keluar 0 | `bin/fault` |
 | K02 | ELF rusak dari initrd (`fixtures/bad_entry`, `bad_magic`, `truncated`, `huge_segment`) → `NoExec`/`Quota`, tanpa crash | fixture dibuat `xtask` dari `hello` |
@@ -70,6 +76,8 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | set cacat ditolak: kosong → `Invalid`, `WAIT_MAX + 1` → `Invalid`, handle tertutup → `BadHandle`, handle root dan channel tanpa `RECV` → `Denied`, pointer kernel → `Fault` | `bin/init` |
 | K03 | 20 siklus kill saat `wait_any` pada dua antrean tanpa batas waktu, dan 20 siklus dengan batas waktu satu jam → frame bebas dan heap kernel identik, entri timer dilepas saat itu juga | `bin/blocker` |
 | K02 | jam dinding (`SYS_CLOCK_REALTIME`, RTC CMOS) jatuh di antara 2024 dan 2100, dan `sleep(50 ms)` memajukannya 50–1000 ms | `bin/init` |
+| K02 | `SYS_RANDOM`: 257 byte → `Invalid`, alamat kernel → `Fault`, 0 byte → `Ok(0)`, 16 byte → `Ok(16)` bila ada sumber entropi dan `NotFound` bila tidak (tidak pernah cadangan yang lemah) | `bin/init` |
+| K02 | 16 tarikan × 256 byte dari virtio-rng/RDRAND: tidak ada yang identik, chi-square byte ≤ 400 (255 derajat kebebasan), jumlah bit 1 dalam ±600 dari setengah; dilewati tanpa sumber entropi | `bin/init` |
 | A01 | tiga model rusak (`badmagic`, `baddims`, `trunc`) ditolak dengan alasan, tanpa crash | `bin/spaceai` |
 | A01 | model diverifikasi SHA-256 terhadap manifest saat dimuat ke buffer compute | `bin/spaceai` |
 | A01 | 128 token dihasilkan offline lewat Compute ABI dan **identik** dengan baseline host; TTFT, token/detik, working set dan RSS dilaporkan | `bin/spaceai` |
@@ -206,13 +214,47 @@ allowlist yang mengabaikan port, `echo.lab.test:8` lolos dari pemeriksaan (`conn
 refused, expected Denied`); dengan RST yang dilaporkan sebagai akhir aliran, uji reset
 gagal (`read gave Ok(0), expected Reset`).
 
+### Uji TLS (ADR-0017)
+
+Setiap kasus berjalan di proses `bin/tlsprobe` sendiri, dengan sesi `spacenet` yang hanya boleh
+ke `tls.lab.test:<port>` dan handle root yang hanya bisa membaca berkas (sertifikat otoritas lab
+ada di `/spaceos/tls/labca.der`). Dilewati tanpa kartu, tanpa sumber entropi, atau tanpa disk.
+
+| ID | Uji | Layanan lab |
+|---|---|---|
+| TLS | TLS 1.3 dengan ChaCha20-Poly1305: 16 KiB pola tak berulang bolak-balik utuh, `close_notify` dua arah | 10.0.2.103:443 |
+| TLS | sama, dengan AES-128-GCM (server hanya menawarkan suite itu) | :449 |
+| TLS | sama, dengan AES-256-GCM | :450 |
+| TLS | sertifikat kedaluwarsa kemarin → `expired` | :444 |
+| TLS | sertifikat untuk `other.lab.test` → `wrong-name` | :445 |
+| TLS | sertifikat yang ditandatangani sendiri → `unknown-issuer` | :446 |
+| TLS | satu bit dibalik di record data pertama → `bad-record` | :447 |
+| TLS | jawaban sebagian lalu tutup tanpa `close_notify` → `truncated` | :448 |
+
+Layanan TLS lab memakai rustls + ring di host. Selain jawaban guest, skenario `acceptance`
+menuntut **log server** (`build/logs/acceptance.lab.log`) berisi handshake dengan ketiga suite,
+echo 16384 byte yang ditutup dengan `close_notify` dua arah, dan alert yang menamai setiap
+penolakan: `CertificateExpired`, `BadCertificate`, `UnknownCA`, `BadRecordMac`. Gigi uji ini
+ada di ADR-0017: verifier yang menerima semua sertifikat, jam yang dimajukan 31 hari, dan EOF yang
+dianggap akhir bersih masing-masing membuat run gagal.
+
+## Gerbang build: tidak ada instruksi FPU atau vektor
+
+`cargo xtask build` mendekode setiap instruksi di segmen executable kernel dan semua program
+(`xtask/src/nofpu.rs`, iced-x86) dan gagal bila ada instruksi x87, MMX, SSE, AVX, AES-NI,
+PCLMUL, SHA, FXSR atau XSAVE, register vektor/FPU sebagai operand, atau byte yang bukan
+instruksi. Unit-unit itu dimatikan kernel, jadi instruksi seperti itu di kernel berarti panic
+dan di program berarti program mati. Pengecualiannya tepat dua instruksi yang disengaja di
+`bin/fault` (`fld1`, `pxor`); pemeriksa terbukti menemukan keduanya.
+
 ## Jaringan lab dan pemeriksaan kabel
 
 Kartu setiap mesin tersambung ke jaringan QEMU user-mode dengan `restrict=on`: guest
 tidak bisa mencapai host maupun internet. Satu-satunya pintu adalah aturan
 `guestfwd` yang menjalankan `xtask lab <nama>` untuk setiap koneksi, dengan koneksi
 itu sebagai stdin/stdout (`xtask/src/lab.rs`): DNS lewat TCP di 10.0.2.53:53, echo di
-10.0.2.101:7, dan layanan yang me-reset koneksinya di 10.0.2.102:9. Port lain di alamat
+10.0.2.101:7, layanan yang me-reset koneksinya di 10.0.2.102:9, dan layanan TLS di
+10.0.2.103 (lihat uji TLS). Port lain di alamat
 lab dijawab QEMU dengan RST (uji `Refused`), dan tidak ada yang
 menjawab di 10.0.2.77. Catatan layanan lab ditulis ke `build/logs/<skenario>.lab.log`.
 
