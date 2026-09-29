@@ -9,8 +9,9 @@ use alloc::sync::Arc;
 use spaceabi::error::{Error, encode};
 use spaceabi::handle::{self, Handle, rights};
 use spaceabi::syscall::{
-    DIR_ENTRIES_MAX, DirEntry, ExitStatus, FileStat, HandleInfo, KernelStats, MSG_MAX, PATH_MAX, RecvArgs,
-    SelfInfo, SpawnArgs, debug_op, kill_reason, map_flags, nr, qemu_exit, recv_flags, wait_flags,
+    DIR_ENTRIES_MAX, DirEntry, ExitStatus, FRAME_MAX, FRAME_MIN, FileStat, HandleInfo, KernelStats, MSG_MAX,
+    PATH_MAX, RecvArgs, SelfInfo, SpawnArgs, WAIT_FOREVER, WAIT_MAX, debug_op, kill_reason, map_flags, nr,
+    qemu_exit, recv_flags, wait_flags,
 };
 
 use crate::arch;
@@ -63,6 +64,12 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::CONSOLE_READ => sys_console_read(a[0] as Handle, a[1], a[2]),
         nr::FS_CREATE => sys_fs_create(a[0] as Handle, a[1], a[2]),
         nr::FS_WRITE => sys_fs_write(a[0] as Handle, a[1], a[2], a[3]),
+        nr::NET_OPEN => sys_net_open(a[0] as Handle),
+        nr::NET_INFO => sys_net_info(a[0] as Handle, a[1]),
+        nr::NET_SEND => sys_net_send(a[0] as Handle, a[1], a[2]),
+        nr::NET_RECV => sys_net_recv(a[0] as Handle, a[1], a[2]),
+        nr::WAIT_ANY => sys_wait_any(a[0], a[1], a[2]),
+        nr::CLOCK_REALTIME => sys_clock_realtime(),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -219,6 +226,190 @@ fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error
     Ok(n)
 }
 
+// ---- network device ------------------------------------------------------------
+
+fn require_nic(h: Handle, need: u32) -> Result<(), Error> {
+    let p = current();
+    let t = p.handles.lock();
+    let e = t.get(h)?;
+    match e.object {
+        Object::Nic(_) if e.has(need) => Ok(()),
+        _ => Err(Error::Denied),
+    }
+}
+
+/// Lease the network device. One lease exists at a time: the device's frames are a
+/// single stream, and two readers would each see half of every conversation.
+fn sys_net_open(root: Handle) -> Result<usize, Error> {
+    require_root(root, rights::NET)?;
+    heap::reserve(cost::HANDLE)?;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    let lease = crate::dev::virtio_net::lease()?;
+    // A failed insert drops the entry, and with it the lease.
+    let entry = HandleEntry { object: Object::Nic(lease), rights: rights::NIC_ALL };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+fn sys_net_info(h: Handle, out: u64) -> Result<usize, Error> {
+    require_nic(h, rights::READ)?;
+    user_bytes(out, core::mem::size_of::<spaceabi::syscall::NetInfo>() as u64, true)?;
+    let info = crate::dev::virtio_net::info()?;
+    write_user(out, info)?;
+    Ok(0)
+}
+
+fn sys_net_send(h: Handle, ptr: u64, len: u64) -> Result<usize, Error> {
+    require_nic(h, rights::WRITE)?;
+    if len < FRAME_MIN as u64 {
+        return Err(Error::Invalid);
+    }
+    if len > FRAME_MAX as u64 {
+        return Err(Error::MsgSize);
+    }
+    // Copy the frame out of user memory before the driver lock is taken.
+    let src = user_bytes(ptr, len, false)?;
+    let mut frame = [0u8; FRAME_MAX];
+    frame[..len as usize].copy_from_slice(src);
+    crate::dev::virtio_net::send(&frame[..len as usize])?;
+    Ok(len as usize)
+}
+
+/// Take one received frame. The buffer must hold [`FRAME_MAX`] bytes, so a frame is
+/// never dequeued and then found not to fit.
+fn sys_net_recv(h: Handle, ptr: u64, cap: u64) -> Result<usize, Error> {
+    require_nic(h, rights::READ)?;
+    if cap < FRAME_MAX as u64 {
+        return Err(Error::Invalid);
+    }
+    user_bytes(ptr, FRAME_MAX as u64, true)?;
+    let mut frame = [0u8; FRAME_MAX];
+    let n = crate::dev::virtio_net::recv(&mut frame)?;
+    let dst = user_bytes(ptr, n as u64, true)?;
+    dst.copy_from_slice(&frame[..n]);
+    Ok(n)
+}
+
+/// Something `SYS_WAIT_ANY` can wait on.
+enum Waitable {
+    /// Readable: a message is queued or the peer is gone.
+    Channel(Arc<Endpoint>),
+    /// Ready once the process has ended.
+    Process(Arc<Process>),
+    /// Ready when a frame has arrived. Holding the lease keeps the device ours
+    /// for the duration of the wait.
+    Nic(#[allow(dead_code)] Arc<crate::dev::virtio_net::NicLease>),
+}
+
+impl Waitable {
+    fn ready(&self) -> bool {
+        match self {
+            Waitable::Channel(ep) => ep.readable(),
+            Waitable::Process(p) => p.status.lock().is_some(),
+            Waitable::Nic(_) => crate::dev::virtio_net::rx_ready(),
+        }
+    }
+
+    fn queue(&self) -> &sched::WaitQueue {
+        match self {
+            Waitable::Channel(ep) => ep.recv_waiters(),
+            Waitable::Process(p) => &p.exit_waiters,
+            Waitable::Nic(_) => crate::dev::virtio_net::waiters(),
+        }
+    }
+}
+
+/// Block until one of several handles is ready, or `timeout_ms` passes.
+///
+/// A service that talks to a device and to clients at once has to wait on both;
+/// without this it can only poll each in turn and sleep in between, which is both
+/// slow to react and busy when idle. The call reports readiness, it consumes
+/// nothing: the caller then `recv`s, `wait`s or `net_recv`s the ready handle.
+fn sys_wait_any(ptr: u64, count: u64, timeout_ms: u64) -> Result<usize, Error> {
+    if count == 0 || count > WAIT_MAX as u64 {
+        return Err(Error::Invalid);
+    }
+    let raw = user_bytes(ptr, count * 4, false)?;
+    let mut handles = [0u32; WAIT_MAX];
+    for (i, h) in handles.iter_mut().take(count as usize).enumerate() {
+        *h = u32::from_le_bytes([raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]]);
+    }
+    heap::reserve(count as usize * cost::WAIT_ITEM)?;
+    let mut items: alloc::vec::Vec<Waitable> = alloc::vec::Vec::new();
+    items.try_reserve_exact(count as usize).map_err(|_| Error::NoMemory)?;
+    {
+        let p = current();
+        let t = p.handles.lock();
+        for &h in &handles[..count as usize] {
+            let e = t.get(h)?;
+            let w = match &e.object {
+                Object::Channel(ep) if e.has(rights::RECV) => Waitable::Channel(ep.clone()),
+                Object::Process(target) if e.has(rights::WAIT) => {
+                    // A process waiting for its own exit would wait forever.
+                    if Arc::ptr_eq(target, &p) {
+                        return Err(Error::Invalid);
+                    }
+                    Waitable::Process(target.clone())
+                }
+                Object::Nic(lease) if e.has(rights::READ) => Waitable::Nic(lease.clone()),
+                _ => return Err(Error::Denied),
+            };
+            items.push(w);
+        }
+    }
+    let deadline = if timeout_ms == WAIT_FOREVER { None } else { Some(sched::deadline_after_ms(timeout_ms)) };
+    crate::sync::without_interrupts(|| {
+        loop {
+            // Interrupts stay off from this check until the thread is blocked, so a
+            // wake-up cannot slip in between "nothing is ready" and going to sleep.
+            if let Some(i) = items.iter().position(Waitable::ready) {
+                return Ok(i);
+            }
+            if timeout_ms == 0 || deadline.is_some_and(|d| sched::now_ticks() >= d) {
+                return Err(Error::TimedOut);
+            }
+            let cur = sched::current();
+            let mut registered = 0;
+            let mut failure = None;
+            for w in &items {
+                if let Err(e) = w.queue().register(&cur) {
+                    failure = Some(e);
+                    break;
+                }
+                registered += 1;
+            }
+            if failure.is_none()
+                && let Some(d) = deadline
+                && let Err(e) = sched::add_sleeper(d, &cur)
+            {
+                failure = Some(e);
+            }
+            if failure.is_none() {
+                cur.set_state(sched::ThreadState::Blocked);
+                sched::schedule();
+            }
+            // Whatever woke us, leave every queue and the timer list: a stale entry
+            // would keep this thread (and its process) referenced after it moved on.
+            for w in &items[..registered] {
+                w.queue().unregister(&cur);
+            }
+            sched::remove_sleeper(&cur);
+            if let Some(e) = failure {
+                return Err(e);
+            }
+            if proc::has_pending_kill() {
+                return Err(Error::Interrupted);
+            }
+        }
+    })
+}
+
+fn sys_clock_realtime() -> Result<usize, Error> {
+    crate::arch::rtc::realtime_ms(sched::uptime_ms()).map(|ms| ms as usize).ok_or(Error::NotFound)
+}
+
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
     let stat = with_file(h, rights::READ, |f| {
         Ok(FileStat { size: f.node.lock().size, block_size: crate::dev::virtio_blk::SECTOR_SIZE })
@@ -299,6 +490,7 @@ fn sys_vmo_size(h: Handle) -> Result<usize, Error> {
 
 /// Rough kernel-heap cost of the objects a syscall may create.
 mod cost {
+    pub const WAIT_ITEM: usize = 64;
     pub const MESSAGE: usize = 1024;
     pub const HANDLE: usize = 128;
     pub const CHANNEL: usize = 4096;

@@ -3,8 +3,8 @@
 //! * A fault raised in ring 3 kills the offending process (K02: "akses memori
 //!   terlarang mematikan proses uji, bukan kernel").
 //! * A fault raised in ring 0 is a kernel bug: dump the frame and panic.
-//! * IRQ 0 (PIT) drives the scheduler tick, IRQ 1 and IRQ 3 feed console input;
-//!   other IRQs are acknowledged and ignored.
+//! * IRQ 0 (PIT) drives the scheduler tick and the network device poll, IRQ 1 and
+//!   IRQ 3 feed console input; other IRQs are acknowledged and ignored.
 
 use spaceabi::syscall::{ExitStatus, kill_reason};
 
@@ -195,6 +195,9 @@ fn handle_irq(frame: &mut TrapFrame) {
     match frame.vector {
         IRQ_TIMER => {
             pic::eoi(irq);
+            // The network device is polled: a frame that arrived since the last tick
+            // wakes its waiters here, before the tick decides who runs next.
+            crate::dev::virtio_net::poll_tick();
             sched::timer_tick();
         }
         IRQ_KEYBOARD => {

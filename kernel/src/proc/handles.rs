@@ -49,6 +49,8 @@ pub enum Object {
     Process(Arc<Process>),
     File(Arc<OpenFile>),
     Memory(Arc<MemoryObject>),
+    /// The lease on the network device; the device is released with the last one.
+    Nic(Arc<crate::dev::virtio_net::NicLease>),
     Root,
 }
 
@@ -59,6 +61,7 @@ impl Object {
             Object::Process(_) => kind::PROCESS,
             Object::File(_) => kind::FILE,
             Object::Memory(_) => kind::MEMORY,
+            Object::Nic(_) => kind::NIC,
             Object::Root => kind::ROOT,
         }
     }
@@ -69,6 +72,7 @@ impl Object {
             Object::Process(p) => Object::Process(p.clone()),
             Object::File(f) => Object::File(f.clone()),
             Object::Memory(m) => Object::Memory(m.clone()),
+            Object::Nic(n) => Object::Nic(n.clone()),
             Object::Root => Object::Root,
         }
     }

@@ -5,7 +5,8 @@ use core::arch::asm;
 use spaceabi::error::{Error, decode};
 use spaceabi::handle::{self, Handle};
 use spaceabi::syscall::{
-    DirEntry, ExitStatus, FileStat, HandleInfo, KernelStats, RecvArgs, SelfInfo, SpawnArgs, nr, recv_flags,
+    DirEntry, ExitStatus, FRAME_MAX, FileStat, HandleInfo, KernelStats, NetInfo, RecvArgs, SelfInfo,
+    SpawnArgs, nr, recv_flags,
 };
 
 /// Raw syscall with up to six arguments. Public so tests can probe invalid numbers.
@@ -226,4 +227,39 @@ pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {
 
 pub fn debug(root: Handle, op: u64) -> Result<(), Error> {
     call(nr::DEBUG, [root as u64, op, 0, 0, 0, 0]).map(|_| ())
+}
+
+/// Lease the network device (needs the root `NET` right). One lease exists at a
+/// time: a second attempt gets [`Error::Busy`] until the first handle is closed.
+pub fn net_open(root: Handle) -> Result<Handle, Error> {
+    call(nr::NET_OPEN, [root as u64, 0, 0, 0, 0, 0]).map(|h| h as Handle)
+}
+
+pub fn net_info(nic: Handle) -> Result<NetInfo, Error> {
+    let mut info = NetInfo::default();
+    call(nr::NET_INFO, [nic as u64, &mut info as *mut NetInfo as u64, 0, 0, 0, 0])?;
+    Ok(info)
+}
+
+/// Transmit one Ethernet frame (header included, no FCS).
+pub fn net_send(nic: Handle, frame: &[u8]) -> Result<usize, Error> {
+    call(nr::NET_SEND, [nic as u64, frame.as_ptr() as u64, frame.len() as u64, 0, 0, 0])
+}
+
+/// Take one received frame; [`Error::WouldBlock`] when none is waiting.
+pub fn net_recv(nic: Handle, buf: &mut [u8; FRAME_MAX]) -> Result<usize, Error> {
+    call(nr::NET_RECV, [nic as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0])
+}
+
+/// Block until one of `handles` is ready and return its index, or
+/// [`Error::TimedOut`] after `timeout_ms` (use [`spaceabi::syscall::WAIT_FOREVER`]
+/// to wait without limit, 0 to only look). A channel is ready when `recv` would
+/// not block, a process when it has ended, a network lease when a frame arrived.
+pub fn wait_any(handles: &[Handle], timeout_ms: u64) -> Result<usize, Error> {
+    call(nr::WAIT_ANY, [handles.as_ptr() as u64, handles.len() as u64, timeout_ms, 0, 0, 0])
+}
+
+/// Wall-clock time: milliseconds since 1970-01-01T00:00:00Z.
+pub fn clock_realtime_ms() -> Result<u64, Error> {
+    call(nr::CLOCK_REALTIME, [0; 6]).map(|v| v as u64)
 }

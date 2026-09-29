@@ -76,6 +76,13 @@ impl Address {
         self.write32(0x04, cmd | 0x6);
     }
 
+    /// Stop the function from asserting its legacy INTx line (command bit 10).
+    /// For drivers that poll: a line nobody services must never be left asserted.
+    pub fn disable_intx(&self) {
+        let cmd = self.read32(0x04);
+        self.write32(0x04, cmd | (1 << 10));
+    }
+
     /// Base address of BAR `index`, or `None` when the BAR is unused or I/O space.
     /// 64-bit BARs consume two slots; pass the lower index.
     pub fn bar_address(&self, index: u8) -> Option<u64> {

@@ -24,6 +24,21 @@ pub extern "C" fn space_main() -> i32 {
             println!("[blocker] unexpected: target exited with {st:?}");
             return 2;
         }
+        // Block in wait_any on two queues at once, with no timeout: the silent
+        // bootstrap channel and a process that never exits.
+        "wait_any" => {
+            let h = passed.expect("process handle");
+            let r = sys::wait_any(&[handle::BOOTSTRAP, h], libspace::spaceabi::syscall::WAIT_FOREVER);
+            println!("[blocker] unexpected: wait_any returned {r:?}");
+            return 5;
+        }
+        // Block in wait_any with a timeout far beyond the test: a kill must release
+        // the timer entry at once, not when the hour is up.
+        "wait_any_timeout" => {
+            let r = sys::wait_any(&[handle::BOOTSTRAP], 3_600_000);
+            println!("[blocker] unexpected: wait_any returned {r:?}");
+            return 6;
+        }
         // Block in recv on a channel whose peer stays open and silent.
         "recv" => {
             let (n, _) = sys::recv(handle::BOOTSTRAP, &mut buf, false).expect("second message");

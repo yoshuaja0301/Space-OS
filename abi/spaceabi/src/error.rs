@@ -65,6 +65,10 @@ errors! {
     /// before any surviving byte is handed over, so the reader can discard what it
     /// had assembled instead of acting on a stream with a hole in it.
     DataLoss = 16, "input was lost";
+    /// The resource is held by someone else (the network device has one lease).
+    Busy = 17, "resource busy";
+    /// A wait ran out of time before anything it watched became ready.
+    TimedOut = 18, "timed out";
 }
 
 impl core::fmt::Display for Error {

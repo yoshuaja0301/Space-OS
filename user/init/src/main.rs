@@ -8,6 +8,8 @@
 
 extern crate alloc;
 
+mod netcheck;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -605,6 +607,23 @@ pub extern "C" fn space_main() -> i32 {
         "[init] storage: {}",
         if disk { "FAT32 volume mounted" } else { "none; disk-backed tests will be skipped" }
     );
+    // The network device is optional hardware too. Asking for the lease is how to
+    // find out; it is handed straight back.
+    let nic = match sys::net_open(ROOT) {
+        Ok(h) => {
+            sys::handle_close(h).ok();
+            true
+        }
+        Err(Error::NotFound) => false,
+        Err(e) => {
+            println!("[init] net_open failed: {e}");
+            false
+        }
+    };
+    println!(
+        "[init] network: {}",
+        if nic { "virtio-net present" } else { "none; network tests will be skipped" }
+    );
 
     r.run("K01", "boot reached init in user space", || {
         let s = stats()?;
@@ -890,6 +909,358 @@ pub extern "C" fn space_main() -> i32 {
             return Err(alloc::format!("{} live processes after the refused spawn", s.processes_live));
         }
         expect_exit("hello", spawn_and_wait("bin/hello", CHILD_QUOTA, None)?, 0)
+    });
+
+    r.run("K02", "wait_any: an idle channel times out after the timeout, not before", || {
+        let (a, b) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let t0 = sys::ticks_ms();
+        let r = sys::wait_any(&[a], 40);
+        let dt = sys::ticks_ms() - t0;
+        sys::handle_close(a).ok();
+        sys::handle_close(b).ok();
+        match r {
+            Err(Error::TimedOut) if (40..1000).contains(&dt) => Ok(()),
+            Err(Error::TimedOut) => Err(alloc::format!("timed out after {dt} ms, expected 40..1000")),
+            other => Err(alloc::format!("got {other:?} after {dt} ms")),
+        }
+    });
+
+    r.run("K02", "wait_any: reports which handle is ready, and a zero timeout only looks", || {
+        let (a, b) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let (c, d) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let res = (|| {
+            match sys::wait_any(&[a, c], 0) {
+                Err(Error::TimedOut) => {}
+                other => return Err(alloc::format!("nothing queued, timeout 0 gave {other:?}")),
+            }
+            sys::send(d, b"for c", None).map_err(|e| alloc::format!("send: {e}"))?;
+            match sys::wait_any(&[a, c], libspace::spaceabi::syscall::WAIT_FOREVER) {
+                Ok(1) => {}
+                other => return Err(alloc::format!("message queued on c, got {other:?}")),
+            }
+            // Readiness is reported, nothing is consumed: the message is still there.
+            let mut buf = [0u8; 16];
+            let (n, _) = sys::recv(c, &mut buf, true).map_err(|e| alloc::format!("recv: {e}"))?;
+            if &buf[..n] != b"for c" {
+                return Err(alloc::format!("recv got {:?}", &buf[..n]));
+            }
+            Ok(())
+        })();
+        for h in [a, b, c, d] {
+            sys::handle_close(h).ok();
+        }
+        res
+    });
+
+    r.run("K02", "wait_any: another process's message wakes the waiter", || {
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let p = sys::spawn(ROOT, "bin/ipc_echo", CHILD_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn: {e}"))?;
+        let res = (|| {
+            sys::send(mine, b"wake me", None).map_err(|e| alloc::format!("send: {e}"))?;
+            match sys::wait_any(&[mine], 5000) {
+                Ok(0) => {}
+                other => return Err(alloc::format!("wait_any gave {other:?}")),
+            }
+            let mut buf = [0u8; 32];
+            let (n, _) = sys::recv(mine, &mut buf, true).map_err(|e| alloc::format!("recv: {e}"))?;
+            if &buf[..n] != b"WAKE ME" {
+                return Err(alloc::format!("reply was {:?}", core::str::from_utf8(&buf[..n])));
+            }
+            Ok(())
+        })();
+        sys::handle_close(mine).ok();
+        let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(p).ok();
+        res?;
+        expect_exit("ipc_echo", st, 0)
+    });
+
+    r.run("K02", "wait_any: a process exit and a closed peer both wake the waiter", || {
+        // The child gets one end of a channel as its bootstrap handle; when it exits,
+        // that end closes, so the same exit is seen twice: on the process handle and
+        // as the peer of the end we kept.
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let p = sys::spawn(ROOT, "bin/hello", CHILD_QUOTA, Some(theirs))
+            .map_err(|e| alloc::format!("spawn: {e}"))?;
+        let res = (|| {
+            match sys::wait_any(&[p], 5000) {
+                Ok(0) => {}
+                other => return Err(alloc::format!("process exit: wait_any gave {other:?}")),
+            }
+            let st = sys::wait_nonblocking(p).map_err(|e| alloc::format!("reap after wake: {e}"))?;
+            expect_exit("hello", st, 0)?;
+            match sys::wait_any(&[mine], 5000) {
+                Ok(0) => {}
+                other => return Err(alloc::format!("peer close: wait_any gave {other:?}")),
+            }
+            let mut buf = [0u8; 8];
+            match sys::recv(mine, &mut buf, true) {
+                Err(Error::PeerClosed) => Ok(()),
+                other => Err(alloc::format!("recv after the peer closed gave {other:?}")),
+            }
+        })();
+        sys::handle_close(p).ok();
+        sys::handle_close(mine).ok();
+        res
+    });
+
+    r.run(
+        "K02",
+        "wait_any: bad sets are refused (empty, too large, bad handle, wrong kind, bad pointer)",
+        || {
+            let (a, b) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let send_only = sys::handle_dup(a, rights::SEND).map_err(|e| alloc::format!("dup: {e}"))?;
+            let too_many = [a; libspace::spaceabi::syscall::WAIT_MAX + 1];
+            let raw = |ptr: u64, n: u64| {
+                // SAFETY: probing the kernel's validation with deliberately bad arguments.
+                decode(unsafe { sys::raw(nr::WAIT_ANY, ptr, n, 0, 0, 0, 0) })
+            };
+            let checks: [(&str, Result<usize, Error>, Error); 6] = [
+                ("empty set", sys::wait_any(&[], 0), Error::Invalid),
+                ("WAIT_MAX + 1 handles", sys::wait_any(&too_many, 0), Error::Invalid),
+                ("closed handle", sys::wait_any(&[0xFFFF], 0), Error::BadHandle),
+                ("root handle", sys::wait_any(&[ROOT], 0), Error::Denied),
+                ("channel without RECV", sys::wait_any(&[send_only], 0), Error::Denied),
+                ("kernel pointer", raw(0xFFFF_8000_0000_0000, 1), Error::Fault),
+            ];
+            let mut res = Ok(());
+            for (what, got, want) in checks {
+                if got != Err(want) {
+                    res = Err(alloc::format!("{what}: got {got:?}, expected {want:?}"));
+                    break;
+                }
+            }
+            for h in [a, b, send_only] {
+                sys::handle_close(h).ok();
+            }
+            res
+        },
+    );
+
+    r.run("K03", "20 kill-while-in-wait_any cycles leak nothing (two queues, no timeout)", || {
+        let target = sys::spawn(ROOT, "bin/spin", CHILD_QUOTA, None)
+            .map_err(|e| alloc::format!("spawn target: {e}"))?;
+        let res = no_leak_over(20, "kill while in wait_any", || {
+            let dup = sys::handle_dup(target, rights::WAIT | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup target: {e}"))?;
+            blocked_kill_cycle("wait_any", Some(dup))
+        });
+        sys::kill(target).ok();
+        sys::wait(target).ok();
+        sys::handle_close(target).ok();
+        res
+    });
+
+    r.run("K03", "20 kill-while-in-wait_any cycles release the timer entry at once", || {
+        no_leak_over(20, "kill while in wait_any with timeout", || {
+            blocked_kill_cycle("wait_any_timeout", None)
+        })
+    });
+
+    r.run("K02", "clock: wall-clock time is plausible and advances with the tick", || {
+        // 2024-01-01T00:00:00Z and 2100-01-01T00:00:00Z.
+        const LOW: u64 = 1_704_067_200_000;
+        const HIGH: u64 = 4_102_444_800_000;
+        let t0 = sys::clock_realtime_ms().map_err(|e| alloc::format!("clock: {e}"))?;
+        sys::sleep_ms(50);
+        let t1 = sys::clock_realtime_ms().map_err(|e| alloc::format!("clock: {e}"))?;
+        if !(LOW..HIGH).contains(&t0) {
+            return Err(alloc::format!("{t0} ms since the epoch is not a date this machine can have"));
+        }
+        let dt = t1.saturating_sub(t0);
+        if !(50..1000).contains(&dt) {
+            return Err(alloc::format!("a 50 ms sleep moved the clock by {dt} ms"));
+        }
+        println!("[init] clock: {} s since the Unix epoch", t1 / 1000);
+        Ok(())
+    });
+
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
+        "the network lease needs the NET right and is exclusive",
+        || {
+            let no_net = sys::handle_dup(ROOT, rights::ROOT_ALL & !rights::NET)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let denied = sys::net_open(no_net);
+            sys::handle_close(no_net).ok();
+            if denied != Err(Error::Denied) {
+                return Err(alloc::format!("net_open without NET gave {denied:?}"));
+            }
+            let first = sys::net_open(ROOT).map_err(|e| alloc::format!("first lease: {e}"))?;
+            let res = (|| {
+                match sys::net_open(ROOT) {
+                    Err(Error::Busy) => {}
+                    other => return Err(alloc::format!("second lease while held gave {other:?}")),
+                }
+                // A duplicate is the same lease: closing one of the two keeps it held.
+                let dup =
+                    sys::handle_dup(first, rights::READ).map_err(|e| alloc::format!("dup lease: {e}"))?;
+                sys::handle_close(first).map_err(|e| alloc::format!("close first: {e}"))?;
+                let still = sys::net_open(ROOT);
+                sys::handle_close(dup).map_err(|e| alloc::format!("close dup: {e}"))?;
+                if still != Err(Error::Busy) {
+                    return Err(alloc::format!("lease held by a duplicate, open gave {still:?}"));
+                }
+                let again = sys::net_open(ROOT).map_err(|e| alloc::format!("lease after release: {e}"))?;
+                sys::handle_close(again).ok();
+                Ok(())
+            })();
+            sys::handle_close(first).ok();
+            res
+        },
+    );
+
+    r.run_if(nic, "no network device", "NET", "the device reports its address, link and frame size", || {
+        let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
+        let info = sys::net_info(h);
+        sys::handle_close(h).ok();
+        let info = info.map_err(|e| alloc::format!("net_info: {e}"))?;
+        println!(
+            "[init] network: mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, link {}, mtu {}",
+            info.mac[0],
+            info.mac[1],
+            info.mac[2],
+            info.mac[3],
+            info.mac[4],
+            info.mac[5],
+            if info.link_up != 0 { "up" } else { "down" },
+            info.mtu
+        );
+        if info.mac == [0; 6] || info.mac[0] & 1 != 0 {
+            return Err(String::from("the station address is zero or multicast"));
+        }
+        if info.link_up != 1 {
+            return Err(String::from("link is down"));
+        }
+        if info.mtu != 1500 || info.frame_max != libspace::spaceabi::syscall::FRAME_MAX as u32 {
+            return Err(alloc::format!("mtu {} frame_max {}", info.mtu, info.frame_max));
+        }
+        Ok(())
+    });
+
+    r.run_if(nic, "no network device", "NET", "ARP: the gateway answers who-has 10.0.2.2", || {
+        let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
+        let res = (|| {
+            let me = sys::net_info(h).map_err(|e| alloc::format!("net_info: {e}"))?.mac;
+            let req = netcheck::arp_request(me, netcheck::GUEST_IP, netcheck::GATEWAY_IP);
+            let t0 = sys::ticks_ms();
+            sys::net_send(h, &req).map_err(|e| alloc::format!("send ARP: {e}"))?;
+            let gw =
+                netcheck::await_frame(h, 3000, |f| netcheck::parse_arp_reply(f, me, netcheck::GATEWAY_IP))?;
+            println!(
+                "[init] network: 10.0.2.2 is at {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} ({} ms)",
+                gw[0],
+                gw[1],
+                gw[2],
+                gw[3],
+                gw[4],
+                gw[5],
+                sys::ticks_ms() - t0
+            );
+            if gw == [0; 6] || gw[0] & 1 != 0 {
+                return Err(String::from("the gateway answered with a zero or multicast address"));
+            }
+            Ok(())
+        })();
+        sys::handle_close(h).ok();
+        res
+    });
+
+    r.run_if(nic, "no network device", "NET", "ICMP echo to the gateway comes back intact", || {
+        let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
+        let res = (|| {
+            let me = sys::net_info(h).map_err(|e| alloc::format!("net_info: {e}"))?.mac;
+            let req = netcheck::arp_request(me, netcheck::GUEST_IP, netcheck::GATEWAY_IP);
+            sys::net_send(h, &req).map_err(|e| alloc::format!("send ARP: {e}"))?;
+            let gw =
+                netcheck::await_frame(h, 3000, |f| netcheck::parse_arp_reply(f, me, netcheck::GATEWAY_IP))?;
+            // Three echoes with different sizes, the last one a full-size frame, so
+            // both short frames and the largest one the device takes are exercised.
+            for (seq, size) in [(1u16, 32usize), (2, 512), (3, 1472)] {
+                let payload: Vec<u8> =
+                    (0..size).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seq as u8)).collect();
+                let frame = netcheck::icmp_echo(
+                    me,
+                    gw,
+                    netcheck::GUEST_IP,
+                    netcheck::GATEWAY_IP,
+                    0x5053,
+                    seq,
+                    &payload,
+                );
+                if seq == 3 && frame.len() != libspace::spaceabi::syscall::FRAME_MAX {
+                    return Err(alloc::format!("largest echo frame is {} bytes", frame.len()));
+                }
+                let t0 = sys::ticks_ms();
+                sys::net_send(h, &frame).map_err(|e| alloc::format!("send echo {seq}: {e}"))?;
+                let echoed = netcheck::await_frame(h, 3000, |f| {
+                    if netcheck::answer_arp(h, f, me, netcheck::GUEST_IP) {
+                        return None;
+                    }
+                    netcheck::parse_icmp_reply(f, netcheck::GATEWAY_IP, 0x5053, seq)
+                })??;
+                if echoed != payload {
+                    return Err(alloc::format!("echo {seq}: {} bytes came back altered", size));
+                }
+                println!(
+                    "[init] network: echo {seq} ({size} byte payload) back in {} ms",
+                    sys::ticks_ms() - t0
+                );
+            }
+            let info = sys::net_info(h).map_err(|e| alloc::format!("net_info: {e}"))?;
+            println!(
+                "[init] network: {} frames received, {} sent, {} dropped",
+                info.rx_frames, info.tx_frames, info.rx_dropped
+            );
+            Ok(())
+        })();
+        sys::handle_close(h).ok();
+        res
+    });
+
+    r.run_if(nic, "no network device", "NET", "malformed transmit and receive requests are refused", || {
+        let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
+        let read_only = sys::handle_dup(h, rights::READ).map_err(|e| alloc::format!("dup: {e}"))?;
+        let write_only = sys::handle_dup(h, rights::WRITE).map_err(|e| alloc::format!("dup: {e}"))?;
+        let (a, b) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let big = [0u8; libspace::spaceabi::syscall::FRAME_MAX + 1];
+        let mut rx = [0u8; libspace::spaceabi::syscall::FRAME_MAX];
+        let raw = |n: usize, h: Handle, ptr: u64, len: u64| {
+            // SAFETY: probing the kernel's validation with deliberately bad arguments.
+            decode(unsafe { sys::raw(n, h as u64, ptr, len, 0, 0, 0) })
+        };
+        let checks: [(&str, Result<usize, Error>, Error); 8] = [
+            ("13-byte frame", sys::net_send(h, &big[..13]), Error::Invalid),
+            ("1515-byte frame", sys::net_send(h, &big), Error::MsgSize),
+            ("frame at a kernel address", raw(nr::NET_SEND, h, 0xFFFF_8000_0000_0000, 64), Error::Fault),
+            (
+                "receive buffer below 1514 bytes",
+                raw(nr::NET_RECV, h, rx.as_mut_ptr() as u64, 1500),
+                Error::Invalid,
+            ),
+            (
+                "receive into a kernel address",
+                raw(nr::NET_RECV, h, 0xFFFF_8000_0000_0000, 1514),
+                Error::Fault,
+            ),
+            ("send on a lease without WRITE", sys::net_send(read_only, &big[..60]), Error::Denied),
+            ("receive on a lease without READ", sys::net_recv(write_only, &mut rx), Error::Denied),
+            ("send on a channel handle", sys::net_send(a, &big[..60]), Error::Denied),
+        ];
+        let mut res = Ok(());
+        for (what, got, want) in checks {
+            if got != Err(want) {
+                res = Err(alloc::format!("{what}: got {got:?}, expected {want:?}"));
+                break;
+            }
+        }
+        for x in [read_only, write_only, a, b, h] {
+            sys::handle_close(x).ok();
+        }
+        res
     });
 
     r.run("D01", "SHA-256 in the guest matches the published test vectors", || {

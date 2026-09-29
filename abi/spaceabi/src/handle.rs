@@ -56,6 +56,10 @@ pub mod rights {
     /// reading the disk and rewriting it are different powers, and a process that
     /// needs the first is not thereby entitled to the second.
     pub const FS_WRITE: u32 = 1 << 15;
+    /// Root right: lease the network device. A separate power from everything else:
+    /// whoever holds the device sees every frame on the wire and can put any frame
+    /// on it, so only the network service should.
+    pub const NET: u32 = 1 << 16;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
@@ -64,7 +68,10 @@ pub mod rights {
     /// write, which only a create can hand out.
     pub const FILE_WRITABLE: u32 = READ | WRITE | TRANSFER | DUP;
     pub const MEMORY_ALL: u32 = READ | WRITE | MAP | TRANSFER | DUP;
-    pub const ROOT_ALL: u32 = SPAWN | STATS | SHUTDOWN | DEBUG | FS | FS_WRITE | CONSOLE | TRANSFER | DUP;
+    /// A network device lease: receive frames (`READ`) and transmit them (`WRITE`).
+    pub const NIC_ALL: u32 = READ | WRITE | TRANSFER | DUP;
+    pub const ROOT_ALL: u32 =
+        SPAWN | STATS | SHUTDOWN | DEBUG | FS | FS_WRITE | CONSOLE | NET | TRANSFER | DUP;
 }
 
 /// Kind of kernel object behind a handle (returned by `SYS_HANDLE_INFO`).
@@ -74,4 +81,6 @@ pub mod kind {
     pub const ROOT: u32 = 3;
     pub const FILE: u32 = 4;
     pub const MEMORY: u32 = 5;
+    /// A lease on the network device (`SYS_NET_OPEN`).
+    pub const NIC: u32 = 6;
 }

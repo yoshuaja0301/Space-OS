@@ -125,6 +125,7 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     arch::pit::init(sched::TICK_HZ);
     arch::syscall::init();
     sched::init(top);
+    arch::rtc::init(sched::uptime_ms());
     selftest::run_early();
     selftest::run_cmdline_fault_injection();
 

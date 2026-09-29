@@ -60,6 +60,18 @@ impl Endpoint {
         self.chan.sides.lock()[self.side].queue.push_front(msg);
     }
 
+    /// True when a `recv` would not block: a message is queued for this side, or the
+    /// peer is gone (so `recv` reports `PeerClosed`). What `SYS_WAIT_ANY` watches.
+    pub fn readable(&self) -> bool {
+        let sides = self.chan.sides.lock();
+        !sides[self.side].queue.is_empty() || !sides[1 - self.side].open
+    }
+
+    /// The queue woken when this side becomes readable.
+    pub fn recv_waiters(&self) -> &WaitQueue {
+        &self.chan.waiters[self.side]
+    }
+
     /// True when both endpoints belong to the same channel (either side).
     pub fn same_channel(&self, other: &Endpoint) -> bool {
         Arc::ptr_eq(&self.chan, &other.chan)

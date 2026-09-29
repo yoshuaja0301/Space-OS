@@ -279,6 +279,33 @@ pub fn sleep_ms(ms: u64) -> Result<(), Error> {
     })
 }
 
+/// Tick at which a wait of `ms` milliseconds from now ends (at least one tick away).
+pub fn deadline_after_ms(ms: u64) -> u64 {
+    let s = SCHED.lock();
+    s.ticks.saturating_add(ms.saturating_mul(TICK_HZ as u64).div_ceil(1000).max(1))
+}
+
+/// Ticks since boot.
+pub fn now_ticks() -> u64 {
+    SCHED.lock().ticks
+}
+
+/// Arrange for `t` to be woken at tick `deadline` without blocking it (the caller
+/// blocks it and schedules). Interrupts must be disabled.
+pub fn add_sleeper(deadline: u64, t: &Arc<Thread>) -> Result<(), Error> {
+    let mut s = SCHED.lock();
+    if s.sleepers.try_reserve(1).is_err() {
+        return Err(Error::NoMemory);
+    }
+    s.sleepers.push((deadline, t.clone()));
+    Ok(())
+}
+
+/// Drop any timed wake-up registered for `t`.
+pub fn remove_sleeper(t: &Arc<Thread>) {
+    SCHED.lock().sleepers.retain(|(_, st)| !Arc::ptr_eq(st, t));
+}
+
 /// Called from the timer IRQ with interrupts disabled.
 pub fn timer_tick() {
     let need_resched = {
@@ -350,6 +377,22 @@ impl WaitQueue {
         schedule();
         self.waiters.lock().retain(|t| !Arc::ptr_eq(t, &cur));
         Ok(())
+    }
+
+    /// Add `t` to this queue without blocking it: for a thread about to wait on
+    /// several queues at once (`SYS_WAIT_ANY`). The caller blocks and schedules, and
+    /// must [`unregister`](Self::unregister) from every queue once it runs again.
+    pub fn register(&self, t: &Arc<Thread>) -> Result<(), Error> {
+        let mut w = self.waiters.lock();
+        if w.try_reserve(1).is_err() {
+            return Err(Error::NoMemory);
+        }
+        w.push_back(t.clone());
+        Ok(())
+    }
+
+    pub fn unregister(&self, t: &Arc<Thread>) {
+        self.waiters.lock().retain(|x| !Arc::ptr_eq(x, t));
     }
 
     pub fn wake_all(&self) {

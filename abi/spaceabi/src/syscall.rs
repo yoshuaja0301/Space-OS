@@ -72,8 +72,59 @@ pub mod nr {
     pub const FS_CREATE: usize = 28;
     /// `fs_write(file_handle, offset, buf_ptr, len) -> bytes_written`
     pub const FS_WRITE: usize = 29;
+    /// `net_open(root_handle) -> nic_handle` – take the network device. Needs the
+    /// root `NET` right; only one lease exists at a time (`Busy` otherwise).
+    pub const NET_OPEN: usize = 30;
+    /// `net_info(nic_handle, out: *mut NetInfo) -> 0`
+    pub const NET_INFO: usize = 31;
+    /// `net_send(nic_handle, frame_ptr, len) -> len` – transmit one Ethernet frame.
+    /// Never blocks: a full transmit ring yields `WouldBlock`.
+    pub const NET_SEND: usize = 32;
+    /// `net_recv(nic_handle, buf_ptr, cap) -> len` – take one received frame.
+    /// Never blocks: `WouldBlock` when nothing has arrived; wait with `WAIT_ANY`.
+    pub const NET_RECV: usize = 33;
+    /// `wait_any(handles_ptr, count, timeout_ms) -> index` – block until one of the
+    /// handles is ready (see [`super::WAIT_MAX`], [`super::WAIT_FOREVER`]); `TimedOut`
+    /// when the timeout passes first.
+    pub const WAIT_ANY: usize = 34;
+    /// `clock_realtime() -> milliseconds since 1970-01-01T00:00:00Z`, from the
+    /// real-time clock read at boot plus the monotonic tick since.
+    pub const CLOCK_REALTIME: usize = 35;
 
-    pub const COUNT: usize = 30;
+    pub const COUNT: usize = 36;
+}
+
+/// Largest Ethernet frame `SYS_NET_SEND` accepts and `SYS_NET_RECV` returns: 14 bytes
+/// of header and 1500 of payload. No VLAN tags, no jumbo frames, no FCS.
+pub const FRAME_MAX: usize = 1514;
+/// Smallest frame `SYS_NET_SEND` accepts: an Ethernet header and nothing else.
+pub const FRAME_MIN: usize = 14;
+
+/// Most handles one `SYS_WAIT_ANY` call may watch.
+pub const WAIT_MAX: usize = 32;
+/// `timeout_ms` for `SYS_WAIT_ANY` that never expires.
+pub const WAIT_FOREVER: u64 = u64::MAX;
+
+/// What `SYS_NET_INFO` reports about the network device.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NetInfo {
+    /// Station address the device answers to.
+    pub mac: [u8; 6],
+    /// 1 when the link is up. A device that cannot report link state reports up.
+    pub link_up: u8,
+    pub _pad: u8,
+    /// Largest Ethernet payload (the IP MTU).
+    pub mtu: u32,
+    /// Largest whole frame, see [`FRAME_MAX`].
+    pub frame_max: u32,
+    /// Frames handed to user space since boot.
+    pub rx_frames: u64,
+    /// Frames accepted for transmission since boot.
+    pub tx_frames: u64,
+    /// Frames the kernel discarded: malformed by the device, or left behind by a
+    /// previous lease holder.
+    pub rx_dropped: u64,
 }
 
 /// Maximum inline message payload in bytes.

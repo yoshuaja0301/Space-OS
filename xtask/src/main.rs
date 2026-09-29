@@ -529,6 +529,9 @@ struct Machine {
     memory: &'static str,
     /// `-device` string for the block controller, empty for a machine with no disk.
     block_device: &'static str,
+    /// `-device` string for the network card, empty for a machine with none. The
+    /// card is always attached to a restricted user-mode network (see `NETDEV`).
+    net_device: &'static str,
     /// Appended verbatim (display and other knobs).
     extra: &'static [&'static str],
     /// Markers this configuration must produce on top of the common ones.
@@ -542,9 +545,19 @@ const LAB: Machine = Machine {
     smp: "4",
     memory: "8G",
     block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+    net_device: VIRTIO_NET,
     extra: &[],
     must_contain: &[],
 };
+
+/// The network card most machines get: modern-only virtio-net with no option ROM
+/// (the firmware's own driver is enough, and nothing here boots from the network).
+const VIRTIO_NET: &str = "virtio-net-pci,netdev=spacenet,disable-legacy=on,romfile=";
+
+/// QEMU user-mode networking with `restrict=on`: the guest can reach the virtual
+/// gateway and nothing else -- no host services, no internet. Tests that need a
+/// host endpoint get it through explicit forwarding rules, never through a hole.
+const NETDEV: &str = "user,id=spacenet,restrict=on";
 
 /// Configurations the acceptance run must survive unchanged.
 const MACHINES: &[Machine] = &[
@@ -556,6 +569,7 @@ const MACHINES: &[Machine] = &[
         smp: "1",
         memory: "2G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
         extra: &[],
         must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
     },
@@ -566,6 +580,7 @@ const MACHINES: &[Machine] = &[
         smp: "2",
         memory: "4G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
         extra: &[],
         must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
     },
@@ -576,6 +591,7 @@ const MACHINES: &[Machine] = &[
         smp: "4",
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
         extra: &[],
         must_contain: &["[init] ALL TESTS PASSED"],
     },
@@ -585,11 +601,17 @@ const MACHINES: &[Machine] = &[
         cpu: "qemu64",
         smp: "4",
         memory: "8G",
-        // A transitional device answers to the legacy id 0x1001 and still offers the
-        // modern capabilities; the driver must negotiate VIRTIO_F_VERSION_1 on it.
+        // A transitional device answers to the legacy id (0x1001 block, 0x1000 net)
+        // and still offers the modern capabilities; both drivers must negotiate
+        // VIRTIO_F_VERSION_1 on it.
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=off,disable-modern=off",
+        net_device: "virtio-net-pci,netdev=spacenet,disable-legacy=off,disable-modern=off,romfile=",
         extra: &[],
-        must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+        must_contain: &[
+            "[kernel] vfs: FAT32 mounted",
+            "[init] PASS NET: ICMP echo to the gateway comes back intact",
+            "[init] ALL TESTS PASSED",
+        ],
     },
     Machine {
         name: "virtio-small-queue",
@@ -600,9 +622,10 @@ const MACHINES: &[Machine] = &[
         // A device that offers only four descriptors: the driver must take every
         // ring index modulo the negotiated size and chunk requests to fit it.
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on,queue-size=4",
+        net_device: VIRTIO_NET,
         extra: &[],
         must_contain: &[
-            "[kernel] virtio-blk: pci 00:03.0 queue size 4 (max 4), 2 data pages/request",
+            "queue size 4 (max 4), 2 data pages/request",
             "[kernel] vfs: FAT32 mounted",
             "[init] ALL TESTS PASSED",
         ],
@@ -614,6 +637,7 @@ const MACHINES: &[Machine] = &[
         smp: "4",
         memory: "8G",
         block_device: "",
+        net_device: VIRTIO_NET,
         extra: &[],
         // No storage is a supported configuration: the kernel says so and the
         // disk-backed tests are skipped instead of failing.
@@ -626,12 +650,31 @@ const MACHINES: &[Machine] = &[
         ],
     },
     Machine {
+        name: "e1000-only",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        // A network card the kernel has no driver for. It must be left alone, said
+        // so, and the network tests skipped -- not failed, not hung.
+        net_device: "e1000,netdev=spacenet,romfile=",
+        extra: &[],
+        must_contain: &[
+            "[kernel] virtio-net: no device present",
+            "[init] network: none; network tests will be skipped",
+            "[init] SKIP NET",
+            "[init] ALL TESTS PASSED",
+        ],
+    },
+    Machine {
         name: "no-vga",
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
         extra: &["-vga", "none"],
         // Without a GOP the console has to fall back to serial only.
         must_contain: &["[kernel] framebuffer: none usable; serial console only", "[init] ALL TESTS PASSED"],
@@ -643,6 +686,7 @@ const MACHINES: &[Machine] = &[
         smp: "4",
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
         extra: &["-vga", "vmware"],
         must_contain: &["[kernel] framebuffer:", "[init] ALL TESTS PASSED"],
     },
@@ -703,6 +747,13 @@ fn qemu_args(
             "-device".into(),
             m.block_device.into(),
         ]);
+    }
+    // Without an explicit choice QEMU adds a default card on an unrestricted user
+    // network; every machine here says what it has instead.
+    if m.net_device.is_empty() {
+        a.extend(["-nic".into(), "none".into()]);
+    } else {
+        a.extend(["-netdev".into(), NETDEV.into(), "-device".into(), m.net_device.into()]);
     }
     a.extend([
         "-device".into(),
@@ -1077,6 +1128,10 @@ const SCENARIOS: &[Scenario] = &[
             "[kernel] selftest: heap ok",
             "input decoding ok",
             "[kernel] virtio-blk: ready",
+            "[kernel] virtio-net: pci",
+            "[kernel] rtc:",
+            "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
+            "[init] PASS NET: ICMP echo to the gateway comes back intact",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
             "[ai] model verified: sha256",
@@ -1264,14 +1319,21 @@ fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
     problems
 }
 
-fn cmd_test(release: bool) -> Result<(), String> {
+fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
+    if let Some(name) = only
+        && !SCENARIOS.iter().any(|s| s.name == name)
+    {
+        return Err(format!("no scenario named {name:?}"));
+    }
     let built = build(release)?;
     let logs = root().join("build/logs");
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let data_image = root().join("build/data.img");
     make_data_disk(&data_image)?;
     let mut failures = 0;
-    for s in SCENARIOS {
+    let mut ran = 0;
+    for s in SCENARIOS.iter().filter(|s| only.is_none_or(|n| n == s.name)) {
+        ran += 1;
         let image = root().join(format!("build/esp-{}.img", s.name));
         make_image(&built, s.cmdline, &image)?;
         println!("== scenario {} (cmdline {:?}, {} boot(s))", s.name, s.cmdline, s.runs);
@@ -1321,7 +1383,7 @@ fn cmd_test(release: bool) -> Result<(), String> {
         }
     }
     if failures == 0 {
-        println!("== all {} scenarios passed", SCENARIOS.len());
+        println!("== all {ran} scenarios passed");
         Ok(())
     } else {
         Err(format!("{failures} scenario(s) failed"))
@@ -1334,11 +1396,16 @@ fn cmd_test(release: bool) -> Result<(), String> {
 /// user is likely to have (another chipset, fewer cores, less memory, a
 /// transitional virtio device, no disk, no display) and checks that the same image
 /// still reaches the end - degrading where hardware is missing, never crashing.
-fn cmd_compat(release: bool) -> Result<(), String> {
+fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
     const COMMON: &[&str] =
         &["[kernel] selftest: heap ok", "[init] Space OS init running", "[init] ALL TESTS PASSED"];
     const FORBIDDEN: &[&str] = &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"];
 
+    if let Some(name) = only
+        && !MACHINES.iter().any(|m| m.name == name)
+    {
+        return Err(format!("no machine named {name:?}"));
+    }
     let built = build(release)?;
     let logs = root().join("build/logs/compat");
     fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
@@ -1348,7 +1415,9 @@ fn cmd_compat(release: bool) -> Result<(), String> {
     make_data_disk(&data_image)?;
 
     let mut failures = 0;
-    for m in MACHINES {
+    let mut ran = 0;
+    for m in MACHINES.iter().filter(|m| only.is_none_or(|n| n == m.name)) {
+        ran += 1;
         println!(
             "== machine {}: -machine {} -cpu {} -smp {} -m {} ({}){}",
             m.name,
@@ -1405,7 +1474,7 @@ fn cmd_compat(release: bool) -> Result<(), String> {
         println!("-----------------------------");
     }
     if failures == 0 {
-        println!("== all {} machine configurations booted and passed", MACHINES.len());
+        println!("== all {ran} machine configurations booted and passed");
         Ok(())
     } else {
         Err(format!("{failures} machine configuration(s) failed"))
@@ -1570,6 +1639,8 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let release = !args.iter().any(|a| a == "--debug");
     let cmd = args.first().map(String::as_str).unwrap_or("");
+    // `--only NAME`: one scenario (test) or one machine (compat), for iterating.
+    let only = args.iter().position(|a| a == "--only").and_then(|i| args.get(i + 1)).cloned();
     let res = match cmd {
         "build" | "image" => build(release)
             .and_then(|b| make_image(&b, "", &root().join("build/esp.img")))
@@ -1585,8 +1656,8 @@ fn main() {
                 .unwrap_or_default();
             cmd_run(gui, serial_input, &cmdline, release)
         }
-        "test" => cmd_test(release),
-        "compat" => cmd_compat(release),
+        "test" => cmd_test(release, only.as_deref()),
+        "compat" => cmd_compat(release, only.as_deref()),
         "soak" => {
             let boots = args
                 .iter()
@@ -1603,8 +1674,8 @@ fn main() {
         "fmt-check" => sh(cargo().args(["fmt", "--all", "--", "--check"])),
         "ci" => sh(cargo().args(["fmt", "--all", "--", "--check"]))
             .and_then(|_| cmd_clippy())
-            .and_then(|_| cmd_test(true))
-            .and_then(|_| cmd_compat(true)),
+            .and_then(|_| cmd_test(true, None))
+            .and_then(|_| cmd_compat(true, None)),
         _ => usage(),
     };
     if let Err(e) = res {
