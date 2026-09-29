@@ -90,7 +90,8 @@ ditunda, dan TIME-WAIT ditahan 250 ms.
 
 ## Bukti
 
-Lima belas uji `NET` di skenario `acceptance`, dilewati pada mesin tanpa kartu
+Lima belas uji `NET` di skenario `acceptance` (enam belas sejak ADR-0018: koneksi yang ditutup
+saat peer masih mengirim harus di-reset), dilewati pada mesin tanpa kartu
 (`compat` `e1000-only`):
 
 - driver: hak `NET` dan lease eksklusif; MAC/link/MTU; ARP dan ICMP echo ke gateway yang dibuat

@@ -107,10 +107,18 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Waktu untuk memeriksa sertifikat berasal dari RTC yang dibaca sekali saat boot, tanpa sinkronisasi jaringan. Jam yang maju membuat sertifikat terlihat kedaluwarsa (gagal tertutup); jam yang mundur akan menerima sertifikat yang sudah kedaluwarsa sejak itu.
 - Tanpa virtio-rng dan tanpa RDRAND tidak ada entropi sama sekali: `SYS_RANDOM` menjawab `NotFound` dan semua yang membutuhkan kunci dilewati. Tidak ada kumpulan entropi (pool) atau DRBG di kernel; setiap permintaan diisi langsung dari perangkat.
 
+## Adapter cloud (I01)
+
+- **Hanya diuji terhadap penyedia tiruan** di jaringan lab (`xtask lab cloud`, ADR-0018). Belum pernah berbicara dengan layanan sungguhan: tidak ada yang bisa dicapai dari lingkungan ini, dan untuk itu masih dibutuhkan trust store dengan root CA publik serta jaringan di luar `restrict=on`. Label integrasinya *experimental*.
+- Bagian Messages API yang dipakai saja: satu giliran pengguna per ask (≤ 176 byte, satu pesan channel), tanpa riwayat percakapan dari klien, tanpa gambar atau dokumen, satu alat (`read_file`), tanpa tulis lewat model.
+- Token dan biaya berasal dari laporan penyedia; reservasi memakai estimasi input yang sengaja berlebih (byte/3), jadi budget bisa menolak ask yang sebenarnya muat. Harga dimasukkan operator, bukan dibaca dari penyedia.
+- Satu ask pada satu waktu untuk hingga 4 klien; ask yang panjang menahan yang lain.
+- Kredensial dipegang di memori adapter dan tidak dihapus saat keluar. Di disk (`/spaceos/cred/cloud.key`) ia terbaca oleh siapa pun yang memegang `FS` atas volume — `init` dan broker; broker hanya melayani workspace. Belum ada penyimpanan kredensial terenkripsi.
+
 ## Belum ada (tahap berikutnya)
 
 - VirtIO input/display di luar keyboard PS/2, COM2 dan konsol teks (sisa tahap 3).
-- Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud I01 (5A).
+- Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud terhadap penyedia sungguhan (5A).
 - GPU, ARM64 (6–7).
 
 ## Verifikasi

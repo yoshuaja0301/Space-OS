@@ -7,9 +7,10 @@ capability, user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 baca-tulis
 (virtio-net + TCP/IP di user space dengan allowlist tujuan per sesi), TLS 1.3 dengan kunci dari
 sumber entropi kernel, objek memori
 bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baseline yang dipatok,
-serta layanan Developer Preview (sesi terminal, tool broker, SpaceLink, paket bertanda tangan) —
-dengan bukti uji otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01**
-di QEMU. Tahap 6 dijawab sebatas [studi kelayakannya](docs/gpu-feasibility.md); drivernya belum
+serta layanan Developer Preview (sesi terminal, tool broker, SpaceLink, paket bertanda tangan,
+adapter cloud) — dengan bukti uji otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01,
+L01–L03, P01** di QEMU, dan **I01 terhadap penyedia cloud tiruan** di jaringan lab (belum pernah
+terhadap layanan sungguhan). Tahap 6 dijawab sebatas [studi kelayakannya](docs/gpu-feasibility.md); drivernya belum
 ditulis, dan alasannya ada di sana.
 
 > Status: MVP kernel, bukan produk. Lihat [docs/limitations.md](docs/limitations.md) sebelum
@@ -25,14 +26,15 @@ ditulis, dan alasannya ada di sana.
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!`, klien jaringan (`Session`, `TcpStream`) |
 | `spacenet` | `user/services/spacenet` | `x86_64-unknown-none` | Layanan jaringan: DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP; program lain hanya lewat sesi dengan allowlist `host:port` (ADR-0016) |
 | `spacetls` | `user/spacetls` | `x86_64-unknown-none` | Pustaka klien TLS 1.3: rustls (no_std) + RustCrypto di jalur perangkat lunak, kunci dari `SYS_RANDOM`, waktu dari RTC, tanpa root CA bawaan (ADR-0017) |
+| `spacecloud` | `user/services/spacecloud` | `x86_64-unknown-none` | Adapter cloud (I01): memegang kredensial dan sesi ke satu alamat, streaming SSE di atas TLS, alat model hanya lewat Tool Broker, budget dan retry terbatas, local-only ditolak (ADR-0018) |
 | `spacecompute` | `user/services/spacecompute` | `x86_64-unknown-none` | Layanan Space Compute ABI v0 di user space, backend CPU |
 | `spaceai` | `user/services/spaceai` | `x86_64-unknown-none` | Runtime AI: memuat SpaceLM v0 dari disk, verifikasi checksum, generate token lewat Compute ABI |
 | `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 94 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, jaringan (`NET`) dan `TLS` |
-| `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 106 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS` |
+| `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan ke guest, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
 
@@ -74,7 +76,7 @@ spacekernel 0.1.0: Space OS kernel booting
 ## Dokumentasi
 
 - [docs/architecture.md](docs/architecture.md) — rantai boot, layout memori, objek kernel, scheduler, diagnosis.
-- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT, storage, compute, layanan 5A, jaringan, TLS).
+- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT, storage, compute, layanan 5A, jaringan, TLS, adapter cloud).
 - [docs/requirements.md](docs/requirements.md) — traceability K01…H02 dengan status planned/experimental/verified.
 - [docs/testing.md](docs/testing.md) dan [docs/evidence/](docs/evidence/) — skenario uji, marker, kode keluar, log bukti.
 - [docs/build.md](docs/build.md) — prasyarat dan perintah.

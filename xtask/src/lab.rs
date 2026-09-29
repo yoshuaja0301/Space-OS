@@ -28,6 +28,8 @@ pub const SERVICES: &[(&str, u16, &str)] = &[
     ("10.0.2.101", 7, "echo"),
     // Leaves what it is sent unread and goes away: the guest sees a reset.
     ("10.0.2.102", 9, "reset"),
+    // Character generator (RFC 864): sends until the guest makes it stop.
+    ("10.0.2.101", 19, "chargen"),
     // TLS 1.3 echo, with a certificate from the lab authority for tls.lab.test.
     ("10.0.2.103", 443, "tls-echo"),
     // The same, offering one cipher suite only: every suite the guest offers is
@@ -43,6 +45,8 @@ pub const SERVICES: &[(&str, u16, &str)] = &[
     // A good handshake, a partial answer, then the connection closed without the
     // TLS close_notify.
     ("10.0.2.103", 448, "tls-truncate"),
+    // The cloud model provider -- a mock (xtask/src/cloud.rs, ADR-0018).
+    ("10.0.2.100", 443, "cloud"),
 ];
 
 /// The zone the lab DNS server answers for. Nothing answers at 10.0.2.77 (not even
@@ -53,6 +57,7 @@ const ZONE: &[(&str, [u8; 4])] = &[
     // answers the SYN with a reset.
     ("closed.lab.test", [10, 0, 2, 101]),
     ("reset.lab.test", [10, 0, 2, 102]),
+    ("chargen.lab.test", [10, 0, 2, 101]),
     ("blackhole.lab.test", [10, 0, 2, 77]),
     ("api.cloud.test", [10, 0, 2, 100]),
     ("tls.lab.test", [10, 0, 2, 103]),
@@ -92,7 +97,7 @@ fn log_path() -> PathBuf {
     }
 }
 
-fn log(line: &str) {
+pub(super) fn log(line: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
         let _ = f.write_all(format!("{line}\n").as_bytes());
     }
@@ -106,6 +111,7 @@ pub fn main(name: Option<&str>) -> i32 {
         Some("dns") => dns(),
         Some("echo") => echo(),
         Some("reset") => reset(),
+        Some("chargen") => chargen(),
         Some(s @ "tls-echo") => tls_serve(s, "good", TlsMode::Echo, None),
         Some(s @ "tls-aes128") => {
             tls_serve(s, "good", TlsMode::Echo, Some(CipherSuite::TLS13_AES_128_GCM_SHA256))
@@ -118,6 +124,7 @@ pub fn main(name: Option<&str>) -> i32 {
         Some(s @ "tls-untrusted") => tls_serve(s, "untrusted", TlsMode::Echo, None),
         Some(s @ "tls-tamper") => tls_serve(s, "good", TlsMode::Tamper, None),
         Some(s @ "tls-truncate") => tls_serve(s, "good", TlsMode::Truncate, None),
+        Some("cloud") => super::cloud::serve(),
         other => {
             log(&format!("lab: unknown service {other:?}"));
             return 2;
@@ -147,6 +154,42 @@ fn echo() -> io::Result<()> {
         output.flush()?;
         total += n as u64;
     }
+}
+
+/// Line `n` of the character generator: 72 of the 94 visible characters, starting
+/// one further along each line, then CRLF (after RFC 864).
+fn chargen_line(n: usize) -> [u8; 74] {
+    let mut line = [0u8; 74];
+    for (i, b) in line[..72].iter_mut().enumerate() {
+        *b = b' ' + 1 + ((n + i) % 94) as u8;
+    }
+    line[72] = b'\r';
+    line[73] = b'\n';
+    line
+}
+
+/// Send lines until the guest makes it stop -- which it must, by resetting the
+/// connection once it has stopped reading -- or for 10 s at most.
+fn chargen() -> io::Result<()> {
+    let mut output = io::stdout().lock();
+    let t0 = std::time::Instant::now();
+    let mut sent = 0usize;
+    let mut n = 0;
+    while t0.elapsed() < Duration::from_secs(10) {
+        let mut block = Vec::with_capacity(74 * 14);
+        for _ in 0..14 {
+            block.extend_from_slice(&chargen_line(n));
+            n += 1;
+        }
+        if let Err(e) = output.write_all(&block).and_then(|_| output.flush()) {
+            log(&format!("chargen: the guest went away after {sent} bytes ({})", e.kind()));
+            return Ok(());
+        }
+        sent += block.len();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    log(&format!("chargen: sent {sent} bytes over 10 s and nobody stopped it"));
+    Ok(())
 }
 
 fn reset() -> io::Result<()> {
@@ -206,10 +249,16 @@ impl Tamper {
 
 /// The guest's connection as one stream: stdin in, stdout out, every write sent at
 /// once (and through the tamperer, if there is one).
-struct Wire {
+pub(super) struct Wire {
     input: io::Stdin,
     output: io::Stdout,
     tamper: Option<Tamper>,
+}
+
+impl Wire {
+    pub(super) fn plain() -> Wire {
+        Wire { input: io::stdin(), output: io::stdout(), tamper: None }
+    }
 }
 
 impl Read for Wire {
@@ -237,11 +286,10 @@ impl Write for Wire {
     }
 }
 
-/// A TLS 1.3 server presenting the lab leaf `stem`, echoing what it is sent (or,
-/// per `mode`, misbehaving in one precise way), offering every suite or `only` one.
-/// It logs how the client ended the connection: that is where a refusal and its
-/// alert show up.
-fn tls_serve(service: &str, stem: &str, mode: TlsMode, only: Option<CipherSuite>) -> io::Result<()> {
+/// TLS 1.3 presenting the lab leaf `stem`, with every suite or `only` one, and no
+/// session tickets: the first record after the handshake is then data -- the one the
+/// tamper service alters.
+pub(super) fn server_config(stem: &str, only: Option<CipherSuite>) -> io::Result<Arc<rustls::ServerConfig>> {
     let (cert, key) = pki::load(stem).map_err(io::Error::other)?;
     let mut provider = rustls::crypto::ring::default_provider();
     if let Some(only) = only {
@@ -253,10 +301,16 @@ fn tls_serve(service: &str, stem: &str, mode: TlsMode, only: Option<CipherSuite>
         .with_no_client_auth()
         .with_single_cert(vec![cert], key)
         .map_err(io::Error::other)?;
-    // No session tickets: the first record after the handshake is then data -- the
-    // one the tamper service alters.
     cfg.send_tls13_tickets = 0;
-    let mut conn = rustls::ServerConnection::new(Arc::new(cfg)).map_err(io::Error::other)?;
+    Ok(Arc::new(cfg))
+}
+
+/// A TLS 1.3 server presenting the lab leaf `stem`, echoing what it is sent (or,
+/// per `mode`, misbehaving in one precise way), offering every suite or `only` one.
+/// It logs how the client ended the connection: that is where a refusal and its
+/// alert show up.
+fn tls_serve(service: &str, stem: &str, mode: TlsMode, only: Option<CipherSuite>) -> io::Result<()> {
+    let mut conn = rustls::ServerConnection::new(server_config(stem, only)?).map_err(io::Error::other)?;
     let mut wire = Wire {
         input: io::stdin(),
         output: io::stdout(),
@@ -437,6 +491,15 @@ mod tests {
         assert_eq!(u16::from_be_bytes([alias[6], alias[7]]), 2);
         assert_eq!(&alias[alias.len() - 4..], &[10, 0, 2, 101]);
         assert!(answer(&[0; 5]).is_none());
+    }
+
+    #[test]
+    fn chargen_lines_rotate() {
+        assert_eq!(&chargen_line(0)[..3], b"!\"#");
+        assert_eq!(&chargen_line(1)[..3], b"\"#$");
+        assert_eq!(chargen_line(0)[71], b'h');
+        assert_eq!(&chargen_line(93)[..2], b"~!");
+        assert_eq!(&chargen_line(5)[72..], b"\r\n");
     }
 
     #[test]

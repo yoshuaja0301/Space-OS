@@ -19,6 +19,9 @@ use time::{Duration, OffsetDateTime};
 /// The name the lab's TLS services answer to.
 pub const NAME: &str = "tls.lab.test";
 
+/// The name of the lab's cloud model provider (a mock, ADR-0018).
+pub const CLOUD_NAME: &str = "api.cloud.test";
+
 /// File stem, subject name, validity (days from now: from, to), signed by the lab
 /// authority (else self-signed).
 const LEAVES: &[(&str, &str, i64, i64, bool)] = &[
@@ -26,6 +29,7 @@ const LEAVES: &[(&str, &str, i64, i64, bool)] = &[
     ("expired", NAME, -30, -1, true),
     ("wrongname", "other.lab.test", -1, 30, true),
     ("untrusted", NAME, -1, 30, false),
+    ("cloud", CLOUD_NAME, -1, 30, true),
 ];
 
 pub fn dir() -> PathBuf {
@@ -68,7 +72,18 @@ fn generate_in(d: &Path) -> Result<Vec<u8>, String> {
         fs::write(d.join(format!("{stem}.key")), key.serialize_der()).map_err(err)?;
     }
     fs::write(d.join("ca.der"), ca_cert.der()).map_err(err)?;
+    // The API key the mock provider accepts, and the only copy the guest gets is the
+    // credential file on its data disk.
+    let mut secret = [0u8; 24];
+    getrandom::getrandom(&mut secret).map_err(err)?;
+    let key: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+    fs::write(d.join("apikey"), format!("sk-lab-{key}")).map_err(err)?;
     Ok(ca_cert.der().to_vec())
+}
+
+/// The API key the lab's cloud provider accepts.
+pub fn api_key() -> Result<String, String> {
+    fs::read_to_string(dir().join("apikey")).map_err(err)
 }
 
 /// A leaf and its key, as a lab service presents it.
@@ -115,6 +130,11 @@ mod tests {
         assert!(e("expired").contains("Expired"), "{}", e("expired"));
         assert!(e("wrongname").contains("NotValidForName"), "{}", e("wrongname"));
         assert!(e("untrusted").contains("UnknownIssuer"), "{}", e("untrusted"));
+        let (cloud, _) = load("cloud").unwrap();
+        let cloud_name = ServerName::try_from(CLOUD_NAME).unwrap();
+        assert!(v.verify_server_cert(&cloud, &[], &cloud_name, &[], UnixTime::now()).is_ok());
+        let key = fs::read_to_string(d.join("apikey")).unwrap();
+        assert!(key.starts_with("sk-lab-") && key.len() == 7 + 48, "{key}");
         fs::remove_dir_all(&d).ok();
     }
 }

@@ -24,6 +24,7 @@ members = [
     "user/services/spacepkg",
     "user/services/spaceterm",
     "user/services/spacenet",
+    "user/services/spacecloud",
     "user/spacetls",
     "user/tests/tlsprobe",
     "xtask",

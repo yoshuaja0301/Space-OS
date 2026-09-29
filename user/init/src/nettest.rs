@@ -24,6 +24,7 @@ const ALLOWLIST: &[(&str, u16)] = &[
     ("echo.lab.test", 7),
     ("alias.lab.test", 7),
     ("reset.lab.test", 9),
+    ("chargen.lab.test", 19),
     ("blackhole.lab.test", 80),
     ("closed.lab.test", 8),
     ("nosuch.lab.test", ANY_PORT),
@@ -53,7 +54,12 @@ impl Lab {
     }
 }
 
-fn op_call(op: Handle, r: &NetRequest, carry: Option<Handle>, timeout_ms: u64) -> Result<NetReply, String> {
+pub fn op_call(
+    op: Handle,
+    r: &NetRequest,
+    carry: Option<Handle>,
+    timeout_ms: u64,
+) -> Result<NetReply, String> {
     sys::send(op, r.as_bytes(), carry).map_err(|e| format!("send request {}: {e}", r.kind))?;
     sys::wait_any(&[op], timeout_ms).map_err(|e| format!("request {}: no answer: {e}", r.kind))?;
     let mut buf = [0u8; core::mem::size_of::<NetReply>()];
@@ -297,6 +303,29 @@ pub fn reset(lab: &Lab) -> Result<(), String> {
         Err(Error::Reset) => Ok(()),
         other => Err(format!("read gave {other:?}, expected Reset")),
     }
+}
+
+/// Walk away from a stream that is still coming: read the first lines of the
+/// character generator, then close. The service stops only if the guest resets the
+/// connection -- its side of the story is in the lab log, which the harness reads.
+pub fn walk_away(lab: &Lab) -> Result<(), String> {
+    const WANT: usize = 2048;
+    let mut s = lab.session.connect("chargen.lab.test", 19, 3000).map_err(|e| format!("connect: {e}"))?;
+    let mut got = Vec::new();
+    let mut buf = [0u8; 256];
+    while got.len() < WANT {
+        match s.read(&mut buf, 3000).map_err(|e| format!("read after {} bytes: {e}", got.len()))? {
+            0 => return Err(format!("the generator stopped after {} bytes", got.len())),
+            n => got.extend_from_slice(&buf[..n]),
+        }
+    }
+    let first: Vec<u8> = (0..72).map(|i| b' ' + 1 + i as u8).chain(*b"\r\n").collect();
+    if got[..74] != first[..] {
+        return Err(String::from("the first line is not the generator's"));
+    }
+    drop(s);
+    println!("[init] network: read {} bytes of a stream that keeps coming, then closed it", got.len());
+    Ok(())
 }
 
 /// One short connection: connect, send, finish, read the echo to its end.

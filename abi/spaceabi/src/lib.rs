@@ -14,6 +14,8 @@
 //!   (kernel image) and the kernel (user programs).
 //! * [`net`]     – the network service contract (sessions, allowlists, sockets);
 //!   [`dns`] is the resolver's message codec.
+//! * [`cloud`]   – the cloud adapter contract (operator configuration, asks, streamed
+//!   answers).
 //!
 //! It is `no_std`, allocation free, and must stay `#[repr(C)]`-stable: changing a
 //! layout here means bumping [`ABI_VERSION`] (see docs/adr/0004-syscall-abi-v0.md).
@@ -23,6 +25,7 @@
 
 pub mod agent;
 pub mod boot;
+pub mod cloud;
 pub mod compute;
 pub mod dns;
 pub mod elf;

@@ -1,26 +1,26 @@
 BdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 328448 bytes, initrd 2286592 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 320 KiB at phys 0x7db77000, entry 0xffffffff80100000
+spaceboot: kernel 328448 bytes, initrd 3516928 bytes, config 59 bytes
+spaceboot: kernel 3 segments, 320 KiB at phys 0x7da59000, entry 0xffffffff80100000
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 2286592 bytes, cmdline 0 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 38 memory regions, initrd 3516928 bytes, cmdline 0 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] cpu: x87/SSE/AVX off for user space (no per-thread FPU state); RDRAND absent
-[kernel] frames: 2094757 usable (8182 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 2 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094457 usable (8181 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 3 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
 [kernel] mmio window: 1024 MiB at 0xffffb00000000000
-[kernel] memory: 8182 MiB usable, 8166 MiB free after kernel init
+[kernel] memory: 8181 MiB usable, 8165 MiB free after kernel init
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
-[kernel] initrd: 2286592 bytes, 24 files
-[kernel]   bin/init (357312 bytes)
+[kernel] initrd: 3516928 bytes, 25 files
+[kernel]   bin/init (402368 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/abi_negative (53912 bytes)
@@ -40,6 +40,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/spaceterm (33464 bytes)
 [kernel]   bin/spacenet (119504 bytes)
 [kernel]   bin/tlsprobe (1069928 bytes)
+[kernel]   bin/spacecloud (1184632 bytes)
 [kernel]   fixtures/bad_entry (21064 bytes)
 [kernel]   fixtures/bad_magic (21064 bytes)
 [kernel]   fixtures/truncated (600 bytes)
@@ -55,16 +56,16 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1790695956 s since the Unix epoch (UTC)
+[kernel] rtc: 1790711529 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/init': entry=0x43a26c, 103 pages mapped, quota 2048 pages
+[kernel] spawn pid 1 'bin/init': entry=0x44342c, 114 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/init
 [kernel] entering idle loop; scheduler live
-[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (103 used)
+[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (114 used)
 [init] storage: none; disk-backed tests will be skipped
 [init] network: virtio-net present
 [init] --- K01: boot reached init in user space
-[init] kernel: 8165 MiB frames free of 8182, heap 2 KiB used, uptime 6 ms
+[init] kernel: 8164 MiB frames free of 8181, heap 2 KiB used, uptime 6 ms
 [init] PASS K01: boot reached init in user space
 [init] --- K02: hello world process exits 0
 [kernel] spawn pid 2 'bin/hello': entry=0x4003c4, 21 pages mapped, quota 128 pages
@@ -156,13 +157,13 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: syscall with a non-canonical user rsp returns normally
 [kernel] spawn pid 16 'bin/fault': entry=0x400834, 22 pages mapped, quota 128 pages
 [fault] pid 16 performing 'noncanon_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=124
+[fault] syscall with a hostile rsp returned ticks=129
 [kernel] pid 16 'bin/fault' exited with code 0
 [init] PASS K02: syscall with a non-canonical user rsp returns normally
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
 [kernel] spawn pid 17 'bin/fault': entry=0x400834, 22 pages mapped, quota 128 pages
 [fault] pid 17 performing 'kernel_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=133
+[fault] syscall with a hostile rsp returned ticks=138
 [kernel] pid 17 'bin/fault' exited with code 0
 [init] PASS K02: syscall with rsp pointing into the kernel returns normally
 [init] --- K02: malformed executables are rejected (bad entry, bad magic, truncated, huge segment)
@@ -358,7 +359,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 76 'bin/worker' exited with code 0
 [kernel] spawn pid 77 'bin/worker': entry=0x400404, 23 pages mapped, quota 128 pages
 [kernel] pid 77 'bin/worker' exited with code 0
-[init] frames free before=2090447 after=2090447 ; heap used before=2800 after=2800 ; switches=167
+[init] frames free before=2090136 after=2090136 ; heap used before=2800 after=2800 ; switches=165
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [kernel] spawn pid 78 'bin/ipc_echo': entry=0x400684, 21 pages mapped, quota 128 pages
@@ -407,7 +408,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 99 'bin/ipc_echo' killed (killed, addr 0x0)
 [kernel] spawn pid 100 'bin/ipc_echo': entry=0x400684, 21 pages mapped, quota 128 pages
 [kernel] pid 100 'bin/ipc_echo' killed (killed, addr 0x0)
-[init] frames free before=2090447 after=2090447 ; heap used before=2800 after=2800
+[init] frames free before=2090136 after=2090136 ; heap used before=2800 after=2800
 [init] PASS K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [kernel] spawn pid 101 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
@@ -456,7 +457,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 122 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 123 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
 [kernel] pid 123 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while sleeping: frames free 2090447 -> 2090447, heap used 2800 -> 2800, live processes 1
+[init] kill while sleeping: frames free 2090136 -> 2090136, heap used 2800 -> 2800, live processes 1
 [init] PASS K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [init] --- K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [kernel] spawn pid 124 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
@@ -505,7 +506,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 145 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 146 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
 [kernel] pid 146 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in recv: frames free 2090447 -> 2090447, heap used 2800 -> 2800, live processes 1
+[init] kill while in recv: frames free 2090136 -> 2090136, heap used 2800 -> 2800, live processes 1
 [init] PASS K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [init] --- K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [kernel] spawn pid 147 'bin/spin': entry=0x400324, 21 pages mapped, quota 128 pages
@@ -556,7 +557,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 169 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 170 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
 [kernel] pid 170 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait: frames free 2090411 -> 2090411, heap used 3336 -> 3336, live processes 2
+[init] kill while in wait: frames free 2090100 -> 2090100, heap used 3336 -> 3336, live processes 2
 [kernel] pid 147 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [init] --- K02: a full handle table refuses spawn instead of orphaning the child
@@ -629,7 +630,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 196 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 197 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
 [kernel] pid 197 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait_any: frames free 2090411 -> 2090411, heap used 9288 -> 9288, live processes 2
+[init] kill while in wait_any: frames free 2090100 -> 2090100, heap used 9288 -> 9288, live processes 2
 [kernel] pid 174 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-in-wait_any cycles leak nothing (two queues, no timeout)
 [init] --- K03: 20 kill-while-in-wait_any cycles release the timer entry at once
@@ -679,16 +680,16 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 219 'bin/blocker' killed (killed, addr 0x0)
 [kernel] spawn pid 220 'bin/blocker': entry=0x400ac4, 22 pages mapped, quota 128 pages
 [kernel] pid 220 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait_any with timeout: frames free 2090447 -> 2090447, heap used 8752 -> 8752, live processes 1
+[init] kill while in wait_any with timeout: frames free 2090136 -> 2090136, heap used 8752 -> 8752, live processes 1
 [init] PASS K03: 20 kill-while-in-wait_any cycles release the timer entry at once
 [init] --- K02: clock: wall-clock time is plausible and advances with the tick
-[init] clock: 1790695959 s since the Unix epoch
+[init] clock: 1790711532 s since the Unix epoch
 [init] PASS K02: clock: wall-clock time is plausible and advances with the tick
 [init] entropy: available
 [init] --- K02: random: requests are checked, and refused outright without a source
 [init] PASS K02: random: requests are checked, and refused outright without a source
 [init] --- K02: random: 4 KiB look like noise, and no draw repeats
-[init] random: 4096 bytes, chi-square 259 over 255 degrees of freedom, 16442 of 32768 bits set
+[init] random: 4096 bytes, chi-square 254 over 255 degrees of freedom, 16368 of 32768 bits set
 [init] PASS K02: random: 4 KiB look like noise, and no draw repeats
 [init] --- NET: the network lease needs the NET right and is exclusive
 [init] PASS NET: the network lease needs the NET right and is exclusive
@@ -699,7 +700,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] network: 10.0.2.2 is at 52:55:0a:00:02:02 (1 ms)
 [init] PASS NET: ARP: the gateway answers who-has 10.0.2.2
 [init] --- NET: ICMP echo to the gateway comes back intact
-[init] network: echo 1 (32 byte payload) back in 1 ms
+[init] network: echo 1 (32 byte payload) back in 0 ms
 [init] network: echo 2 (512 byte payload) back in 1 ms
 [init] network: echo 3 (1472 byte payload) back in 1 ms
 [init] network: 5 frames received, 5 sent, 0 dropped
@@ -712,32 +713,33 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- NET: malformed transmit and receive requests are refused
 [init] PASS NET: malformed transmit and receive requests are refused
 [init] --- NET: the network service gets an address by DHCP and describes it
-[kernel] spawn pid 222 'bin/spacenet': entry=0x410d04, 45 pages mapped, quota 256 pages
+[kernel] spawn pid 222 'bin/spacenet': entry=0x410e44, 45 pages mapped, quota 256 pages
 [net] Space OS network service, ABI v0
 [net] attached: mac 52:54:00:12:34:56, link up; asking DHCP for an address
 [net] DHCP: address 10.0.2.15/24, router none, DNS server none
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 12 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 11 ms
 [net] DNS: using 10.0.2.53:53 (over TCP)
 [net] session 1 opened; nothing is allowed yet
 [net] session 1: allow echo.lab.test, port 7
 [net] session 1: allow alias.lab.test, port 7
 [net] session 1: allow reset.lab.test, port 9
+[net] session 1: allow chargen.lab.test, port 19
 [net] session 1: allow blackhole.lab.test, port 80
 [net] session 1: allow closed.lab.test, port 8
 [net] session 1: allow nosuch.lab.test, any port
 [init] PASS NET: the network service gets an address by DHCP and describes it
 [init] --- NET: names resolve through the lab DNS server; unknown names do not
-[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
-[init] network: echo.lab.test is 10.0.2.101 (12 ms)
-[net] DNS: alias.lab.test is 10.0.2.101 (2 ms)
-[init] network: alias.lab.test is 10.0.2.101 (4 ms)
-[net] DNS: ECHO.Lab.Test is 10.0.2.101 (4 ms)
-[init] network: ECHO.Lab.Test is 10.0.2.101 (6 ms)
+[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
+[init] network: echo.lab.test is 10.0.2.101 (13 ms)
+[net] DNS: alias.lab.test is 10.0.2.101 (3 ms)
+[init] network: alias.lab.test is 10.0.2.101 (5 ms)
+[net] DNS: ECHO.Lab.Test is 10.0.2.101 (3 ms)
+[init] network: ECHO.Lab.Test is 10.0.2.101 (5 ms)
 [net] DNS: nosuch.lab.test: not found
 [init] PASS NET: names resolve through the lab DNS server; unknown names do not
 [init] --- NET: 64 KiB go to the echo service and come back intact over TCP
-[net] DNS: echo.lab.test is 10.0.2.101 (1 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1005 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (2 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1004 ms
 [net] session 1: echo.lab.test:7 closed: 65536 bytes out, 65536 in
 [init] network: 65536 bytes to the echo service and back in 1028 ms
 [init] PASS NET: 64 KiB go to the echo service and come back intact over TCP
@@ -751,90 +753,95 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- NET: a connection nobody answers times out
 [net] DNS: blackhole.lab.test is 10.0.2.77 (4 ms)
 [net] session 1: blackhole.lab.test:80: timed out after 500 ms
-[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 502 ms
+[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 501 ms
 [init] PASS NET: a connection nobody answers times out
 [init] --- NET: a port nobody listens on refuses the connection
-[net] DNS: closed.lab.test is 10.0.2.101 (5 ms)
-[net] session 1: closed.lab.test:8: connection refused after 8 ms
-[init] network: closed.lab.test:8 gave Err(Refused) after 10 ms
+[net] DNS: closed.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: closed.lab.test:8: connection refused after 6 ms
+[init] network: closed.lab.test:8 gave Err(Refused) after 7 ms
 [init] PASS NET: a port nobody listens on refuses the connection
 [init] --- NET: a connection the peer resets is reported as reset
 [net] DNS: reset.lab.test is 10.0.2.102 (4 ms)
 [net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1007 ms
-[net] session 1: reset.lab.test:9: connection reset after 1307 ms
-[init] network: the resetting service answered Err(Reset) after 300 ms
+[net] session 1: reset.lab.test:9: connection reset after 1308 ms
+[init] network: the resetting service answered Err(Reset) after 302 ms
 [init] PASS NET: a connection the peer resets is reported as reset
+[init] --- NET: closing a connection the peer is still sending on resets it, so the peer stops
+[net] DNS: chargen.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to chargen.lab.test:19 (10.0.2.101) in 6 ms
+[init] network: read 2056 bytes of a stream that keeps coming, then closed it
+[init] PASS NET: closing a connection the peer is still sending on resets it, so the peer stops
 [init] --- NET: 20 connections open and close without leaking kernel memory
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 8 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 4 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (3 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[init] network connections: frames free 2090225 -> 2090225, heap used 10936 -> 10936, live processes 2
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 7 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 8 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 5 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (5 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 8 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[init] network connections: frames free 2089914 -> 2089914, heap used 11032 -> 11032, live processes 2
 [init] PASS NET: 20 connections open and close without leaking kernel memory
 [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no disk, which holds the lab authority's certificate)
 [init] SKIP TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it (no disk, which holds the lab authority's certificate)
@@ -844,27 +851,39 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] SKIP TLS: a certificate from an unknown authority is refused (no disk, which holds the lab authority's certificate)
 [init] SKIP TLS: a record altered on the way is caught (no disk, which holds the lab authority's certificate)
 [init] SKIP TLS: a connection cut short without close_notify is reported as truncated (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: the adapter holds the credential, and the provider refuses a wrong one (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: answers stream back as the provider writes them, and cost what it reports (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: the model's tool calls go through the Tool Broker, inside the workspace (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: a tool call for the credential is refused, and the provider hears only that (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: a stalled answer ends at the deadline, and the adapter keeps serving (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: an overloaded provider is tried three times, and no more (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: a provider streaming past what was reserved is cut off, and charged what it used (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: an ask that could exceed the budget is refused before a frame leaves (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: local-only work is refused before a frame leaves (no disk, which holds the lab authority's certificate)
+[init] SKIP I01: the adapter quits cleanly, and the broker's audit holds every tool call (no disk, which holds the lab authority's certificate)
 [init] --- NET: killing the service fails its clients and frees the device; a new one serves and quits
 [net] DNS: echo.lab.test is 10.0.2.101 (4 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 6 ms
 [kernel] pid 222 'bin/spacenet' killed (killed, addr 0x0)
-[kernel] spawn pid 223 'bin/spacenet': entry=0x410d04, 45 pages mapped, quota 256 pages
+[kernel] spawn pid 223 'bin/spacenet': entry=0x410e44, 45 pages mapped, quota 256 pages
 [net] Space OS network service, ABI v0
 [net] attached: mac 52:54:00:12:34:56, link up; asking DHCP for an address
 [net] DHCP: address 10.0.2.15/24, router none, DNS server none
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 10 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 16 ms
 [net] DNS: using 10.0.2.53:53 (over TCP)
 [net] session 1 opened; nothing is allowed yet
 [net] session 1: allow echo.lab.test, port 7
 [net] session 1: allow alias.lab.test, port 7
 [net] session 1: allow reset.lab.test, port 9
+[net] session 1: allow chargen.lab.test, port 19
 [net] session 1: allow blackhole.lab.test, port 80
 [net] session 1: allow closed.lab.test, port 8
 [net] session 1: allow nosuch.lab.test, any port
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1014 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (11 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1017 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] closing: 1 connections opened, 0 refused, 1 names resolved; 13 frames in, 14 out, 0 dropped
+[net] closing: 1 connections opened, 0 refused, 1 names resolved; 13 frames in, 15 out, 0 dropped
 [kernel] pid 223 'bin/spacenet' exited with code 0
 [init] PASS NET: killing the service fails its clients and frees the device; a new one serves and quits
 [init] --- D01: SHA-256 in the guest matches the published test vectors
@@ -906,7 +925,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
 [kernel] pid 229 'bin/spacecompute' exited with code 0
-[init] compute cycles: frames free 2090447 -> 2090447, heap used 8784 -> 8784
+[init] compute cycles: frames free 2090136 -> 2090136, heap used 8784 -> 8784
 [init] PASS C01: compute service teardown returns every frame it allocated
 [init] SKIP A01: native inference: a small model generates 128 tokens matching the pinned baseline (no disk on this machine)
 [init] --- U01: session service survives a crashed worker and keeps serving Stop and the file manager
@@ -1035,6 +1054,17 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] skipped: TLS a certificate from an unknown authority is refused: no disk, which holds the lab authority's certificate
 [init] skipped: TLS a record altered on the way is caught: no disk, which holds the lab authority's certificate
 [init] skipped: TLS a connection cut short without close_notify is reported as truncated: no disk, which holds the lab authority's certificate
+[init] skipped: I01 the adapter holds the credential, and the provider refuses a wrong one: no disk, which holds the lab authority's certificate
+[init] skipped: I01 answers stream back as the provider writes them, and cost what it reports: no disk, which holds the lab authority's certificate
+[init] skipped: I01 the model's tool calls go through the Tool Broker, inside the workspace: no disk, which holds the lab authority's certificate
+[init] skipped: I01 a tool call for the credential is refused, and the provider hears only that: no disk, which holds the lab authority's certificate
+[init] skipped: I01 a stalled answer ends at the deadline, and the adapter keeps serving: no disk, which holds the lab authority's certificate
+[init] skipped: I01 an overloaded provider is tried three times, and no more: no disk, which holds the lab authority's certificate
+[init] skipped: I01 an answer nested deep enough to exhaust a stack is refused, and the adapter lives on: no disk, which holds the lab authority's certificate
+[init] skipped: I01 a provider streaming past what was reserved is cut off, and charged what it used: no disk, which holds the lab authority's certificate
+[init] skipped: I01 an ask that could exceed the budget is refused before a frame leaves: no disk, which holds the lab authority's certificate
+[init] skipped: I01 local-only work is refused before a frame leaves: no disk, which holds the lab authority's certificate
+[init] skipped: I01 the adapter quits cleanly, and the broker's audit holds every tool call: no disk, which holds the lab authority's certificate
 [init] skipped: D01 model file read from the guest disk matches the manifest checksum: no disk on this machine
 [init] skipped: D01 file API rejects bad paths, missing rights and bad buffers: no disk on this machine
 [init] skipped: A01 native inference: a small model generates 128 tokens matching the pinned baseline: no disk on this machine
@@ -1050,5 +1080,5 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] skipped: P01 packages install only when they authenticate, and a refusal changes nothing: no disk on this machine
 [init] skipped: P01 an install outlives the process that performed it: no disk on this machine
 [init] skipped: P01 rollback returns the previous version, and only as far as the history goes: no disk on this machine
-[init] ALL TESTS PASSED (71/71, 23 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 8963 ms, 3133 context switches)
+[init] ALL TESTS PASSED (72/72, 34 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 9099 ms, 3125 context switches)

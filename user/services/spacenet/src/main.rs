@@ -908,7 +908,7 @@ impl Service {
 
     /// The client closed its end of the socket channel. Like closing a socket:
     /// with unread data the connection is reset, otherwise what is queued still goes
-    /// out, then FIN.
+    /// out, then FIN -- and data arriving after that is answered with a reset.
     fn client_left(&mut self, ci: usize, now: u64) {
         let c = &mut self.conns[ci];
         if c.client_gone {
@@ -1135,6 +1135,16 @@ impl Service {
             }
         }
         let c = &mut self.conns[ci];
+        // Data that arrives after the client closed has nobody to read it. Reset, so
+        // the peer learns it was lost and stops sending (RFC 1122, 4.2.2.13) -- a
+        // client that walks away from a stream must stop the stream, not just stop
+        // listening to it.
+        if c.client_gone && self.sockets.get::<tcp::Socket>(h).recv_queue() > 0 {
+            c.tcp = None;
+            c.finish(now);
+            self.abort(h);
+            return true;
+        }
         let state = self.sockets.get::<tcp::Socket>(h).state();
         let closed = matches!(state, tcp::State::Closed | tcp::State::TimeWait);
         if c.client_gone {
@@ -1244,7 +1254,8 @@ impl Service {
                         }
                     }
                     _ => {
-                        if now >= g.until {
+                        // Past its time, or sent data nobody will read (see pump).
+                        if now >= g.until || s.recv_queue() > 0 {
                             s.abort();
                             g.aborted_pass = Some(pass);
                         }

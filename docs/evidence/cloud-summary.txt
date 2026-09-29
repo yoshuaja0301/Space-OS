@@ -1,0 +1,142 @@
+# Adapter cloud (I01, ADR-0018) — ringkasan sesi verifikasi 2026-09-29
+
+Penyedia yang dipakai adalah TIRUAN (xtask lab cloud, api.cloud.test = 10.0.2.100:443).
+Diambil dari build/logs/acceptance.log dan acceptance.lab.log skenario acceptance.
+Log lengkap: acceptance.log di direktori ini.
+
+## Guest: uji I01, adapter, dan uji NET yang menyertainya
+[init] network: read 2056 bytes of a stream that keeps coming, then closed it
+[init] PASS NET: closing a connection the peer is still sending on resets it, so the peer stops
+[cloud] spacecloud 0.1: Messages API 2023-06-01 over TLS 1.3; experimental, tested against the lab mock provider only
+[init] cloud adapter: spacecloud 0.1: Messages API 2023-06-01 over TLS 1.3; experimental, tested against the lab mock provider only
+[cloud] trust anchor in force (380 bytes)
+[cloud] provider at api.cloud.test:443
+[cloud] budget 50000 µ$ (0 spent); 3000000 µ$ per million tokens in, 15000000 out; 3 attempt(s) per request
+[cloud] ask 1 (lab-echo): not-ready: no trust anchor, credential, endpoint or network session yet; 0 ms, 0 round(s), 0 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 0 of 50000 µ$
+[cloud] credential held (55 bytes)
+[cloud] ask 2 (lab-echo): auth: the provider refused the credential (401: invalid x-api-key); 95 ms, 1 round(s), 1 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 0 of 50000 µ$
+[init] cloud: with a wrong key: auth: the provider refused the credential (401: invalid x-api-key)
+[cloud] credential held (55 bytes)
+[cloud] ask 3 (lab-echo): done; 660 ms, 1 round(s), 1 attempt(s), tools [], 25 in / 14 out tokens, 285 µ$; spent 285 of 50000 µ$
+[init] PASS I01: the adapter holds the credential, and the provider refuses a wrong one
+[cloud] ask 4 (lab-echo): done; 667 ms, 1 round(s), 1 attempt(s), tools [], 28 in / 16 out tokens, 324 µ$; spent 609 of 50000 µ$
+[init] cloud: 4 pieces, the first after 216 ms and the end after 668 ms; 28 in / 16 out tokens, 324 µ$
+[init] PASS I01: answers stream back as the provider writes them, and cost what it reports
+[cloud] ask 5 (lab-tool): done; 152 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/ws/input.txt: allowed], 297 in / 23 out tokens, 1236 µ$; spent 1845 of 50000 µ$
+[init] cloud: tool calls [(0, "read_file /spaceos/ws/input.txt: allowed")]; answer "I will read the file.The file begins: space-os workspace"
+[cloud] ask 6 (lab-tool): done; 64 ms, 1 round(s), 1 attempt(s), tools [], 31 in / 5 out tokens, 168 µ$; spent 2013 of 50000 µ$
+[init] PASS I01: the model's tool calls go through the Tool Broker, inside the workspace
+[cloud] ask 7 (lab-exfil): done; 142 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/cred/cloud.key: denied (outside the workspace)], 283 in / 39 out tokens, 1434 µ$; spent 3447 of 50000 µ$
+[init] cloud: tool calls [(1, "read_file /spaceos/cred/cloud.key: denied (outside the workspace)")]; answer "I will read the file.The tool refused: refused by the Tool Broker: /spaceos/cred/cloud.key is outside the workspace"
+[init] PASS I01: a tool call for the credential is refused, and the provider hears only that
+[cloud] ask 8 (lab-stall): timeout: reading the answer: timed out; 1500 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 1 out tokens, 93 µ$; spent 3540 of 50000 µ$
+[init] cloud: a stalled answer ended after 1501 ms: timeout: reading the answer: timed out
+[cloud] ask 9 (lab-echo): done; 668 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 3843 of 50000 µ$
+[init] PASS I01: a stalled answer ends at the deadline, and the adapter keeps serving
+[cloud] attempt 1: the provider is busy (529: Overloaded); trying again in 250 ms
+[cloud] attempt 2: the provider is busy (529: Overloaded); trying again in 500 ms
+[cloud] ask 10 (lab-overloaded): overloaded: the provider is busy (529: Overloaded) on every one of 3 attempt(s); 949 ms, 1 round(s), 3 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 3843 of 50000 µ$
+[init] cloud: 3 attempts, 3 connections: overloaded: the provider is busy (529: Overloaded) on every one of 3 attempt(s)
+[init] PASS I01: an overloaded provider is tried three times, and no more
+[cloud] ask 11 (lab-hostile): protocol: event content_block_start is not JSON the adapter accepts; 108 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 1 out tokens, 93 µ$; spent 3936 of 50000 µ$
+[init] cloud: protocol: event content_block_start is not JSON the adapter accepts
+[cloud] ask 12 (lab-echo): done; 658 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 4239 of 50000 µ$
+[init] PASS I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on
+[cloud] ask 13 (lab-runaway): over-budget: the provider reported 400 output tokens, past the 100 reserved: cut off; 119 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 400 out tokens, 6078 µ$; spent 10317 of 50000 µ$
+[init] cloud: over-budget: the provider reported 400 output tokens, past the 100 reserved: cut off after 121 ms; charged 6078 µ$
+[init] PASS I01: a provider streaming past what was reserved is cut off, and charged what it used
+[cloud] ask 14 (lab-budget): budget: this request could cost up to 60165 µ$ and 39683 µ$ of the budget is left: nothing was sent; 1 ms, 0 round(s), 0 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 10317 of 50000 µ$
+[init] cloud: budget: this request could cost up to 60165 µ$ and 39683 µ$ of the budget is left: nothing was sent; frames sent meanwhile: 0
+[init] PASS I01: an ask that could exceed the budget is refused before a frame leaves
+[cloud] ask 15 (lab-local): local-only: local-only work stays on this machine: nothing was sent; 0 ms, 0 round(s), 0 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 10317 of 50000 µ$
+[init] cloud: local-only: local-only work stays on this machine: nothing was sent; frames sent meanwhile: 0
+[init] PASS I01: local-only work is refused before a frame leaves
+[cloud] closing: 15 ask(s), 2 refused before sending, 16 connection(s), 2 tool call(s); spent 10317 of 50000 µ$
+[init] cloud: 15 asks, 2 refused before sending, 16 connections, 2 tool calls; spent 10317 of 50000 µ$
+[init] cloud: broker audit: 2 entries, 1 allowed, 1 refused
+[init] PASS I01: the adapter quits cleanly, and the broker's audit holds every tool call
+
+## Sisi penyedia tiruan (log lab)
+chargen: the guest went away after 4144 bytes (broken pipe)
+cloud: 401: lab-echo: the key presented is not the lab's
+cloud: lab-echo: streamed 4 pieces, 25 in / 14 out tokens
+cloud: lab-echo: streamed 4 pieces, 28 in / 16 out tokens
+cloud: lab-tool: asked to read /spaceos/ws/input.txt
+cloud: lab-tool: tool_result for toolu_lab_1: 119 bytes
+cloud: lab-tool: no read_file tool was offered
+cloud: lab-exfil: asked to read /spaceos/cred/cloud.key
+cloud: lab-exfil: the tool was refused: refused by the Tool Broker: /spaceos/cred/cloud.key is outside the workspace
+cloud: lab-stall: the client closed the connection after 1438 ms
+cloud: lab-echo: streamed 4 pieces, 26 in / 15 out tokens
+cloud: lab-overloaded: attempt 1 answered 529
+cloud: lab-overloaded: attempt 2 answered 529
+cloud: lab-overloaded: attempt 3 answered 529
+cloud: lab-hostile: sent an event nested 120 levels deep
+cloud: lab-hostile: the client closed the connection
+cloud: lab-echo: streamed 4 pieces, 26 in / 15 out tokens
+cloud: lab-runaway: the client closed the connection after 2 rounds (800 tokens reported, max_tokens 100)
+
+## Kabel (pcap skenario acceptance)
+tcp: 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== local-only-ignored: xtask exit 1
+[init] FAIL I01: local-only work is refused before a frame leaves: expected local-only, the ask ended provider: the provider answered 404: no such model
+harness: - missing marker "[init] PASS I01: local-only work is refused before a frame leaves"
+harness: - missing marker "[init] ALL TESTS PASSED"
+harness: - the lab services wrote "cloud: 404: model lab-local"
+=== no-reservation: xtask exit 1
+[init] FAIL I01: an ask that could exceed the budget is refused before a frame leaves: expected budget, the ask ended provider: the provider answered 404: no such model
+harness: - missing marker "[init] PASS I01: an ask that could exceed the budget is refused before a frame leaves"
+harness: - missing marker "[init] ALL TESTS PASSED"
+harness: - the lab services wrote "cloud: 404: model lab-budget"
+=== no-max-tokens-guard: xtask exit 1
+[init] FAIL I01: a provider streaming past what was reserved is cut off, and charged what it used: cut at 3200 output tokens, charged 48078 µ$, spend 4239 -> 52317
+harness: - missing marker "[init] PASS I01: a provider streaming past what was reserved is cut off, and charged what it used"
+harness: - missing marker "[init] PASS I01: the adapter quits cleanly, and the broker's audit holds every tool call"
+harness: - missing marker "[ai] model verified: sha256"
+harness: - missing marker "[ai] generated 128 tokens offline, all matching the pinned baseline"
+harness: - missing marker "[init] ALL TESTS PASSED"
+harness: - missing marker "[shell] input was lost; the line was discarded"
+=== answer-held-back: xtask exit 1
+[init] FAIL I01: answers stream back as the provider writes them, and cost what it reports: 1 pieces arrived; the provider sent 4
+harness: - missing marker "[init] PASS I01: answers stream back as the provider writes them, and cost what it reports"
+harness: - missing marker "[init] ALL TESTS PASSED"
+=== broker-without-scope: xtask exit 1
+[init] FAIL I01: a tool call for the credential is refused, and the provider hears only that: tool calls were [(0, "read_file /spaceos/cred/cloud.key: allowed")]
+harness: - missing marker "[init] PASS I01: a tool call for the credential is refused, and the provider hears only that"
+harness: - missing marker "[init] PASS I01: the adapter quits cleanly, and the broker's audit holds every tool call"
+harness: - missing marker "[ai] model verified: sha256"
+harness: - missing marker "[ai] generated 128 tokens offline, all matching the pinned baseline"
+harness: - missing marker "[init] ALL TESTS PASSED"
+harness: - missing marker "[shell] input was lost; the line was discarded"
+harness: - the lab services never wrote "cloud: lab-exfil: the tool was refused: refused by the Tool Broker"
+harness: - the lab services wrote "cloud: lab-exfil: THE CREDENTIAL LEAKED (55 bytes)"
+=== fin-instead-of-reset: xtask exit 1
+harness: - the lab services never wrote "chargen: the guest went away after"
+harness: - the lab services wrote "chargen: sent 514892 bytes over 10 s and nobody stopped it"
+=== json-depth-unchecked: xtask exit 1
+[init] FAIL I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on: expected protocol, the ask ended timeout: reading the answer: timed out
+harness: - missing marker "[init] PASS I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on"
+harness: - missing marker "[init] ALL TESTS PASSED"
+=== auth-retried: xtask exit 1
+[init] FAIL I01: the adapter holds the credential, and the provider refuses a wrong one: expected auth, the ask ended overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: answers stream back as the provider writes them, and cost what it reports: the ask failed: overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: the model's tool calls go through the Tool Broker, inside the workspace: the ask failed: overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: a tool call for the credential is refused, and the provider hears only that: the ask failed: overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: a stalled answer ends at the deadline, and the adapter keeps serving: expected timeout, the ask ended overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on: expected protocol, the ask ended overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+[init] FAIL I01: a provider streaming past what was reserved is cut off, and charged what it used: expected over-budget, the ask ended overloaded: the provider refused the credential (401: invalid x-api-key) on every one of 3 attempt(s)
+harness: - missing marker "[init] PASS I01: the adapter holds the credential, and the provider refuses a wrong one"
+harness: - missing marker "[init] PASS I01: answers stream back as the provider writes them, and cost what it reports"
+harness: - missing marker "[init] PASS I01: the model's tool calls go through the Tool Broker, inside the workspace"
+harness: - missing marker "[init] PASS I01: a tool call for the credential is refused, and the provider hears only that"
+harness: - missing marker "[init] PASS I01: a stalled answer ends at the deadline, and the adapter keeps serving"
+harness: - missing marker "[init] PASS I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on"
+harness: - missing marker "[init] PASS I01: a provider streaming past what was reserved is cut off, and charged what it used"
+harness: - missing marker "[init] PASS I01: the adapter quits cleanly, and the broker's audit holds every tool call"
+harness: - missing marker "[ai] model verified: sha256"
+harness: - missing marker "[ai] generated 128 tokens offline, all matching the pinned baseline"
+harness: - missing marker "[init] ALL TESTS PASSED"
+harness: - missing marker "[shell] input was lost; the line was discarded"
+=== restored

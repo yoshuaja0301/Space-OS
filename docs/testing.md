@@ -202,6 +202,7 @@ Semua dilewati (bukan digagalkan) pada mesin tanpa kartu virtio-net.
 | NET | tujuan yang tidak pernah menjawab (10.0.2.77) → `TimedOut` setelah 400–3000 ms untuk batas 500 ms | `bin/spacenet` |
 | NET | port yang tidak mendengarkan (alamat layanan echo, port 8) → `Refused`: QEMU menjawab SYN-nya dengan RST | `bin/spacenet` |
 | NET | layanan yang pergi tanpa membaca → pembacaan berikutnya `Reset` | `bin/spacenet` |
+| NET | koneksi ke character generator (`chargen.lab.test:19`, terus mengirim) dibaca 2 KiB lalu ditutup: data yang tiba sesudahnya dijawab RST, jadi layanan berhenti — harness menuntut log layanan `the guest went away` (RFC 1122 §4.2.2.13, ADR-0018) | `bin/spacenet` |
 | NET | 20 koneksi (hubung, kirim `ping`, `shutdown`, baca sampai EOF) → frame bebas dan heap kernel identik | `bin/spacenet` |
 | NET | `spacenet` dibunuh saat koneksi terbuka: pembacaan klien → `PeerClosed`, sesi → `PeerClosed`, lease bisa dibuka lagi; instans baru melayani satu koneksi dan `QUIT` keluar dengan kode 0, lalu lease kembali | `bin/spacenet` |
 
@@ -238,6 +239,34 @@ penolakan: `CertificateExpired`, `BadCertificate`, `UnknownCA`, `BadRecordMac`. 
 ada di ADR-0017: verifier yang menerima semua sertifikat, jam yang dimajukan 31 hari, dan EOF yang
 dianggap akhir bersih masing-masing membuat run gagal.
 
+### Uji I01 (adapter cloud, ADR-0018)
+
+`init` menjalankan `bin/spacebroker` dan `bin/spacecloud`, menyerahkan trust anchor, endpoint
+`api.cloud.test:443`, sesi yang hanya boleh ke sana, channel broker, dan budget 50000 µ$ (harga
+$3/$15 per juta token, 3 percobaan), lalu bertanya sebagai klien. Penyedianya **tiruan**
+(`xtask lab cloud`, 10.0.2.100:443, Messages API lewat HTTP/1.1 + SSE di atas TLS 1.3); nama
+model memilih skripnya.
+
+| ID | Uji | Model tiruan |
+|---|---|---|
+| I01 | sebelum kredensial → `not-ready`; kunci salah → `auth` (401) dalam **1** percobaan; kunci dari `/spaceos/cred/cloud.key` → jawaban | `lab-echo` |
+| I01 | jawaban tiba dalam 4 potong berjarak 150 ms: potongan pertama ≥ 300 ms sebelum akhir; token × harga = biaya, dan belanja adapter naik tepat sebesar itu | `lab-echo` |
+| I01 | model membaca `/spaceos/ws/input.txt` lewat broker (`allowed`) dan mengutip barisnya; tanpa alat ditawarkan, tidak ada panggilan | `lab-tool` |
+| I01 | model minta `/spaceos/cred/cloud.key`: broker menolak (`denied-scope`), jawaban memuat penolakan dan **bukan** kuncinya | `lab-exfil` |
+| I01 | tenggat 1500 ms atas jawaban yang macet → `timeout` dalam 1400–4000 ms, ask berikutnya dilayani | `lab-stall` |
+| I01 | penyedia selalu 529 → `overloaded` setelah tepat 3 percobaan dan 3 koneksi | `lab-overloaded` |
+| I01 | event bersarang 120 tingkat (JSON sah, di bawah batas parser 128) → `protocol` sebelum parser menyelaminya — stack program ini 64 KiB — dan ask berikutnya dilayani | `lab-hostile` |
+| I01 | penyedia melaporkan 400 token output untuk `max_tokens` 100 → `over-budget`, diputus, ditagih tepat 400 token | `lab-runaway` |
+| I01 | ask yang bisa berbiaya 60000 µ$ → `budget`, **0 frame** menurut penghitung perangkat, 0 koneksi, belanja tetap | (tidak pernah sampai) |
+| I01 | ask local-only → `local-only`, **0 frame**, 0 koneksi | (tidak pernah sampai) |
+| I01 | adapter keluar 0; audit broker memuat baca workspace `allowed` dan baca kredensial `denied-scope` | — |
+
+Harness menuntut sisi penyedia juga (`lab_must_contain`): 401, `streamed 4 pieces`,
+`tool_result … 119 bytes`, penolakan alat, klien yang pergi dari `lab-stall` dan `lab-runaway`, dan
+`attempt 3 answered 529`; dan menolak run yang log lab-nya memuat (`lab_must_not_contain`)
+`nobody stopped it`, `THE CREDENTIAL LEAKED`, `attempt 4 answered`, `lab-budget` atau `lab-local`.
+Gigi setiap klaim ada di `docs/evidence/cloud-summary.txt`.
+
 ## Gerbang build: tidak ada instruksi FPU atau vektor
 
 `cargo xtask build` mendekode setiap instruksi di segmen executable kernel dan semua program
@@ -253,8 +282,9 @@ Kartu setiap mesin tersambung ke jaringan QEMU user-mode dengan `restrict=on`: g
 tidak bisa mencapai host maupun internet. Satu-satunya pintu adalah aturan
 `guestfwd` yang menjalankan `xtask lab <nama>` untuk setiap koneksi, dengan koneksi
 itu sebagai stdin/stdout (`xtask/src/lab.rs`): DNS lewat TCP di 10.0.2.53:53, echo di
-10.0.2.101:7, layanan yang me-reset koneksinya di 10.0.2.102:9, dan layanan TLS di
-10.0.2.103 (lihat uji TLS). Port lain di alamat
+10.0.2.101:7, character generator di 10.0.2.101:19, layanan yang me-reset koneksinya di
+10.0.2.102:9, layanan TLS di 10.0.2.103 (lihat uji TLS), dan penyedia cloud tiruan di
+10.0.2.100:443 (lihat uji I01). Port lain di alamat
 lab dijawab QEMU dengan RST (uji `Refused`), dan tidak ada yang
 menjawab di 10.0.2.77. Catatan layanan lab ditulis ke `build/logs/<skenario>.lab.log`.
 

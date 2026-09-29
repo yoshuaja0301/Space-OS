@@ -8,6 +8,7 @@
 
 extern crate alloc;
 
+mod cloudtest;
 mod netcheck;
 mod nettest;
 
@@ -1474,6 +1475,13 @@ pub extern "C" fn space_main() -> i32 {
         nic,
         "no network device",
         "NET",
+        "closing a connection the peer is still sending on resets it, so the peer stops",
+        || nettest::walk_away(lab.as_ref().ok_or_else(no_service)?),
+    );
+    r.run_if(
+        nic,
+        "no network device",
+        "NET",
         "20 connections open and close without leaking kernel memory",
         || {
             let l = lab.as_ref().ok_or_else(no_service)?;
@@ -1528,6 +1536,69 @@ pub extern "C" fn space_main() -> i32 {
                 Err(alloc::format!("expected an answer starting {want:?}, the probe said {answer:?}"))
             }
         });
+    }
+    // I01: the cloud adapter against the lab's mock provider, over TLS, with the Tool
+    // Broker between the model's tool calls and the machine (ADR-0018).
+    let mut cloud: Option<cloudtest::Cloud> = None;
+    let no_cloud = || String::from("the cloud adapter is not running");
+    r.run_if(
+        tls_ready,
+        tls_why,
+        "I01",
+        "the adapter holds the credential, and the provider refuses a wrong one",
+        || {
+            let c = cloudtest::start(ROOT, lab.as_ref().ok_or_else(no_service)?)?;
+            let res = cloudtest::auth(&c);
+            cloud = Some(c);
+            res
+        },
+    );
+    type CloudCheck = fn(&cloudtest::Cloud) -> Result<(), String>;
+    let cloud_checks: [(&str, CloudCheck); 7] = [
+        ("answers stream back as the provider writes them, and cost what it reports", cloudtest::streaming),
+        ("the model's tool calls go through the Tool Broker, inside the workspace", cloudtest::tool_use),
+        (
+            "a tool call for the credential is refused, and the provider hears only that",
+            cloudtest::tool_refused,
+        ),
+        ("a stalled answer ends at the deadline, and the adapter keeps serving", cloudtest::timeout),
+        ("an overloaded provider is tried three times, and no more", cloudtest::retries),
+        (
+            "an answer nested deep enough to exhaust a stack is refused, and the adapter lives on",
+            cloudtest::hostile,
+        ),
+        (
+            "a provider streaming past what was reserved is cut off, and charged what it used",
+            cloudtest::over_budget,
+        ),
+    ];
+    for (name, check) in cloud_checks {
+        r.run_if(tls_ready, tls_why, "I01", name, || check(cloud.as_ref().ok_or_else(no_cloud)?));
+    }
+    r.run_if(
+        tls_ready,
+        tls_why,
+        "I01",
+        "an ask that could exceed the budget is refused before a frame leaves",
+        || {
+            cloudtest::budget_refusal(
+                cloud.as_ref().ok_or_else(no_cloud)?,
+                lab.as_ref().ok_or_else(no_service)?,
+            )
+        },
+    );
+    r.run_if(tls_ready, tls_why, "I01", "local-only work is refused before a frame leaves", || {
+        cloudtest::local_only(cloud.as_ref().ok_or_else(no_cloud)?, lab.as_ref().ok_or_else(no_service)?)
+    });
+    r.run_if(
+        tls_ready,
+        tls_why,
+        "I01",
+        "the adapter quits cleanly, and the broker's audit holds every tool call",
+        || cloudtest::finish(cloud.take().ok_or_else(no_cloud)?),
+    );
+    if let Some(c) = cloud.take() {
+        cloudtest::abandon(c);
     }
     r.run_if(
         nic,

@@ -12,6 +12,7 @@
 //! frame on the guest's network during `run` (test runs always record, next to the
 //! serial log).
 
+mod cloud;
 mod lab;
 mod nofpu;
 mod pcap;
@@ -45,6 +46,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spaceterm",
     "spacenet",
     "tlsprobe",
+    "spacecloud",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -415,6 +417,14 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
             .map_err(|e| e.to_string())?
             .write_all(&pki::generate()?)
             .map_err(|e| e.to_string())?;
+        // The credential store (ADR-0018): the key the lab's cloud provider accepts.
+        // Outside the workspace, so no tool call can reach it.
+        dir.create_dir("CRED")
+            .map_err(|e| e.to_string())?
+            .create_file("CLOUD.KEY")
+            .map_err(|e| e.to_string())?
+            .write_all(pki::api_key()?.as_bytes())
+            .map_err(|e| e.to_string())?;
         // Package fixtures (P01): two good versions and three that must be refused,
         // each for a different reason.
         let pkgs = dir.create_dir("PKG").map_err(|e| e.to_string())?;
@@ -427,7 +437,7 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
     }
     disk.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + lab CA + 5 packages, FAT32)",
+        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + lab CA + cloud credential + 5 packages, FAT32)",
         out.display(),
         model.len() / 1024
     );
@@ -1213,6 +1223,9 @@ struct Scenario {
     /// the guest did. A refusal the guest reports is half the story; the server
     /// being told why (a TLS alert) is the other half.
     lab_must_contain: &'static [&'static str],
+    /// Lines the lab services must never have written: a request that should not
+    /// have left the guest, a stream nobody stopped, a secret that got out.
+    lab_must_not_contain: &'static [&'static str],
 }
 
 /// QEMU exit status = (value << 1) | 1 for isa-debug-exit.
@@ -1271,6 +1284,19 @@ const SCENARIOS: &[Scenario] = &[
             "[init] PASS TLS: a certificate from an unknown authority is refused",
             "[init] PASS TLS: a record altered on the way is caught",
             "[init] PASS TLS: a connection cut short without close_notify is reported as truncated",
+            "[init] PASS NET: closing a connection the peer is still sending on resets it, so the peer stops",
+            // I01, against the lab's mock provider: every case is required.
+            "[init] PASS I01: the adapter holds the credential, and the provider refuses a wrong one",
+            "[init] PASS I01: answers stream back as the provider writes them, and cost what it reports",
+            "[init] PASS I01: the model's tool calls go through the Tool Broker, inside the workspace",
+            "[init] PASS I01: a tool call for the credential is refused, and the provider hears only that",
+            "[init] PASS I01: a stalled answer ends at the deadline, and the adapter keeps serving",
+            "[init] PASS I01: an overloaded provider is tried three times, and no more",
+            "[init] PASS I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on",
+            "[init] PASS I01: a provider streaming past what was reserved is cut off, and charged what it used",
+            "[init] PASS I01: an ask that could exceed the budget is refused before a frame leaves",
+            "[init] PASS I01: local-only work is refused before a frame leaves",
+            "[init] PASS I01: the adapter quits cleanly, and the broker's audit holds every tool call",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
             "[ai] model verified: sha256",
@@ -1302,6 +1328,25 @@ const SCENARIOS: &[Scenario] = &[
             "tls-untrusted: the handshake ended: received fatal alert: UnknownCA",
             "tls-tamper: after 23 bytes: received fatal alert: BadRecordMac",
             "tls-truncate: answered, and left without close_notify",
+            // A stream the guest walked away from was reset, so it stopped.
+            "chargen: the guest went away after",
+            // The cloud provider's side of I01 (a mock, ADR-0018).
+            "cloud: 401: lab-echo: the key presented is not the lab's",
+            "cloud: lab-echo: streamed 4 pieces",
+            "cloud: lab-tool: tool_result for toolu_lab_1: 119 bytes",
+            "cloud: lab-exfil: the tool was refused: refused by the Tool Broker",
+            "cloud: lab-stall: the client closed the connection after",
+            "cloud: lab-overloaded: attempt 3 answered 529",
+            "cloud: lab-runaway: the client closed the connection after",
+            "cloud: lab-hostile: the client closed the connection",
+        ],
+        lab_must_not_contain: &[
+            "nobody stopped it",
+            "THE CREDENTIAL LEAKED",
+            "attempt 4 answered",
+            // Refused in the guest: neither may ever reach the provider.
+            "lab-budget",
+            "lab-local",
         ],
     },
     Scenario {
@@ -1322,6 +1367,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "kernel-fault-diagnosis",
@@ -1340,6 +1386,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
@@ -1354,6 +1401,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "storage-reboot",
@@ -1377,6 +1425,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "init-exit-diagnosis",
@@ -1397,6 +1446,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "init-missing-diagnosis",
@@ -1412,6 +1462,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "terminal",
@@ -1430,6 +1481,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
     Scenario {
         name: "terminal-serial",
@@ -1446,6 +1498,7 @@ const SCENARIOS: &[Scenario] = &[
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
+        lab_must_not_contain: &[],
     },
 ];
 
@@ -1483,6 +1536,11 @@ fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
     for m in s.lab_must_contain {
         if !run.lab_log.contains(m) {
             problems.push(format!("the lab services never wrote {m:?}"));
+        }
+    }
+    for m in s.lab_must_not_contain {
+        if let Some(line) = run.lab_log.lines().find(|l| l.contains(m)) {
+            problems.push(format!("the lab services wrote {line:?}"));
         }
     }
     problems

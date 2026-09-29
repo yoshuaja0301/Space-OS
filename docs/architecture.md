@@ -1,6 +1,6 @@
 # Arsitektur yang diimplementasikan (tahap 1–5, jaringan dan TLS tahap 3, dan sebagian 5A)
 
-Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, TLS, compute, sesi, broker, indeks, paket), dan **Runtime AI** untuk model referensi. Lapisan aplikasi dan adapter cloud belum ada.
+Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, TLS, compute, sesi, broker, indeks, paket), **Runtime AI** untuk model referensi, dan adapter cloud pertama (diuji terhadap penyedia tiruan). Lapisan aplikasi belum ada.
 
 ```
 UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──► bin/init (user/init) ──► program uji (user/tests/*)
@@ -108,6 +108,18 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
 - **`bin/spacepkg`** (P01): memasang paket yang terautentikasi HMAC-SHA256,
   menolak paket rusak/palsu/terpotong dengan alasannya tanpa mengubah apa pun, dan
   `ROLLBACK` mengembalikan payload versi sebelumnya (ADR-0014).
+- **`bin/spacecloud`** (I01): adapter model cloud. Memegang trust anchor dan kredensial
+  (diserahkan operator; ia sendiri **tanpa kapabilitas file**), sesi `spacenet` yang hanya
+  boleh ke satu `host:port`, dan channel ke broker. Klien hanya bertanya (`spaceabi::cloud`):
+  local-only ditolak dan biaya terburuk harus muat di budget **sebelum** apa pun dikirim;
+  jawaban (Messages API: HTTP/1.1 + SSE di atas `spacetls`) diteruskan saat tiba dan diputus
+  bila penyedia melewati reservasi; alat model (`read_file`) hanya lewat broker (ADR-0018).
+
+```
+klien ──Ask/Event──► bin/spacecloud ──sesi (api.cloud.test:443)──► bin/spacenet ──► penyedia
+                          │  kredensial + trust anchor dari operator, tanpa hak FS
+                          └──READ──► bin/spacebroker (scope /spaceos/ws, audit)
+```
 
 ## Masukan konsol
 
