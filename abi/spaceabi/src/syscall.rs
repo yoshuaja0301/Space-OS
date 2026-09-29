@@ -94,8 +94,14 @@ pub mod nr {
     /// kernel's entropy source (virtio-rng, else RDRAND). `NotFound` when the machine
     /// has neither: there is no weaker fallback. Needs no right.
     pub const RANDOM: usize = 36;
+    /// `cmdline(root_handle, buf_ptr, len) -> total_len`: the kernel command line
+    /// (`cmdline=` in `spaceos.cfg`), as much of it as fits in `len` bytes; the
+    /// result is its whole length, so a short buffer can be retried with the right
+    /// size. Needs the root `STATS` right: it is how the kernel was configured,
+    /// which a program told nothing else has no business reading.
+    pub const CMDLINE: usize = 37;
 
-    pub const COUNT: usize = 37;
+    pub const COUNT: usize = 38;
 }
 
 /// Most bytes one `SYS_RANDOM` call returns.
@@ -273,6 +279,12 @@ pub struct KernelStats {
     /// Sectors of the mounted volume, 0 when the machine has no usable disk.
     /// User space uses it to tell "no storage on this machine" from "read failed".
     pub volume_sectors: u64,
+    /// The fewest free frames there have been since boot: how close the machine
+    /// came to running out, which `frames_free` alone forgets as soon as the
+    /// memory is back.
+    pub frames_free_min: u64,
+    /// The most kernel-heap bytes in use at once since boot.
+    pub heap_used_peak: u64,
 }
 
 /// Flags for `SYS_WAIT`.

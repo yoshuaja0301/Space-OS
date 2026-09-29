@@ -73,6 +73,13 @@ pub fn run_early() {
         );
         assert_eq!(space.used_pages, 0);
         space.map_region(0x2000_0000, 2, false, true).expect("map again");
+        // Mappings keep an unmapped page between them, and a freed range is handed
+        // out again -- with the page tables already built for it.
+        let a = space.map_anonymous(2).expect("map anonymous");
+        let b = space.map_anonymous(1).expect("map anonymous");
+        assert!(b >= a + 3 * 4096 || a >= b + 2 * 4096, "no guard page between mappings");
+        space.unmap_region(a, 2).expect("unmap anonymous");
+        assert_eq!(space.map_anonymous(2).expect("map anonymous again"), a, "a freed range was not reused");
     }
     let (_, free3) = frame::stats();
     assert_eq!(free2, free3, "address space teardown leaked frames");

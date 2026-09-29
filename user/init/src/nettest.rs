@@ -435,6 +435,12 @@ pub fn kill_and_restart(root: Handle, lab: Lab) -> Result<(), String> {
         other => return Err(format!("the session of the killed service answered {other:?}")),
     }
     lab.release();
+    recover(root)
+}
+
+/// After the service was killed: the device lease can be taken again, and a new
+/// instance starts, serves and quits cleanly.
+pub fn recover(root: Handle) -> Result<(), String> {
     // Every handle on the lease is gone with the process: it can be taken again.
     let again = sys::net_open(root).map_err(|e| format!("lease after the kill: {e}"))?;
     sys::handle_close(again).ok();

@@ -2,6 +2,7 @@
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use linked_list_allocator::Heap;
 use x86_64::structures::paging::PageTableFlags;
@@ -18,11 +19,20 @@ struct KernelHeap(SpinLock<HeapInner>);
 #[global_allocator]
 static HEAP: KernelHeap = KernelHeap(SpinLock::new(HeapInner(Heap::empty())));
 
+/// The most bytes in use at once since boot. Written under the heap lock, so a
+/// plain load/store pair is enough; atomic only so `stats` needs no second lock.
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
 // SAFETY: standard first-fit allocator behind a lock.
 unsafe impl GlobalAlloc for KernelHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut h = self.0.lock();
-        h.0.allocate_first_fit(layout).map(|p| p.as_ptr()).unwrap_or(core::ptr::null_mut())
+        let p = h.0.allocate_first_fit(layout).map(|p| p.as_ptr()).unwrap_or(core::ptr::null_mut());
+        let used = h.0.used();
+        if used > PEAK.load(Ordering::Relaxed) {
+            PEAK.store(used, Ordering::Relaxed);
+        }
+        p
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -55,6 +65,11 @@ pub fn init() {
 pub fn stats() -> (usize, usize) {
     let h = HEAP.0.lock();
     (h.0.size(), h.0.used())
+}
+
+/// The most bytes that have been in use at once since boot.
+pub fn peak() -> usize {
+    PEAK.load(Ordering::Relaxed)
 }
 
 /// Free space the kernel keeps for its own bookkeeping; user-driven allocations

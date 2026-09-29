@@ -11,6 +11,7 @@ extern crate alloc;
 mod cloudtest;
 mod netcheck;
 mod nettest;
+mod stress;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -595,7 +596,6 @@ pub extern "C" fn space_main() -> i32 {
         "[init] Space OS init running: pid {}, ABI v{}, quota {} pages ({} used)",
         me.pid, me.abi_version, me.quota_pages, me.used_pages
     );
-    let mut r = Runner { passed: 0, failed: Vec::new(), skipped: Vec::new() };
     // Storage is optional hardware. Everything that reads the guest disk is skipped
     // (not failed) on a machine that has none.
     let disk = match sys::kstats(ROOT) {
@@ -626,6 +626,48 @@ pub extern "C" fn space_main() -> i32 {
         "[init] network: {}",
         if nic { "virtio-net present" } else { "none; network tests will be skipped" }
     );
+    let hw = Hardware { disk, nic };
+    match stress::mode() {
+        Ok(None) => {}
+        Ok(Some(limit)) => return stress::run(hw, limit),
+        Err(why) => {
+            println!("[stress] {why}");
+            let _ = sys::shutdown(ROOT, 1);
+            return 1;
+        }
+    }
+    let r = suite(hw, 1);
+
+    let total = r.passed + r.failed.len() as u32;
+    for skipped in &r.skipped {
+        println!("[init] skipped: {skipped}");
+    }
+    if r.failed.is_empty() {
+        println!("[init] ALL TESTS PASSED ({total}/{total}, {} skipped)", r.skipped.len());
+        let _ = sys::shutdown(ROOT, 0);
+    } else {
+        println!("[init] TESTS FAILED: {} of {}", r.failed.len(), total);
+        for f in &r.failed {
+            println!("[init]   - {f}");
+        }
+        let _ = sys::shutdown(ROOT, 1);
+    }
+    0
+}
+
+/// What this machine has, found once at boot. A configuration without a disk or a
+/// network card is supported: the tests that need one are skipped, not failed.
+#[derive(Clone, Copy)]
+struct Hardware {
+    disk: bool,
+    nic: bool,
+}
+
+/// Every acceptance test, in order. `pass` counts how often they have run in this
+/// boot: 1, unless the stability run (ADR-0019) repeats them.
+fn suite(hw: Hardware, pass: u32) -> Runner {
+    let Hardware { disk, nic } = hw;
+    let mut r = Runner { passed: 0, failed: Vec::new(), skipped: Vec::new() };
 
     r.run("K01", "boot reached init in user space", || {
         let s = stats()?;
@@ -809,6 +851,24 @@ pub extern "C" fn space_main() -> i32 {
 
     r.run("K03", "memory quota is enforced and reusable", || {
         expect_exit("quota", spawn_and_wait("bin/quota", 100, None)?, 0)
+    });
+
+    r.run("K03", "a process that maps and unmaps 2 MiB 50 times ends up where it started", || {
+        // A long-running process maps and unmaps for hours. The kernel must hand the
+        // same addresses out again rather than build fresh page tables every 2 MiB
+        // and keep them all until the process exits.
+        const LEN: usize = 2 * 1024 * 1024 + 4096;
+        no_leak_over(50, "map/unmap 2 MiB", || {
+            let p = sys::mem_map(LEN).map_err(|e| alloc::format!("mem_map: {e}"))?;
+            // SAFETY: LEN bytes just mapped read-write for this process.
+            unsafe { core::ptr::write_volatile(p.add(LEN - 1), 1) };
+            sys::mem_unmap(p, LEN).map_err(|e| alloc::format!("mem_unmap: {e}"))?;
+            let v = sys::vmo_create(LEN).map_err(|e| alloc::format!("vmo_create: {e}"))?;
+            let q = sys::vmo_map(v, false);
+            sys::handle_close(v).ok();
+            let q = q.map_err(|e| alloc::format!("vmo_map: {e}"))?;
+            sys::mem_unmap(q, LEN).map_err(|e| alloc::format!("unmap object: {e}"))
+        })
     });
 
     r.run("K03", "50 spawn/exit cycles leak no frames and no kernel heap", || {
@@ -1084,6 +1144,48 @@ pub extern "C" fn space_main() -> i32 {
             return Err(alloc::format!("a 50 ms sleep moved the clock by {dt} ms"));
         }
         println!("[init] clock: {} s since the Unix epoch", t1 / 1000);
+        Ok(())
+    });
+
+    r.run("K02", "the kernel command line reads back whole, and only with the STATS right", || {
+        let mut buf = [0u8; 512];
+        let total = sys::cmdline(ROOT, &mut []).map_err(|e| alloc::format!("length: {e}"))?;
+        if total > buf.len() {
+            return Err(alloc::format!("a {total}-byte command line"));
+        }
+        let got = sys::cmdline(ROOT, &mut buf).map_err(|e| alloc::format!("read: {e}"))?;
+        let line = core::str::from_utf8(&buf[..got]).map_err(|_| String::from("not UTF-8"))?;
+        if got != total || line.trim() != line {
+            return Err(alloc::format!("read {got} of {total} bytes: {line:?}"));
+        }
+        // A short buffer gets the start of the line and still learns its length.
+        if total > 1 {
+            let mut short = [0u8; 1];
+            let n = sys::cmdline(ROOT, &mut short).map_err(|e| alloc::format!("short read: {e}"))?;
+            if n != total || short[0] != buf[0] {
+                return Err(alloc::format!("a 1-byte buffer got {:?} and length {n}", short[0] as char));
+            }
+            // SAFETY: probing the kernel's validation with a kernel address.
+            let bad =
+                decode(unsafe { sys::raw(nr::CMDLINE, ROOT as u64, 0xFFFF_8000_0000_0000, 16, 0, 0, 0) });
+            if bad != Err(Error::Fault) {
+                return Err(alloc::format!("into a kernel address: {bad:?}"));
+            }
+        }
+        // The program the kernel started is the one `init=` names, when it names one.
+        if let Some(name) = line.split_whitespace().find_map(|t| t.strip_prefix("init="))
+            && name != "bin/init"
+        {
+            return Err(alloc::format!("init={name}, yet bin/init is running"));
+        }
+        let no_stats = sys::handle_dup(ROOT, rights::ROOT_ALL & !rights::STATS)
+            .map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::cmdline(no_stats, &mut [0u8; 64]);
+        sys::handle_close(no_stats).ok();
+        if denied != Err(Error::Denied) {
+            return Err(alloc::format!("without STATS: {denied:?}"));
+        }
+        println!("[init] kernel command line: {line:?}");
         Ok(())
     });
 
@@ -2547,7 +2649,13 @@ pub extern "C" fn space_main() -> i32 {
                 if p + 1 != generation {
                     return Err(alloc::format!("previous boot left {p}, expected {}", generation - 1));
                 }
-                println!("[init] persistence: generation {p} survived the reboot, wrote {generation}");
+                // Only the first pass comes after a reboot; a repeat in the same boot
+                // reads what the pass before it wrote.
+                if pass == 1 {
+                    println!("[init] persistence: generation {p} survived the reboot, wrote {generation}");
+                } else {
+                    println!("[init] persistence: generation {p} is still there, wrote {generation}");
+                }
             }
         }
         Ok(())
@@ -3303,19 +3411,5 @@ pub extern "C" fn space_main() -> i32 {
         },
     );
 
-    let total = r.passed + r.failed.len() as u32;
-    for skipped in &r.skipped {
-        println!("[init] skipped: {skipped}");
-    }
-    if r.failed.is_empty() {
-        println!("[init] ALL TESTS PASSED ({total}/{total}, {} skipped)", r.skipped.len());
-        let _ = sys::shutdown(ROOT, 0);
-    } else {
-        println!("[init] TESTS FAILED: {} of {}", r.failed.len(), total);
-        for f in &r.failed {
-            println!("[init]   - {f}");
-        }
-        let _ = sys::shutdown(ROOT, 1);
-    }
-    0
+    r
 }

@@ -16,6 +16,9 @@ struct Bitmap {
     nframes: usize,
     usable: usize,
     free: usize,
+    /// The lowest `free` has been: what a long run needs to see besides where it
+    /// ended up.
+    free_min: usize,
     hint: usize,
 }
 
@@ -98,7 +101,7 @@ pub fn init(bi: &BootInfo) {
         (kinds[mem_kind::ACPI_RECLAIMABLE as usize] + kinds[mem_kind::ACPI_NVS as usize]) >> 20,
         kinds[mem_kind::MMIO as usize] >> 20,
     );
-    *ALLOC.lock() = Some(Bitmap { bits, nframes, usable, free, hint: 0 });
+    *ALLOC.lock() = Some(Bitmap { bits, nframes, usable, free, free_min: free, hint: 0 });
 }
 
 pub fn alloc() -> Option<PhysFrame> {
@@ -117,6 +120,7 @@ pub fn alloc() -> Option<PhysFrame> {
             }
             b.bits[w] |= 1u64 << bit;
             b.free -= 1;
+            b.free_min = b.free_min.min(b.free);
             b.hint = idx;
             return Some(PhysFrame::containing_address(PhysAddr::new(idx as u64 * PAGE_SIZE)));
         }
@@ -159,4 +163,9 @@ pub fn stats() -> (usize, usize) {
         Some(b) => (b.usable, b.free),
         None => (0, 0),
     }
+}
+
+/// The fewest frames that have been free at once since boot.
+pub fn free_min() -> usize {
+    ALLOC.lock().as_ref().map_or(0, |b| b.free_min)
 }

@@ -5,6 +5,8 @@
 //!   run [--gui]      boot the image in QEMU (serial on stdio)
 //!   test             boot scenarios and check the serial log + exit code
 //!   soak [--boots N] N consecutive cold boots of the acceptance scenario (default 100)
+//!   stress [--minutes N] the acceptance suite over and over in one boot, with random
+//!                    kills between passes, for N minutes (default 480; ADR-0019)
 //!   clippy | fmt | fmt-check | ci
 //!
 //! Environment: `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS` override firmware discovery,
@@ -47,6 +49,7 @@ const USER_PROGRAMS: &[&str] = &[
     "spacenet",
     "tlsprobe",
     "spacecloud",
+    "churn",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -567,6 +570,94 @@ struct QemuRun {
     tcp: Option<Result<pcap::TcpReport, String>>,
     /// What the lab services wrote about their connections (empty if nothing).
     lab_log: String,
+    /// What the emulator itself used, when the boot was watched for it.
+    host: Option<HostSamples>,
+}
+
+/// The emulator seen from the host, sampled through a long run: a guest that is
+/// fine while the machine around it slowly runs out of descriptors is not fine.
+#[derive(Default, Clone, Copy)]
+struct HostSamples {
+    samples: u32,
+    fds_max: usize,
+    fds_last: usize,
+    rss_kib_max: u64,
+    rss_kib_last: u64,
+    /// Lab services alive at once (each connection is one).
+    lab_max: usize,
+    lab_last: usize,
+}
+
+impl HostSamples {
+    fn take(&mut self, qemu_pid: u32, lab_exe: &Path) {
+        let fds = fs::read_dir(format!("/proc/{qemu_pid}/fd")).map(|d| d.count()).unwrap_or(0);
+        let rss = fs::read_to_string(format!("/proc/{qemu_pid}/status"))
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("VmRSS:"))
+                    .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+            })
+            .unwrap_or(0);
+        let exe = lab_exe.as_os_str().as_encoded_bytes();
+        let lab = fs::read_dir("/proc")
+            .map(|d| {
+                d.filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+                    .filter(|e| {
+                        fs::read(e.path().join("cmdline")).is_ok_and(|c| {
+                            let mut args = c.split(|&b| b == 0);
+                            args.next() == Some(exe) && args.next() == Some(b"lab")
+                        })
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        self.samples += 1;
+        self.fds_max = self.fds_max.max(fds);
+        self.fds_last = fds;
+        self.rss_kib_max = self.rss_kib_max.max(rss);
+        self.rss_kib_last = rss;
+        self.lab_max = self.lab_max.max(lab);
+        self.lab_last = lab;
+    }
+}
+
+/// The serial log read as it grows: only what is new each time, whole lines only.
+/// A long run's log reaches a hundred megabytes; reading all of it ten times a
+/// second would be most of what the harness does.
+#[derive(Default)]
+struct LogTail {
+    offset: u64,
+    partial: Vec<u8>,
+}
+
+impl LogTail {
+    /// Complete lines added since the last call.
+    fn lines(&mut self, path: &Path) -> Vec<String> {
+        let mut fresh = Vec::new();
+        if let Ok(mut f) = fs::File::open(path)
+            && f.seek(SeekFrom::Start(self.offset)).is_ok()
+            && f.read_to_end(&mut fresh).is_ok()
+        {
+            self.offset += fresh.len() as u64;
+            self.partial.extend_from_slice(&fresh);
+        }
+        let mut out = Vec::new();
+        let mut start = 0;
+        while let Some(i) = self.partial[start..].iter().position(|&b| b == b'\n') {
+            let line = &self.partial[start..start + i];
+            out.push(String::from_utf8_lossy(line).trim_end_matches('\r').to_string());
+            start += i + 1;
+        }
+        self.partial.drain(..start);
+        out
+    }
+
+    /// The line still being written, as far as it goes.
+    fn unfinished(&self) -> String {
+        String::from_utf8_lossy(&self.partial).into_owned()
+    }
 }
 
 /// The guest's address on the lab network (QEMU's DHCP gives the first guest this).
@@ -940,15 +1031,56 @@ fn run_qemu_capture_typing(
     type_lines: &[&str],
     ready_marker: &str,
 ) -> Result<QemuRun, String> {
+    boot_watched(
+        machine,
+        image,
+        data_image,
+        log_path,
+        Watch {
+            done_markers,
+            typing,
+            type_lines,
+            ready_marker,
+            timeout: BOOT_TIMEOUT,
+            vars_copy: root().join("build/OVMF_VARS.fd"),
+            progress: None,
+            host: None,
+        },
+    )
+}
+
+/// How a boot is watched, beyond the machine and its disks.
+struct Watch<'a> {
+    /// Any of these in the log means the guest is done.
+    done_markers: &'a [&'a str],
+    typing: Typing,
+    type_lines: &'a [&'a str],
+    ready_marker: &'a str,
+    timeout: Duration,
+    /// Where this boot's copy of the firmware variables goes.
+    vars_copy: PathBuf,
+    /// Shown every complete line of the serial log as it appears.
+    progress: Option<&'a mut dyn FnMut(&str)>,
+    /// Sample the emulator's descriptors, memory and lab services this often; the
+    /// path is the program the lab services run as.
+    host: Option<(Duration, PathBuf)>,
+}
+
+fn boot_watched(
+    machine: &Machine,
+    image: &Path,
+    data_image: &Path,
+    log_path: &Path,
+    mut w: Watch,
+) -> Result<QemuRun, String> {
     let (code, vars) = find_firmware()?;
-    let vars_copy = root().join("build/OVMF_VARS.fd");
-    fs::copy(&vars, &vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
+    fs::copy(&vars, &w.vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
     if log_path.exists() {
         fs::remove_file(log_path).ok();
     }
     // The monitor is how the harness reaches the keyboard and finds the pty; it is
     // only added for a scenario that types.
-    let monitor = (typing != Typing::None).then(|| root().join("build/monitor.sock"));
+    let monitor = (w.typing != Typing::None).then(|| root().join("build/monitor.sock"));
     if let Some(path) = &monitor {
         fs::remove_file(path).ok();
     }
@@ -960,61 +1092,86 @@ fn run_qemu_capture_typing(
         machine,
         image,
         data_image,
-        &vars_copy,
+        &w.vars_copy,
         &code,
         false,
         Some(log_path),
-        typing,
+        w.typing,
         monitor.as_deref(),
         pcap.as_deref(),
     )?;
     let start = Instant::now();
     let lab_log = log_path.with_extension("lab.log");
     let _ = fs::remove_file(&lab_log);
+    // A file rather than a pipe: over hours, a pipe nobody reads fills up, and then
+    // QEMU stops at its next warning.
+    let stderr_path = log_path.with_extension("stderr");
+    let stderr_file =
+        fs::File::create(&stderr_path).map_err(|e| format!("{}: {e}", stderr_path.display()))?;
     let mut child = Command::new(qemu_bin())
         .args(&args)
         .env("SPACEOS_LAB_LOG", &lab_log)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(stderr_file)
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", qemu_bin()))?;
     // The typist stops as soon as the guest is gone, so a boot that dies early fails
     // in seconds instead of waiting out the marker deadline.
     let guest_gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let typist = match &monitor {
-        Some(path) if !type_lines.is_empty() => {
+        Some(path) if !w.type_lines.is_empty() => {
             let path = path.clone();
             let log = log_path.to_path_buf();
-            let ready = ready_marker.to_string();
-            let lines: Vec<String> = type_lines.iter().map(|l| (*l).to_string()).collect();
+            let ready = w.ready_marker.to_string();
+            let lines: Vec<String> = w.type_lines.iter().map(|l| (*l).to_string()).collect();
             let gone = guest_gone.clone();
+            let typing = w.typing;
             Some(std::thread::spawn(move || type_on_guest(typing, &path, &log, &ready, &lines, &gone)))
         }
         _ => None,
     };
+    let mut tail = LogTail::default();
+    let mut host = w.host.as_ref().map(|_| HostSamples::default());
+    let mut next_sample = Instant::now();
+    let mut finished_at: Option<Instant> = None;
     let mut timed_out = false;
     let exit_code = loop {
         if let Some(st) = child.try_wait().map_err(|e| e.to_string())? {
             break st.code();
         }
-        if start.elapsed() > BOOT_TIMEOUT {
+        if start.elapsed() > w.timeout {
             timed_out = true;
             child.kill().ok();
             child.wait().ok();
             break None;
         }
-        // Early exit once the kernel reported a terminal state but QEMU lingers.
-        let finished =
-            fs::read_to_string(log_path).map(|s| done_markers.iter().any(|m| s.contains(m))).unwrap_or(false);
-        if finished && start.elapsed() > Duration::from_secs(5) {
-            // give the debug-exit a moment, then stop
-            std::thread::sleep(Duration::from_millis(3000));
-            if child.try_wait().map_err(|e| e.to_string())?.is_none() {
-                child.kill().ok();
-                child.wait().ok();
-                break None;
+        if let (Some(h), Some((every, exe))) = (host.as_mut(), w.host.as_ref())
+            && Instant::now() >= next_sample
+        {
+            h.take(child.id(), exe);
+            next_sample = Instant::now() + *every;
+        }
+        for line in tail.lines(log_path) {
+            if let Some(p) = w.progress.as_mut() {
+                p(&line);
             }
+            if finished_at.is_none() && w.done_markers.iter().any(|m| line.contains(m)) {
+                finished_at = Some(Instant::now());
+            }
+        }
+        if finished_at.is_none() && w.done_markers.iter().any(|m| tail.unfinished().contains(m)) {
+            finished_at = Some(Instant::now());
+        }
+        // Early exit once the kernel reported a terminal state but QEMU lingers:
+        // give the debug-exit a moment, then stop it.
+        if let Some(t) = finished_at
+            && start.elapsed() > Duration::from_secs(5)
+            && t.elapsed() > Duration::from_millis(3000)
+        {
+            child.kill().ok();
+            child.wait().ok();
+            break None;
         }
         std::thread::sleep(Duration::from_millis(100));
     };
@@ -1024,10 +1181,7 @@ fn run_qemu_capture_typing(
         Some(Ok(r)) => r,
         Some(Err(_)) => Err("the console typist thread panicked".to_string()),
     };
-    let mut stderr = String::new();
-    if let Some(mut e) = child.stderr.take() {
-        e.read_to_string(&mut stderr).ok();
-    }
+    let stderr = fs::read_to_string(&stderr_path).unwrap_or_default();
     let mut log = fs::read_to_string(log_path).unwrap_or_default();
     if !stderr.trim().is_empty() {
         log.push_str("\n[qemu stderr]\n");
@@ -1041,7 +1195,7 @@ fn run_qemu_capture_typing(
     }
     let tcp = pcap.map(|p| pcap::analyze(&p, GUEST_IP));
     let lab_log = fs::read_to_string(&lab_log).unwrap_or_default();
-    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error, tcp, lab_log })
+    Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error, tcp, lab_log, host })
 }
 
 /// Wait for the guest to say it is ready, then type each line on its console.
@@ -1258,13 +1412,27 @@ const TERMINAL_MARKERS: &[&str] = &[
     "[term] session ended",
 ];
 
+/// What the lab services must never write, in one pass or in a thousand.
+const LAB_FORBIDDEN: &[&str] = &[
+    "nobody stopped it",
+    "THE CREDENTIAL LEAKED",
+    "attempt 4 answered",
+    // Refused in the guest: neither may ever reach the provider.
+    "lab-budget",
+    "lab-local",
+];
+
 const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "acceptance",
-        cmdline: "",
+        // The default, said out loud: the K02 test reads the line back and checks
+        // that the program it names is the one running.
+        cmdline: "init=bin/init",
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] selftest: heap ok",
+            "[kernel] cmdline: \"init=bin/init\"",
+            "[init] kernel command line: \"init=bin/init\"",
             "input decoding ok",
             "[kernel] virtio-blk: ready",
             "[kernel] virtio-net: pci",
@@ -1340,14 +1508,34 @@ const SCENARIOS: &[Scenario] = &[
             "cloud: lab-runaway: the client closed the connection after",
             "cloud: lab-hostile: the client closed the connection",
         ],
-        lab_must_not_contain: &[
-            "nobody stopped it",
-            "THE CREDENTIAL LEAKED",
-            "attempt 4 answered",
-            // Refused in the guest: neither may ever reach the provider.
-            "lab-budget",
-            "lab-local",
+        lab_must_not_contain: LAB_FORBIDDEN,
+    },
+    Scenario {
+        name: "stress",
+        // The stability run in short (ADR-0019): the whole suite twice in one boot, a
+        // round of random kills after each pass -- the network service among them,
+        // mid-transfer -- and the machine's memory back where the first pass left it,
+        // to the frame and the byte. `cargo xtask stress` is the long version.
+        cmdline: "stress=2",
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "[stress] stability run: 2 passes of the acceptance suite",
+            "[stress] baseline after pass 1:",
+            "[stress] pass 1: ok;",
+            "[stress] pass 2: ok;",
+            "spacenet at",
+            "network back",
+            "[stress] STRESS PASSED",
         ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "[init] FAIL", "LEAK", "STRESS FAILED", "[churn]"],
+        runs: 1,
+        typing: Typing::None,
+        final_boot_markers: &[],
+        type_lines: &[],
+        ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: LAB_FORBIDDEN,
     },
     Scenario {
         name: "panic-diagnosis",
@@ -1755,6 +1943,282 @@ fn cmd_soak(boots: u32, release: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// `cargo xtask stress --minutes N`: the stability run of PRD §9 (ADR-0019).
+///
+/// One boot, the acceptance suite again and again for N minutes with random kills
+/// between passes, and the machine's memory held to where the first pass left it.
+/// Everything a run of hours depends on is its own: a copy of this program (every
+/// lab connection starts it again, and a rebuild must not change what answers), a
+/// lab authority, a data disk and firmware variables under `build/stress/`, so
+/// development can go on beside it.
+fn cmd_stress(minutes: u64, release: bool) -> Result<(), String> {
+    let dir = root().join("build/stress");
+    if std::env::var_os("SPACEOS_STRESS_COPY").is_none() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let me = std::env::current_exe().map_err(|e| format!("where am I: {e}"))?;
+        let copy = dir.join("xtask");
+        fs::copy(&me, &copy).map_err(|e| format!("copy {}: {e}", me.display()))?;
+        let st = Command::new(&copy)
+            .args(std::env::args_os().skip(1))
+            .env("SPACEOS_STRESS_COPY", "1")
+            .status()
+            .map_err(|e| format!("cannot start {}: {e}", copy.display()))?;
+        return if st.success() { Ok(()) } else { Err(format!("the stability run failed ({st})")) };
+    }
+    // SAFETY: nothing else runs in this process yet; the lab services QEMU starts
+    // inherit it, and so find the authority this run's disk was made with.
+    unsafe { std::env::set_var("SPACEOS_LAB_PKI", dir.join("lab-pki")) };
+    let built = build(release)?;
+    let image = dir.join("esp.img");
+    make_image(&built, &format!("stress={minutes}m"), &image)?;
+    let data_image = dir.join("data.img");
+    make_data_disk(&data_image)?;
+    let log_path = dir.join("stress.log");
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    println!(
+        "== stability run: {minutes} min on the lab machine; log {}, lab log {}",
+        log_path.display(),
+        log_path.with_extension("lab.log").display()
+    );
+    let t0 = Instant::now();
+    let mut progress = |line: &str| {
+        let t = t0.elapsed().as_secs();
+        let stamp = format!("{:02}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60);
+        if let Some(rest) = line.strip_prefix("[stress] ") {
+            // The pass line ends in its figures; the harness keeps those for the CSV.
+            println!("{stamp} {}", rest.split(" frames_free=").next().unwrap_or(rest));
+        } else if line.contains("KERNEL PANIC") || line.contains("[init] FAIL") || line.contains("[churn]") {
+            println!("{stamp} !! {line}");
+        }
+    };
+    let run = boot_watched(
+        &LAB,
+        &image,
+        &data_image,
+        &log_path,
+        Watch {
+            done_markers: &[
+                "[stress] STRESS PASSED",
+                "[stress] STRESS FAILED",
+                "spacekernel: halted after panic",
+                "[kernel] shutdown requested",
+            ],
+            typing: Typing::None,
+            type_lines: &[],
+            ready_marker: "",
+            // The last pass starts before the deadline and runs to its end.
+            timeout: Duration::from_secs(minutes * 60 + 20 * 60),
+            vars_copy: dir.join("OVMF_VARS.fd"),
+            progress: Some(&mut progress),
+            host: Some((Duration::from_secs(60), exe)),
+        },
+    )?;
+    let (summary, csv, problems) = stress_report(&run, minutes);
+    fs::write(dir.join("summary.txt"), &summary).map_err(|e| e.to_string())?;
+    fs::write(dir.join("memory.csv"), &csv).map_err(|e| e.to_string())?;
+    println!("{summary}");
+    println!(
+        "== summary {}, memory per pass {}",
+        dir.join("summary.txt").display(),
+        dir.join("memory.csv").display()
+    );
+    if problems.is_empty() {
+        println!("== stability run passed");
+        Ok(())
+    } else {
+        for p in &problems {
+            println!("   - {p}");
+        }
+        Err(format!("the stability run failed: {} problem(s)", problems.len()))
+    }
+}
+
+/// One pass as its closing line reports it.
+struct PassLine {
+    pass: u64,
+    ok: bool,
+    passed: u64,
+    total: u64,
+    seconds: f64,
+    /// frames_free, frames_free_min, heap_used, heap_used_peak, processes,
+    /// threads, init_heap, handles, uptime_ms -- in that order.
+    figures: [u64; 9],
+}
+
+const PASS_FIGURES: [&str; 9] = [
+    "frames_free",
+    "frames_free_min",
+    "heap_used",
+    "heap_used_peak",
+    "processes",
+    "threads",
+    "init_heap",
+    "handles",
+    "uptime_ms",
+];
+
+fn parse_pass_line(line: &str) -> Option<PassLine> {
+    let rest = line.strip_prefix("[stress] pass ")?;
+    let (num, rest) = rest.split_once(": ")?;
+    let pass = num.parse().ok()?;
+    let ok = rest.starts_with("ok;");
+    let tests = rest.split("; ").find(|p| p.contains(" tests"))?;
+    let (counts, time) = tests.split_once(" tests")?;
+    let (passed, total) = counts.trim().split_once('/')?;
+    let seconds = time.rsplit_once(" in ")?.1.trim_end_matches(" s").parse().ok()?;
+    let mut figures = [0u64; 9];
+    for (i, key) in PASS_FIGURES.iter().enumerate() {
+        let at = line.find(&format!(" {key}="))? + key.len() + 2;
+        figures[i] = line[at..].split_whitespace().next()?.parse().ok()?;
+    }
+    Some(PassLine { pass, ok, passed: passed.parse().ok()?, total: total.parse().ok()?, seconds, figures })
+}
+
+/// The run's record: a summary for people, one CSV row per pass, and what failed.
+fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
+    let mut problems = Vec::new();
+    if run.timed_out {
+        problems.push(format!("timed out after {:?}", run.elapsed));
+    }
+    if run.exit_code != Some(EXIT_SUCCESS) {
+        problems.push(format!("QEMU exit code {:?}, expected {EXIT_SUCCESS}", run.exit_code));
+    }
+    if !run.log.contains("[stress] STRESS PASSED") {
+        problems.push(String::from("the guest never said STRESS PASSED"));
+    }
+    for bad in ["KERNEL PANIC", "[init] FAIL", "STRESS FAILED", "LEAK", "[churn]", "[qemu stderr]"] {
+        if let Some(line) = run.log.lines().find(|l| l.contains(bad)) {
+            problems.push(format!("the log has {line:?}"));
+        }
+    }
+    for bad in LAB_FORBIDDEN {
+        let n = run.lab_log.lines().filter(|l| l.contains(bad)).count();
+        if n > 0 {
+            problems.push(format!("the lab services wrote {bad:?} {n} time(s)"));
+        }
+    }
+    let passes: Vec<PassLine> = run.log.lines().filter_map(parse_pass_line).collect();
+    let reported =
+        run.log.lines().filter(|l| l.starts_with("[stress] pass ") && l.contains(" frames_free=")).count();
+    if reported != passes.len() {
+        problems.push(format!("{} of {reported} pass lines could not be read", reported - passes.len()));
+    }
+    let mut csv = String::from("pass,ok,tests_passed,tests,seconds");
+    for key in PASS_FIGURES {
+        csv.push(',');
+        csv.push_str(key);
+    }
+    csv.push('\n');
+    for p in &passes {
+        csv.push_str(&format!("{},{},{},{},{:.1}", p.pass, p.ok as u8, p.passed, p.total, p.seconds));
+        for f in p.figures {
+            csv.push_str(&format!(",{f}"));
+        }
+        csv.push('\n');
+    }
+    // Held to pass 1 independently of the guest's own check: free frames, kernel
+    // heap, processes, threads, init's heap and handles.
+    let first = passes.first();
+    let drift: Vec<String> = passes
+        .iter()
+        .filter(|p| first.is_some_and(|f| [0, 2, 4, 5, 6, 7].iter().any(|&i| p.figures[i] != f.figures[i])))
+        .map(|p| format!("pass {}", p.pass))
+        .collect();
+    if !drift.is_empty() {
+        problems.push(format!("memory differs from pass 1 after {}", drift.join(", ")));
+    }
+    if passes.iter().any(|p| !p.ok || p.passed != p.total) {
+        problems.push(String::from("a pass did not end ok"));
+    }
+    let guest_minutes = passes.last().map_or(0.0, |p| p.figures[8] as f64 / 60_000.0);
+    if guest_minutes < minutes as f64 {
+        problems.push(format!("the guest ran {guest_minutes:.1} of {minutes} minutes"));
+    }
+    let mut out = String::new();
+    let done =
+        run.log.lines().find(|l| l.starts_with("[stress] done:")).unwrap_or("[stress] done: (missing)");
+    out.push_str(&format!("stability run, {minutes} min requested; the guest's own account:\n  {done}\n"));
+    if let (Some(f), Some(l)) = (passes.first(), passes.last()) {
+        let tests: u64 = passes.iter().map(|p| p.passed).sum();
+        let (mut min_s, mut max_s, mut sum_s) = (f64::MAX, 0.0f64, 0.0);
+        for p in &passes {
+            min_s = min_s.min(p.seconds);
+            max_s = max_s.max(p.seconds);
+            sum_s += p.seconds;
+        }
+        let lowest = passes.iter().map(|p| p.figures[1]).min().unwrap_or(0);
+        let peak = passes.iter().map(|p| p.figures[3]).max().unwrap_or(0);
+        out.push_str(&format!(
+            "passes: {} ({} ok), {tests} tests passed; {:.1} h of guest time; a pass took {min_s:.1}-{max_s:.1} s, {:.1} s on average\n",
+            passes.len(),
+            passes.iter().filter(|p| p.ok).count(),
+            l.figures[8] as f64 / 3_600_000.0,
+            sum_s / passes.len() as f64
+        ));
+        out.push_str(&format!(
+            "memory after every pass, {}: {} free frames ({} MiB), {} kernel heap bytes, {} process(es), {} thread(s), init heap {} bytes, {} init handles\n",
+            if drift.is_empty() { "identical to pass 1" } else { "NOT constant" },
+            f.figures[0],
+            f.figures[0] * 4 / 1024,
+            f.figures[2],
+            f.figures[4],
+            f.figures[5],
+            f.figures[6],
+            f.figures[7]
+        ));
+        out.push_str(&format!(
+            "memory during the run: at least {lowest} frames free ({} MiB, {} MiB below the end-of-pass level); kernel heap at most {peak} bytes\n",
+            lowest * 4 / 1024,
+            f.figures[0].saturating_sub(lowest) * 4 / 1024
+        ));
+    }
+    let killed = run
+        .log
+        .lines()
+        .filter(|l| l.starts_with("[stress] pass ") && l.contains(" chaos: ") && l.contains("network back"))
+        .count();
+    out.push_str(&format!(
+        "chaos: the network service was killed mid-transfer and came back {killed} time(s)\n"
+    ));
+    match &run.tcp {
+        Some(Ok(r)) => out.push_str(&format!(
+            "tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again, {} peer FIN(s) never answered (connections of a killed network service end this way)\n",
+            r.connections,
+            r.closed_cleanly,
+            r.reset,
+            r.peer_retransmits,
+            r.unacked_fins.len()
+        )),
+        Some(Err(e)) => out.push_str(&format!("tcp: the capture could not be read: {e}\n")),
+        None => {}
+    }
+    let lab_lines = run.lab_log.lines().count();
+    let quiet = run.lab_log.lines().filter(|l| l.contains("nothing from the guest for")).count();
+    out.push_str(&format!(
+        "lab: {lab_lines} lines from the services; {quiet} echo connection(s) left open by a killed network service, closed after 30 s idle; none of {LAB_FORBIDDEN:?}\n"
+    ));
+    if let Some(h) = run.host {
+        out.push_str(&format!(
+            "host: QEMU held at most {} file descriptors ({} at the last of {} samples) and {} MiB resident ({} MiB last); at most {} lab services alive at once\n",
+            h.fds_max,
+            h.fds_last,
+            h.samples,
+            h.rss_kib_max / 1024,
+            h.rss_kib_last / 1024,
+            h.lab_max
+        ));
+    }
+    if problems.is_empty() {
+        out.push_str("verdict: passed\n");
+    } else {
+        out.push_str("verdict: FAILED\n");
+        for p in &problems {
+            out.push_str(&format!("  - {p}\n"));
+        }
+    }
+    (out, csv, problems)
+}
+
 /// Boot the image the way a person would.
 ///
 /// A session that can be typed at needs a way in, and there are exactly two:
@@ -1868,7 +2332,7 @@ fn cmd_unit() -> Result<(), String> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|unit|tcpcheck FILE|clippy|fmt|fmt-check|ci> [--debug]"
+        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|stress [--minutes N]|unit|tcpcheck FILE|clippy|fmt|fmt-check|ci> [--debug]"
     );
     std::process::exit(2)
 }
@@ -1909,6 +2373,15 @@ fn main() {
                 .unwrap_or(100);
             cmd_soak(boots, release)
         }
+        "stress" => {
+            let minutes = args
+                .iter()
+                .position(|a| a == "--minutes")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(480);
+            cmd_stress(minutes, release)
+        }
         "model" => make_data_disk(&root().join("build/data.img")),
         "seedsearch" => cmd_seedsearch(),
         "clippy" => cmd_clippy(),
@@ -1940,5 +2413,32 @@ fn main() {
     if let Err(e) = res {
         eprintln!("xtask: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pass line as `init` prints it (user/init/src/stress.rs) reads back into
+    /// the figures the memory record is made of.
+    #[test]
+    fn pass_lines_read_back() {
+        let line = "[stress] pass 12: ok; 108/108 tests in 27.7 s; frames_free=2090105 \
+                    frames_free_min=2089227 heap_used=9448 heap_used_peak=32240 processes=1 threads=1 \
+                    init_heap=0 handles=1 uptime_ms=27664";
+        let p = parse_pass_line(line).expect("a pass line");
+        assert_eq!((p.pass, p.ok, p.passed, p.total), (12, true, 108, 108));
+        assert!((p.seconds - 27.7).abs() < 1e-9);
+        assert_eq!(p.figures, [2090105, 2089227, 9448, 32240, 1, 1, 0, 1, 27664]);
+
+        let failed = "[stress] pass 3: 1 test(s) failed; LEAK against pass 1: free frames -1; 107/108 tests \
+                      (1 skipped) in 30.0 s; frames_free=1 frames_free_min=1 heap_used=1 heap_used_peak=1 \
+                      processes=1 threads=1 init_heap=0 handles=1 uptime_ms=90000";
+        let p = parse_pass_line(failed).expect("a failed pass line");
+        assert_eq!((p.ok, p.passed, p.total), (false, 107, 108));
+
+        assert!(parse_pass_line("[stress] pass 3 chaos: 6 killed after 357 ms").is_none());
+        assert!(parse_pass_line("[stress] pass 3 starting, 60 s into the run").is_none());
     }
 }

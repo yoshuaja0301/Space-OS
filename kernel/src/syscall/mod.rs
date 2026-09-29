@@ -71,6 +71,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::WAIT_ANY => sys_wait_any(a[0], a[1], a[2]),
         nr::CLOCK_REALTIME => sys_clock_realtime(),
         nr::RANDOM => sys_random(a[0], a[1]),
+        nr::CMDLINE => sys_cmdline(a[0] as Handle, a[1], a[2]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -426,6 +427,16 @@ fn sys_random(ptr: u64, len: u64) -> Result<usize, Error> {
         unsafe { core::ptr::write_volatile(b, 0) };
     }
     Ok(len as usize)
+}
+
+fn sys_cmdline(root: Handle, ptr: u64, len: u64) -> Result<usize, Error> {
+    require_root(root, rights::STATS)?;
+    let line = crate::cmdline::line().as_bytes();
+    let n = line.len().min(len as usize);
+    if n > 0 {
+        user_bytes(ptr, n as u64, true)?.copy_from_slice(&line[..n]);
+    }
+    Ok(line.len())
 }
 
 fn sys_clock_realtime() -> Result<usize, Error> {
@@ -891,6 +902,8 @@ pub fn kernel_stats() -> KernelStats {
         uptime_ms: sched::uptime_ms(),
         context_switches,
         volume_sectors: fs::volume_sectors(),
+        frames_free_min: frame::free_min() as u64,
+        heap_used_peak: heap::peak() as u64,
     }
 }
 

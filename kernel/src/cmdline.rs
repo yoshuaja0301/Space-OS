@@ -20,6 +20,11 @@ pub fn init(bi: &BootInfo) {
     println!("[kernel] cmdline: {:?}", s.trim());
 }
 
+/// The whole command line, trimmed ("" when there is none).
+pub fn line() -> &'static str {
+    *CMDLINE.lock()
+}
+
 pub fn get(key: &str) -> Option<&'static str> {
     let line = *CMDLINE.lock();
     line.split_whitespace().find_map(|tok| {

@@ -139,20 +139,48 @@ pub fn main(name: Option<&str>) -> i32 {
     }
 }
 
+/// How long the echo service waits for a guest that has gone quiet. A guest whose
+/// network service was killed can never close its connections, and nothing else
+/// would end them: over a long run each would be one more process and one more
+/// descriptor in QEMU, for good.
+const ECHO_IDLE: Duration = Duration::from_secs(30);
+
 fn echo() -> io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let t0 = std::time::Instant::now();
+    // Milliseconds since `t0` of the last byte from the guest, and bytes echoed.
+    let last = Arc::new(AtomicU64::new(0));
+    let total = Arc::new(AtomicU64::new(0));
+    {
+        let (last, total) = (last.clone(), total.clone());
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let quiet = t0.elapsed().as_millis() as u64 - last.load(Ordering::Relaxed);
+                if quiet >= ECHO_IDLE.as_millis() as u64 {
+                    log(&format!(
+                        "echo: nothing from the guest for {} s after {} bytes; closing",
+                        quiet / 1000,
+                        total.load(Ordering::Relaxed)
+                    ));
+                    std::process::exit(0);
+                }
+            }
+        });
+    }
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
     let mut buf = [0u8; 4096];
-    let mut total = 0u64;
     loop {
         let n = input.read(&mut buf)?;
+        last.store(t0.elapsed().as_millis() as u64, Ordering::Relaxed);
         if n == 0 {
-            log(&format!("echo: {total} bytes echoed; the guest finished sending"));
+            log(&format!("echo: {} bytes echoed; the guest finished sending", total.load(Ordering::Relaxed)));
             return Ok(());
         }
         output.write_all(&buf[..n])?;
         output.flush()?;
-        total += n as u64;
+        total.fetch_add(n as u64, Ordering::Relaxed);
     }
 }
 

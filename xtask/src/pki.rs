@@ -32,8 +32,15 @@ const LEAVES: &[(&str, &str, i64, i64, bool)] = &[
     ("cloud", CLOUD_NAME, -1, 30, true),
 ];
 
+/// Where the lab keeps its authority's certificate, the leaves and the API key.
+/// `SPACEOS_LAB_PKI` moves it: a long run keeps its own, so a test started beside
+/// it -- which makes a fresh authority -- cannot pull the certificates out from
+/// under the guest the long run's disk was made for.
 pub fn dir() -> PathBuf {
-    super::root().join("build/lab-pki")
+    match std::env::var_os("SPACEOS_LAB_PKI") {
+        Some(p) => PathBuf::from(p),
+        None => super::root().join("build/lab-pki"),
+    }
 }
 
 fn err(e: impl std::fmt::Display) -> String {

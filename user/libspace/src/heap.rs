@@ -26,6 +26,17 @@ pub fn set_pages(pages: usize) -> bool {
     true
 }
 
+/// `(size, used)` of this process's heap in bytes; `(0, 0)` before the first
+/// allocation maps it. What a long-running program checks to see that it gives
+/// back what it takes.
+pub fn stats() -> (usize, usize) {
+    // SAFETY: single-threaded process; a read of the allocator's counters.
+    match unsafe { (*HEAP.0.get()).as_ref() } {
+        Some(h) => (h.size(), h.used()),
+        None => (0, 0),
+    }
+}
+
 struct UserHeap(UnsafeCell<Option<Heap>>);
 
 // SAFETY: processes are single-threaded in ABI v0.

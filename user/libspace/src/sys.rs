@@ -269,3 +269,9 @@ pub fn random(buf: &mut [u8]) -> Result<usize, Error> {
 pub fn clock_realtime_ms() -> Result<u64, Error> {
     call(nr::CLOCK_REALTIME, [0; 6]).map(|v| v as u64)
 }
+
+/// Copy the kernel command line into `buf` (as much as fits); returns its whole
+/// length, which may be more than `buf` holds. Needs the root `STATS` right.
+pub fn cmdline(root: Handle, buf: &mut [u8]) -> Result<usize, Error> {
+    call(nr::CMDLINE, [root as u64, buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0])
+}

@@ -59,6 +59,7 @@ pub extern "C" fn space_main() -> i32 {
 
     // Wrong object kind: handle 0 is a channel here, not the root capability.
     check("kstats via channel handle", sys::kstats(handle::BOOTSTRAP), Error::Denied);
+    check("cmdline via channel handle", sys::cmdline(handle::BOOTSTRAP, &mut [0u8; 64]), Error::Denied);
     check("spawn via channel handle", sys::spawn(handle::BOOTSTRAP, "bin/hello", 64, None), Error::Denied);
     check("wait on channel handle", sys::wait(handle::BOOTSTRAP), Error::Denied);
 

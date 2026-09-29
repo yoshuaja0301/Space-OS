@@ -153,7 +153,6 @@ pub struct AddressSpace {
     regions: Vec<Region>,
     /// User pages mapped (charged against the process quota).
     pub used_pages: usize,
-    mmap_next: u64,
     torn_down: bool,
 }
 
@@ -167,7 +166,7 @@ impl AddressSpace {
         for i in 256..512 {
             table[i] = kernel[i].clone();
         }
-        Ok(AddressSpace { pml4, regions: Vec::new(), used_pages: 0, mmap_next: MMAP_BASE, torn_down: false })
+        Ok(AddressSpace { pml4, regions: Vec::new(), used_pages: 0, torn_down: false })
     }
 
     pub fn cr3(&self) -> PhysFrame {
@@ -200,20 +199,39 @@ impl AddressSpace {
         })
     }
 
-    /// Map `pages` zero-filled, writable pages at a fresh anonymous address.
+    /// The lowest address from [`MMAP_BASE`] up where `pages` pages fit with an
+    /// unmapped guard page on either side.
     ///
-    /// The address cursor only advances when the mapping succeeds, so a failed
-    /// attempt reuses the same address (and the page tables already built for it)
-    /// instead of stranding page-table frames at every abandoned address.
-    pub fn map_anonymous(&mut self, pages: usize) -> Result<u64, Error> {
-        let start = self.mmap_next;
+    /// Addresses are reused once unmapped, and with them the page tables already
+    /// built there. A cursor that only moved on would add a page table for every
+    /// 2 MiB a process ever mapped and keep all of them until it exits: a program
+    /// that maps and unmaps for hours would grow without holding anything.
+    fn free_range(&self, pages: usize) -> Result<u64, Error> {
         let len = (pages as u64).checked_mul(PAGE_SIZE).ok_or(Error::Invalid)?;
-        let end = start.checked_add(len).ok_or(Error::Invalid)?;
-        if end > USER_SPACE_END / 2 {
-            return Err(Error::NoMemory);
+        let mut start = MMAP_BASE;
+        loop {
+            let end = start.checked_add(len).ok_or(Error::Invalid)?;
+            if end > USER_SPACE_END / 2 {
+                return Err(Error::NoMemory);
+            }
+            let clash = self
+                .regions
+                .iter()
+                .map(|r| (r.start, r.start + r.pages as u64 * PAGE_SIZE))
+                .filter(|&(rs, re)| start < re + PAGE_SIZE && rs < end + PAGE_SIZE)
+                .map(|(_, re)| re)
+                .max();
+            match clash {
+                None => return Ok(start),
+                Some(re) => start = re + PAGE_SIZE,
+            }
         }
+    }
+
+    /// Map `pages` zero-filled, writable pages at a free anonymous address.
+    pub fn map_anonymous(&mut self, pages: usize) -> Result<u64, Error> {
+        let start = self.free_range(pages)?;
         self.map_region(start, pages, true, false)?;
-        self.mmap_next = end + PAGE_SIZE; // leave a guard gap between mappings
         Ok(start)
     }
 
@@ -290,12 +308,7 @@ impl AddressSpace {
             return Err(Error::Invalid);
         }
         let pages = object.frames.len();
-        let start = self.mmap_next;
-        let len = (pages as u64).checked_mul(PAGE_SIZE).ok_or(Error::Invalid)?;
-        let end = start.checked_add(len).ok_or(Error::Invalid)?;
-        if end > USER_SPACE_END / 2 {
-            return Err(Error::NoMemory);
-        }
+        let start = self.free_range(pages)?;
         self.regions.try_reserve(1).map_err(|_| Error::NoMemory)?;
         let mut flags =
             PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::NO_EXECUTE;
@@ -331,7 +344,6 @@ impl AddressSpace {
             return Err(e);
         }
         self.regions.push(Region { start, pages, object: Some(object) });
-        self.mmap_next = end + PAGE_SIZE;
         Ok(start)
     }
 
