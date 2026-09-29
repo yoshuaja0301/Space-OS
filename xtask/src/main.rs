@@ -569,6 +569,9 @@ struct Machine {
     /// virtual gateway, and the lab services through explicit forwarding rules --
     /// no other host service, no internet.
     net_device: &'static str,
+    /// `-device` string for the entropy device, empty for a machine with none. A
+    /// machine without one falls back to RDRAND, when its CPU has that.
+    rng_device: &'static str,
     /// Appended verbatim (display and other knobs).
     extra: &'static [&'static str],
     /// Markers this configuration must produce on top of the common ones.
@@ -583,6 +586,7 @@ const LAB: Machine = Machine {
     memory: "8G",
     block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
     net_device: VIRTIO_NET,
+    rng_device: VIRTIO_RNG,
     extra: &[],
     must_contain: &[],
 };
@@ -590,6 +594,9 @@ const LAB: Machine = Machine {
 /// The network card most machines get: modern-only virtio-net with no option ROM
 /// (the firmware's own driver is enough, and nothing here boots from the network).
 const VIRTIO_NET: &str = "virtio-net-pci,netdev=spacenet,disable-legacy=on,romfile=";
+
+/// The entropy device most machines get: modern-only virtio-rng, fed by the host.
+const VIRTIO_RNG: &str = "virtio-rng-pci,disable-legacy=on";
 
 /// Configurations the acceptance run must survive unchanged.
 const MACHINES: &[Machine] = &[
@@ -602,6 +609,7 @@ const MACHINES: &[Machine] = &[
         memory: "2G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
     },
@@ -613,8 +621,16 @@ const MACHINES: &[Machine] = &[
         memory: "4G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         net_device: VIRTIO_NET,
+        // Neither an entropy device nor RDRAND (`qemu64`): nothing that needs keys can
+        // run, and it must say so rather than use something predictable.
+        rng_device: "",
         extra: &[],
-        must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+        must_contain: &[
+            "[kernel] vfs: FAT32 mounted",
+            "[kernel] entropy: none",
+            "[init] entropy: none",
+            "[init] ALL TESTS PASSED",
+        ],
     },
     Machine {
         name: "cpu-max",
@@ -624,8 +640,10 @@ const MACHINES: &[Machine] = &[
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         net_device: VIRTIO_NET,
+        // No entropy device, but `-cpu max` has RDRAND: the fallback source.
+        rng_device: "",
         extra: &[],
-        must_contain: &["[init] ALL TESTS PASSED"],
+        must_contain: &["[kernel] entropy: RDRAND", "[init] entropy: available", "[init] ALL TESTS PASSED"],
     },
     Machine {
         name: "virtio-transitional",
@@ -638,10 +656,12 @@ const MACHINES: &[Machine] = &[
         // VIRTIO_F_VERSION_1 on it.
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=off,disable-modern=off",
         net_device: "virtio-net-pci,netdev=spacenet,disable-legacy=off,disable-modern=off,romfile=",
+        rng_device: "virtio-rng-pci,disable-legacy=off,disable-modern=off",
         extra: &[],
         must_contain: &[
             "[kernel] vfs: FAT32 mounted",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",
+            "[kernel] entropy: virtio-rng",
             "[init] ALL TESTS PASSED",
         ],
     },
@@ -655,6 +675,7 @@ const MACHINES: &[Machine] = &[
         // ring index modulo the negotiated size and chunk requests to fit it.
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on,queue-size=4",
         net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &[
             "queue size 4 (max 4), 2 data pages/request",
@@ -670,6 +691,7 @@ const MACHINES: &[Machine] = &[
         memory: "8G",
         block_device: "",
         net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
         extra: &[],
         // No storage is a supported configuration: the kernel says so and the
         // disk-backed tests are skipped instead of failing.
@@ -691,6 +713,7 @@ const MACHINES: &[Machine] = &[
         // A network card the kernel has no driver for. It must be left alone, said
         // so, and the network tests skipped -- not failed, not hung.
         net_device: "e1000,netdev=spacenet,romfile=",
+        rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &[
             "[kernel] virtio-net: no device present",
@@ -707,6 +730,7 @@ const MACHINES: &[Machine] = &[
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
         extra: &["-vga", "none"],
         // Without a GOP the console has to fall back to serial only.
         must_contain: &["[kernel] framebuffer: none usable; serial console only", "[init] ALL TESTS PASSED"],
@@ -719,6 +743,7 @@ const MACHINES: &[Machine] = &[
         memory: "8G",
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
         extra: &["-vga", "vmware"],
         must_contain: &["[kernel] framebuffer:", "[init] ALL TESTS PASSED"],
     },
@@ -780,6 +805,9 @@ fn qemu_args(
             "-device".into(),
             m.block_device.into(),
         ]);
+    }
+    if !m.rng_device.is_empty() {
+        a.extend(["-device".into(), m.rng_device.into()]);
     }
     // Without an explicit choice QEMU adds a default card on an unrestricted user
     // network; every machine here says what it has instead.
@@ -1179,6 +1207,9 @@ const SCENARIOS: &[Scenario] = &[
             "input decoding ok",
             "[kernel] virtio-blk: ready",
             "[kernel] virtio-net: pci",
+            "[kernel] virtio-rng: pci",
+            "[kernel] entropy: virtio-rng",
+            "[init] entropy: available",
             "[kernel] rtc:",
             "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",

@@ -50,6 +50,18 @@ pub extern "C" fn space_main() -> i32 {
             // SAFETY: breakpoint trap in ring 3; the kernel must report BREAKPOINT.
             unsafe { core::arch::asm!("int3") };
         }
+        "sse" => {
+            // `pxor xmm0, xmm0`, as bytes: this target has no SSE, and the kernel
+            // keeps no vector state per thread, so the unit is off and the
+            // instruction must raise #UD instead of touching another process's XMM0.
+            // SAFETY: deliberate.
+            unsafe { core::arch::asm!(".byte 0x66, 0x0f, 0xef, 0xc0") };
+        }
+        "x87" => {
+            // `fld1`: with CR0.EM set, any x87 instruction raises #NM.
+            // SAFETY: deliberate.
+            unsafe { core::arch::asm!(".byte 0xd9, 0xe8") };
+        }
         "tf_syscall" => {
             // Set TF and immediately execute `syscall`: the single-step trap is then
             // delivered on the first *kernel* instruction. The kernel must survive

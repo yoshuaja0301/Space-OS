@@ -90,9 +90,16 @@ pub mod nr {
     /// `clock_realtime() -> milliseconds since 1970-01-01T00:00:00Z`, from the
     /// real-time clock read at boot plus the monotonic tick since.
     pub const CLOCK_REALTIME: usize = 35;
+    /// `random(buf, len) -> len`: `len` (at most [`super::RANDOM_MAX`]) bytes from the
+    /// kernel's entropy source (virtio-rng, else RDRAND). `NotFound` when the machine
+    /// has neither: there is no weaker fallback. Needs no right.
+    pub const RANDOM: usize = 36;
 
-    pub const COUNT: usize = 36;
+    pub const COUNT: usize = 37;
 }
+
+/// Most bytes one `SYS_RANDOM` call returns.
+pub const RANDOM_MAX: usize = 256;
 
 /// Largest Ethernet frame `SYS_NET_SEND` accepts and `SYS_NET_RECV` returns: 14 bytes
 /// of header and 1500 of payload. No VLAN tags, no jumbo frames, no FCS.
@@ -192,6 +199,9 @@ pub mod kill_reason {
     pub const DEBUG: u32 = 7;
     /// `int3` raised in ring 3.
     pub const BREAKPOINT: u32 = 8;
+    /// An x87 instruction (`#NM`): user space has no floating-point unit, since the
+    /// kernel keeps no FPU state per thread.
+    pub const NO_FPU: u32 = 9;
 
     pub const fn name(r: u32) -> &'static str {
         match r {
@@ -204,6 +214,7 @@ pub mod kill_reason {
             SIGNAL => "killed",
             DEBUG => "debug trap",
             BREAKPOINT => "breakpoint",
+            NO_FPU => "x87 instruction without an FPU",
             _ => "unknown",
         }
     }

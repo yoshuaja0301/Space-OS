@@ -260,6 +260,12 @@ pub fn wait_any(handles: &[Handle], timeout_ms: u64) -> Result<usize, Error> {
 }
 
 /// Wall-clock time: milliseconds since 1970-01-01T00:00:00Z.
+/// Fill `buf` (at most [`spaceabi::syscall::RANDOM_MAX`] bytes) with bytes from the
+/// kernel's entropy source. `NotFound` when the machine has none.
+pub fn random(buf: &mut [u8]) -> Result<usize, Error> {
+    call(nr::RANDOM, [buf.as_mut_ptr() as u64, buf.len() as u64, 0, 0, 0, 0])
+}
+
 pub fn clock_realtime_ms() -> Result<u64, Error> {
     call(nr::CLOCK_REALTIME, [0; 6]).map(|v| v as u64)
 }

@@ -70,6 +70,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::NET_RECV => sys_net_recv(a[0] as Handle, a[1], a[2]),
         nr::WAIT_ANY => sys_wait_any(a[0], a[1], a[2]),
         nr::CLOCK_REALTIME => sys_clock_realtime(),
+        nr::RANDOM => sys_random(a[0], a[1]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -404,6 +405,27 @@ fn sys_wait_any(ptr: u64, count: u64, timeout_ms: u64) -> Result<usize, Error> {
             }
         }
     })
+}
+
+fn sys_random(ptr: u64, len: u64) -> Result<usize, Error> {
+    if len > spaceabi::syscall::RANDOM_MAX as u64 {
+        return Err(Error::Invalid);
+    }
+    if len == 0 {
+        return Ok(0);
+    }
+    // Check the destination before drawing anything from the source.
+    user_bytes(ptr, len, true)?;
+    let mut buf = [0u8; spaceabi::syscall::RANDOM_MAX];
+    let out = &mut buf[..len as usize];
+    crate::dev::entropy::fill(out)?;
+    user_bytes(ptr, len, true)?.copy_from_slice(out);
+    // The bytes may be key material: leave no copy on the kernel stack.
+    for b in buf.iter_mut() {
+        // SAFETY: a plain byte in a live local array.
+        unsafe { core::ptr::write_volatile(b, 0) };
+    }
+    Ok(len as usize)
 }
 
 fn sys_clock_realtime() -> Result<usize, Error> {

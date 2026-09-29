@@ -680,6 +680,15 @@ pub extern "C" fn space_main() -> i32 {
     r.run("K02", "int3 in ring 3 kills the process (breakpoint)", || {
         fault_case("int3", kill_reason::BREAKPOINT)
     });
+    // The kernel keeps no FPU or vector registers per thread, so the units are off:
+    // an instruction that would have used them dies instead of reading what another
+    // process left in them.
+    r.run("K02", "an SSE instruction kills the process instead of sharing XMM registers", || {
+        fault_case("sse", kill_reason::INVALID_OPCODE)
+    });
+    r.run("K02", "an x87 instruction kills the process (no FPU for user space)", || {
+        fault_case("x87", kill_reason::NO_FPU)
+    });
     r.run("K02", "TF set before syscall: kernel survives the ring-0 #DB, process is terminated", || {
         fault_case("tf_syscall", kill_reason::DEBUG)
     });
@@ -1074,6 +1083,74 @@ pub extern "C" fn space_main() -> i32 {
             return Err(alloc::format!("a 50 ms sleep moved the clock by {dt} ms"));
         }
         println!("[init] clock: {} s since the Unix epoch", t1 / 1000);
+        Ok(())
+    });
+
+    // Entropy: available or not, decided once and said, so the harness can hold it
+    // against what the machine was given.
+    let entropy = sys::random(&mut [0u8; 16]).is_ok();
+    println!(
+        "[init] entropy: {}",
+        if entropy { "available" } else { "none; everything that needs keys will be skipped" }
+    );
+    r.run("K02", "random: requests are checked, and refused outright without a source", || {
+        let mut buf = [0u8; libspace::spaceabi::syscall::RANDOM_MAX + 1];
+        let raw = |ptr: u64, len: u64| {
+            // SAFETY: probing the kernel's validation with deliberately bad arguments.
+            decode(unsafe { sys::raw(nr::RANDOM, ptr, len, 0, 0, 0, 0) })
+        };
+        type Check<'a> = (&'a str, Result<usize, Error>, Result<usize, Error>);
+        let checks: [Check; 4] = [
+            ("one byte over the maximum", sys::random(&mut buf), Err(Error::Invalid)),
+            ("into a kernel address", raw(0xFFFF_8000_0000_0000, 16), Err(Error::Fault)),
+            ("nothing at all", sys::random(&mut buf[..0]), Ok(0)),
+            ("16 bytes", sys::random(&mut buf[..16]), if entropy { Ok(16) } else { Err(Error::NotFound) }),
+        ];
+        for (what, got, want) in checks {
+            if got != want {
+                return Err(alloc::format!("{what}: got {got:?}, expected {want:?}"));
+            }
+        }
+        Ok(())
+    });
+    r.run_if(entropy, "no entropy source", "K02", "random: 4 KiB look like noise, and no draw repeats", || {
+        const DRAWS: usize = 16;
+        const N: usize = libspace::spaceabi::syscall::RANDOM_MAX;
+        let mut draws = [[0u8; N]; DRAWS];
+        for d in draws.iter_mut() {
+            let n = sys::random(d).map_err(|e| alloc::format!("random: {e}"))?;
+            if n != N {
+                return Err(alloc::format!("asked for {N} bytes, got {n}"));
+            }
+        }
+        for i in 0..DRAWS {
+            for j in i + 1..DRAWS {
+                if draws[i] == draws[j] {
+                    return Err(alloc::format!("draws {i} and {j} are identical"));
+                }
+            }
+        }
+        // A sanity check, not a proof: a constant, a stuck bit or a short cycle fails
+        // it; a good generator fails it about once in a billion runs.
+        let mut counts = [0u32; 256];
+        let mut ones = 0u32;
+        for b in draws.iter().flatten() {
+            counts[*b as usize] += 1;
+            ones += b.count_ones();
+        }
+        let expect = (DRAWS * N / 256) as u32;
+        let chi2: u32 = counts.iter().map(|&c| (c.abs_diff(expect)).pow(2)).sum::<u32>() / expect;
+        let bits = (DRAWS * N * 8) as u32;
+        println!(
+            "[init] random: {} bytes, chi-square {chi2} over 255 degrees of freedom, {ones} of {bits} bits set",
+            DRAWS * N
+        );
+        if chi2 > 400 {
+            return Err(alloc::format!("byte counts too uneven (chi-square {chi2})"));
+        }
+        if ones.abs_diff(bits / 2) > 600 {
+            return Err(alloc::format!("{ones} of {bits} bits set"));
+        }
         Ok(())
     });
 

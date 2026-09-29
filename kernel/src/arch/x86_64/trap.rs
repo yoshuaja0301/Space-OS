@@ -85,6 +85,7 @@ fn kill_reason_for(v: u64) -> u32 {
         1 => kill_reason::DEBUG,
         3 => kill_reason::BREAKPOINT,
         6 => kill_reason::INVALID_OPCODE,
+        7 => kill_reason::NO_FPU,
         13 => kill_reason::GENERAL_PROTECTION,
         14 => kill_reason::PAGE_FAULT,
         _ => kill_reason::OTHER_EXCEPTION,

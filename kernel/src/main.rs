@@ -74,6 +74,7 @@ extern "C" fn kmain(boot_info: *const BootInfo) -> ! {
 
     arch::gdt::init();
     arch::idt::init();
+    arch::cpu::init();
     mm::init(bi);
 
     // The bootloader's stack lives inside a 2 MiB page of the linear map and has no
