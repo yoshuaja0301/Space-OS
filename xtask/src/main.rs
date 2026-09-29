@@ -1132,6 +1132,7 @@ const SCENARIOS: &[Scenario] = &[
             "[kernel] rtc:",
             "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",
+            "[init] PASS NET: a frame arriving while the receiver sleeps wakes it",
             "[kernel] vfs: FAT32 mounted",
             "[init] Space OS init running",
             "[ai] model verified: sha256",

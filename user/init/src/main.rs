@@ -1221,6 +1221,89 @@ pub extern "C" fn space_main() -> i32 {
         res
     });
 
+    // The two tests above never actually sleep: QEMU answers so fast that the reply
+    // is already in the ring when the receiver asks for it. Here a child transmits
+    // only once the receiver is blocked, so the answer can reach it only through the
+    // timer tick that notices the frame and wakes the device's waiters.
+    r.run_if(nic, "no network device", "NET", "a frame arriving while the receiver sleeps wakes it", || {
+        let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
+        let res = (|| {
+            let me = sys::net_info(h).map_err(|e| alloc::format!("net_info: {e}"))?.mac;
+            let mut frame = [0u8; libspace::spaceabi::syscall::FRAME_MAX];
+            while sys::net_recv(h, &mut frame).is_ok() {}
+            let tx = sys::handle_dup(h, rights::WRITE | rights::TRANSFER)
+                .map_err(|e| alloc::format!("dup lease: {e}"))?;
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let p = match sys::spawn(ROOT, "bin/blocker", CHILD_QUOTA, Some(theirs)) {
+                Ok(p) => p,
+                Err(e) => {
+                    sys::handle_close(tx).ok();
+                    sys::handle_close(mine).ok();
+                    return Err(alloc::format!("spawn: {e}"));
+                }
+            };
+            let run = (|| {
+                sys::send(mine, b"net_send_later", Some(tx)).map_err(|e| alloc::format!("send mode: {e}"))?;
+                let req = netcheck::arp_request(me, netcheck::GUEST_IP, netcheck::GATEWAY_IP);
+                sys::send(mine, &req, None).map_err(|e| alloc::format!("send frame: {e}"))?;
+                let mut buf = [0u8; 16];
+                let (n, _) = sys::recv(mine, &mut buf, false).map_err(|e| alloc::format!("ready: {e}"))?;
+                if &buf[..n] != b"ready" {
+                    return Err(String::from("the sender did not report ready"));
+                }
+                let asleep_from = sys::ticks_ms();
+                let woken = sys::wait_any(&[h], 3000);
+                let woke_at = sys::ticks_ms();
+                let (n, _) = sys::recv(mine, &mut buf, false).map_err(|e| alloc::format!("report: {e}"))?;
+                if n != 8 {
+                    return Err(alloc::format!("the sender's report is {n} bytes"));
+                }
+                let sent_at = u64::from_le_bytes(buf[..8].try_into().unwrap_or([0; 8]));
+                match woken {
+                    Ok(0) => {}
+                    other => return Err(alloc::format!("wait_any gave {other:?}")),
+                }
+                let mut answered = false;
+                while let Ok(n) = sys::net_recv(h, &mut frame) {
+                    answered |= netcheck::parse_arp_reply(&frame[..n], me, netcheck::GATEWAY_IP).is_some();
+                }
+                if !answered {
+                    return Err(String::from("woken, but not by the gateway's answer"));
+                }
+                println!(
+                    "[init] network: asleep {} ms; woken {} ms after the frame left",
+                    woke_at - asleep_from,
+                    woke_at.saturating_sub(sent_at)
+                );
+                if woke_at - asleep_from < 100 {
+                    return Err(alloc::format!(
+                        "slept only {} ms: the frame beat the sleep",
+                        woke_at - asleep_from
+                    ));
+                }
+                // The tick is 1 ms; anything near the 3 s timeout means nothing woke us
+                // and the answer was only found when the timeout expired.
+                if woke_at.saturating_sub(sent_at) > 100 {
+                    return Err(alloc::format!(
+                        "woken {} ms after the frame left: the arrival did not wake the receiver",
+                        woke_at.saturating_sub(sent_at)
+                    ));
+                }
+                Ok(())
+            })();
+            let st = sys::wait(p);
+            sys::handle_close(p).ok();
+            sys::handle_close(mine).ok();
+            run?;
+            match st {
+                Ok(st) if st.is_exited_with(0) => Ok(()),
+                other => Err(alloc::format!("the sender ended with {other:?}")),
+            }
+        })();
+        sys::handle_close(h).ok();
+        res
+    });
+
     r.run_if(nic, "no network device", "NET", "malformed transmit and receive requests are refused", || {
         let h = sys::net_open(ROOT).map_err(|e| alloc::format!("lease: {e}"))?;
         let read_only = sys::handle_dup(h, rights::READ).map_err(|e| alloc::format!("dup: {e}"))?;
