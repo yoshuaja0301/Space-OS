@@ -5,17 +5,17 @@ kesepuluh konfigurasi boot dan lulus (exit QEMU 33). Baris tcp berasal dari reka
 pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari ADR-0017, I01 dari ADR-0018.
 
 == lab
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 2 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == q35-1cpu-2g
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -25,7 +25,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == i440fx
-   init : ALL TESTS PASSED (95/95, 20 skipped)
+   init : ALL TESTS PASSED (96/96, 20 skipped)
    blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
@@ -35,17 +35,17 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == cpu-max
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   tcp  : 110 connections, 103 closed cleanly, 6 reset, 1 segment(s) the peer sent again
    entr : entropy: RDRAND
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == virtio-transitional
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -55,7 +55,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == virtio-small-queue
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 4 (max 4), 2 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -65,7 +65,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == no-disk
-   init : ALL TESTS PASSED (77/77, 38 skipped)
+   init : ALL TESTS PASSED (77/77, 39 skipped)
    blok : virtio-blk: no device present
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
@@ -75,17 +75,17 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 3/4 uji desktop lulus, sisanya dilewati (no framebuffer or no disk on this machine)
 == no-vga
-   init : ALL TESTS PASSED (109/109, 6 skipped)
+   init : ALL TESTS PASSED (110/110, 6 skipped)
    blok : virtio-blk: pci 00:01.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
    fb   : framebuffer: none usable; serial console only
    desk : dilewati (no framebuffer on this machine)
 == vmware-vga
-   init : ALL TESTS PASSED (115/115, 0 skipped)
+   init : ALL TESTS PASSED (116/116, 0 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -95,7 +95,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus
 == e1000-only
-   init : ALL TESTS PASSED (80/80, 35 skipped)
+   init : ALL TESTS PASSED (81/81, 35 skipped)
    blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
    net  : virtio-net: no device present
    tcp  : tidak ada kartu yang didukung; uji NET dilewati

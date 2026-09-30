@@ -56,10 +56,10 @@ tanpa jaringan, tulis, atau spawn), **biaya** (tidak ada: model berjalan di mesi
 | Klaim | Bukti |
 |---|---|
 | Model menulis 128 token lewat sesi, semuanya sama dengan baseline, dengan TTFT dilaporkan | U01 "the model writes text in a session, …": `the model wrote 128/128 tokens, all matching the baseline` |
-| Stop berhenti di antara dua langkah, ≤ 2 detik, dan teks yang sudah ditulis tetap benar | uji yang sama: `Stop ended the worker between two steps after 8/128 tokens, 16 ms after it was asked`; token yang ditulis = token yang cocok |
+| Stop berhenti di antara dua langkah, ≤ 2 detik, dan teks yang sudah ditulis tetap benar | uji yang sama: `Stop ended the worker between two steps after 8/128 tokens, 11 ms after it was asked`; token yang ditulis = token yang cocok |
 | Sesi menjawab dan membuka daftar berkas sesudahnya; tidak ada proses yang tertinggal | uji yang sama: jumlah proses sebelum dan sesudah sesi sama |
 | Sesi tidak bisa memberi worker apa yang tidak dimilikinya | U01 "a session cannot exceed …": `infer` tanpa `FS`/`DUP` → `Denied` |
-| Di desktop: model menulis, Stop, terminal menjawab | U01 "the model writes text in the Agent Center, …": `worker 'infer' stopped between two steps after 9 of 128 tokens (Stop took 3 ms)`; skenario `desktop` dengan tombol sungguhan dan screenshot `desktop-3-inference-stopped.png` |
+| Di desktop: model menulis, Stop, terminal menjawab | U01 "the model writes text in the Agent Center, …": `worker 'infer' stopped between two steps after 9 of 128 tokens (Stop took 2 ms)`; skenario `desktop` dengan tombol sungguhan dan screenshot `desktop-3-inference-stopped.png` |
 
 ## Gigi
 

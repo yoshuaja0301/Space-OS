@@ -106,10 +106,10 @@ IRQ 1 → dekoder → event → pengelola jendela), dengan screenshot di setiap 
 |---|---|
 | Satu lease; tanpa `DISPLAY` ditolak; layar kembali setelah desktop keluar | U01 "the desktop takes the screen, and one display server at a time" |
 | Fokus, pindah, ubah ukuran (aplikasi menggambar ulang), minimize, workspace, tutup — dari keyboard | U01 "windows take the keyboard, …" |
-| Worker crash (page fault), worker macet dihentikan Stop (43 ms dalam run bukti; PRD §9 meminta ≤ 2 detik), terminal menjawab perintah yang diketik setelah crash, file manager tetap bisa ditelusuri, desktop terus menampilkan frame | U01 "the desktop, terminal, file manager and Stop keep working while inference workers crash" |
+| Worker crash (page fault), worker macet dihentikan Stop (31 ms dalam run bukti; PRD §9 meminta ≤ 2 detik), terminal menjawab perintah yang diketik setelah crash, file manager tetap bisa ditelusuri, desktop terus menampilkan frame | U01 "the desktop, terminal, file manager and Stop keep working while inference workers crash" |
 | Desktop yang dibunuh dengan jendela terbuka mengembalikan layar, desktop baru bisa mulai | U01 "a desktop that is killed gives the screen back, and a new one starts" |
 | Jalur keyboard sungguhan: pintasan, teks ke terminal, Stop, kontras tinggi, Ctrl+Alt+Delete | skenario `desktop`; screenshot `docs/evidence/desktop-*.png` |
-| Mesin tanpa framebuffer melewati uji yang membutuhkan layar dengan alasan, tidak gagal | `compat` mesin `no-vga`: 109/109, 6 skipped (keempat uji itu, ditambah Agent Center dan Command Center) |
+| Mesin tanpa framebuffer melewati uji yang membutuhkan layar dengan alasan, tidak gagal | `compat` mesin `no-vga`: 110/110, 6 skipped (keempat uji itu, ditambah Agent Center dan Command Center) |
 | Desktop ikut uji stabilitas | setiap putaran `cargo xtask stress` menjalankan keempat uji itu (ADR-0019) |
 
 ## Gigi

@@ -37,7 +37,7 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03), satu berkas yang berubah diindeks ulang tanpa full rescan (ADR-0023) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 115 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 116 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/stress/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan dan kombinasi tombol ke guest serta screenshot, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
@@ -63,26 +63,28 @@ Keluaran acceptance (dipotong):
 spaceboot 0.1.0: Space OS UEFI bootloader
 spacekernel 0.1.0: Space OS kernel booting
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/init': entry=0x453344, 133 pages mapped, quota 2048 pages
-[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (133 used)
+[kernel] spawn pid 1 'bin/init': entry=0x455650, 138 pages mapped, quota 2048 pages
+[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (138 used)
 [kernel] pid 3 'bin/fault' killed: page fault at rip=0x40041c (error=0x7, addr=0xffff800000000000)
 [init] PASS K02: write to kernel memory kills the process (page fault)
 ...
-[init] frames free before=2090017 after=2090017 ; heap used before=3432 after=3432 ; switches=165
+[init] frames free before=2090005 after=2090005 ; heap used before=3432 after=3432 ; switches=167
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [ai] model verified: sha256 a1955def6c7b4e8e...
 [ai] generated 128 tokens offline, all matching the pinned baseline
-[init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (43 ms after Stop was pressed)
+[init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (31 ms after Stop was pressed)
 [init] PASS U01: the desktop, terminal, file manager and Stop keep working while inference workers crash
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [shell] input was lost; the line was discarded
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
-[init] desktop: agent: worker 'infer' stopped between two steps after 9 of 128 tokens (Stop took 3 ms); 9/128 tokens, 9 matching; Stop has nothing to stop; 26 commands served (11 ms after Stop was pressed)
+[init] desktop: agent: worker 'infer' stopped between two steps after 9 of 128 tokens (Stop took 2 ms); 9/128 tokens, 9 matching; Stop has nothing to stop; 24 commands served (11 ms after Stop was pressed)
 [init] PASS U01: the model writes text in the Agent Center, Stop ends it between two steps, and the terminal answers
 [init] desktop: command: 3 results for 'channel'; selected 1 /spaceos/docs/IPC.TXT bytes 0+186 sha 0d37dfc6; index 4 docs 7 chunks 0 revoked
 [init] PASS L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files
-[init] ALL TESTS PASSED (115/115, 0 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 34168 ms, 91513 context switches)
+[init] link: /spaceos/ws/FRESH.TXT changed; re-indexed on its own in 3 ms (109 bytes read); /spaceos/ws/LATER.TXT, changed too, kept its old text until it was named
+[init] PASS L01: a changed file is re-indexed on its own, and the next search answers from the new text
+[init] ALL TESTS PASSED (116/116, 0 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 33203 ms, 91408 context switches)
 ```
 
 ## Dokumentasi
