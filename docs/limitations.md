@@ -24,8 +24,9 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Penyimpanan
 
 - Driver blok dan FAT32 berada **di dalam kernel** (ADR-0007), bukan user-space; tanpa IOMMU, driver DMA tetap komponen tepercaya.
-- FAT32 satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3. Menulis ada (ADR-0015) tetapi terbatas: **create-atau-kosongkan dan tulis**, tanpa hapus berkas, tanpa buat direktori, tanpa nama panjang, dan **tanpa jurnal** — kehilangan daya di tengah tulisan bisa meninggalkan FAT dan entri direktori tidak sinkron. Yang bisa ditulis hanya disk data; ESP tempat boot bukan perangkat virtio sehingga tidak terjangkau sama sekali.
+- FAT32 satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3. Menulis ada (ADR-0015) tetapi terbatas: **create-atau-kosongkan dan tulis**, tanpa hapus berkas, tanpa buat direktori, tanpa nama panjang, dan **tanpa jurnal** — kehilangan daya di tengah tulisan bisa meninggalkan FAT dan entri direktori tidak sinkron. Yang bisa ditulis hanya volume data berlabel `SPACEDATA`; `block` membatasi setiap permintaan ke volume itu, jadi ESP tempat boot — di disk lain atau partisi lain — tidak terjangkau (ADR-0025).
 - VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
+- Disk: virtio-blk, SATA lewat AHCI, dan NVMe (ADR-0025). Belum ada IDE/PATA (ESP di `i440fx` tetap tidak terlihat), USB, SCSI/virtio-scsi atau RAID; sektor harus 512 byte (disk 4Kn dan namespace NVMe berformat 4096 dilewati dengan pesan); satu perintah pada satu waktu per disk lewat buffer bounce 32 KiB; tanpa hot-plug. Tabel GPT dibaca tanpa memeriksa CRC-nya: label di boot sector yang memutuskan, dan partisi yang keluar dari disk tidak pernah dibaca.
 - Hanya perangkat virtio-blk yang menawarkan kapabilitas modern (VIRTIO_F_VERSION_1). Perangkat transisional diterima karena juga menawarkannya; perangkat legacy murni diabaikan dengan pesan, bukan crash.
 - Ukuran antrean yang dipakai adalah hasil negosiasi, maksimum 16, dan satu permintaan dipotong agar muat (`size - 2` halaman data, maksimum 8 = 32 KiB). Antrean < 3 deskriptor membuat perangkat ditolak.
 - Permintaan yang melewati batas polling membuat perangkat di-reset dan dinonaktifkan permanen; tidak ada percobaan ulang atau pemulihan.
@@ -106,8 +107,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Kompatibilitas
 
-- Matriks `cargo xtask compat` (ADR-0010) mencakup sepuluh konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
-- **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
+- Matriks `cargo xtask compat` (ADR-0010) mencakup tiga belas konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, disk data di SATA (AHCI), di NVMe, dan di partisi 2 disk GPT, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk, SATA (AHCI) dan NVMe, kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 
 ## Jaringan

@@ -43,6 +43,13 @@ pub fn init() {
     );
 }
 
+/// The time-stamp counter: a count that only goes up, at a rate this kernel does
+/// not measure. Every x86_64 CPU has one.
+pub fn timestamp() -> u64 {
+    // SAFETY: RDTSC reads a counter and has no other effect.
+    unsafe { core::arch::x86_64::_rdtsc() }
+}
+
 /// 64 bits from RDRAND, or `None` when the CPU has none or keeps failing. Intel
 /// recommends ten retries: a failure means the generator is momentarily drained.
 pub fn rdrand64() -> Option<u64> {

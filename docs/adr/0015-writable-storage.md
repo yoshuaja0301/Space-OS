@@ -1,6 +1,6 @@
 # ADR-0015 — Penyimpanan yang bisa ditulis
 
-- Status: diterima
+- Status: diterima; alasan mengapa ESP tidak terjangkau digantikan ADR-0025 (jaminannya tetap)
 - Tanggal: 2026-09-16
 - Konteks: PRD §7 D01, roadmap backlog butir 5, ADR-0007 (storage stack dan ABI file)
 
@@ -19,6 +19,9 @@ perangkat blok yang diikat kernel adalah disk virtio. ESP yang di-boot firmware 
 perangkat virtio, jadi tidak ada tulisan dari sini yang bisa mencapai bootloader atau
 image kernel. Itu bukan kebijakan yang ditegakkan pengecekan path — itu konsekuensi
 dari perangkat mana yang ada, dan karena itu tidak bisa dilanggar oleh bug di FAT32.
+*(Sejak ADR-0025 kernel juga membaca disk AHCI dan NVMe, jadi ESP bisa terlihat. Jaminannya
+kini dipegang lapisan `block`: volume data dipilih dari labelnya, dan setiap permintaan dibatasi
+ke volume itu sebelum driver melihatnya.)*
 
 **Menulis adalah hak tersendiri.** `FS` membaca volume; `FS_WRITE` mengubahnya. Proses
 yang dipercaya membaca tidak otomatis dipercaya menulis ulang. Handle berkas juga

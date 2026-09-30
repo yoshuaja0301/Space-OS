@@ -450,6 +450,128 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// CRC-32 (IEEE 802.3), the checksum GPT headers and partition tables carry.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for &b in data {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
+
+/// A GPT data disk laid out the way an installed system's disk is: partition 1 an
+/// EFI system partition with a FAT32 volume labelled `SPACEOS` (standing in for
+/// the boot files), partition 2 a copy of the data volume in `volume`. Both GPT
+/// copies, both checksums: firmware and host tools read it as a valid disk.
+fn make_data_disk_gpt(volume: &Path, out: &Path) -> Result<(), String> {
+    const SECTOR: u64 = 512;
+    const ENTRIES: u64 = 128;
+    const ENTRY_SIZE: u64 = 128;
+    const TABLE_SECTORS: u64 = ENTRIES * ENTRY_SIZE / SECTOR;
+    /// Partition types, in GPT's mixed-endian byte order.
+    const EFI_SYSTEM: [u8; 16] =
+        [0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B];
+    const BASIC_DATA: [u8; 16] =
+        [0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7];
+
+    let data = fs::read(volume).map_err(|e| format!("read {}: {e}", volume.display()))?;
+    let esp_sectors = ESP_SIZE / SECTOR;
+    let data_sectors = (data.len() as u64).div_ceil(SECTOR);
+    let esp_start = PART_START / SECTOR;
+    let data_start = esp_start + esp_sectors;
+    // A mebibyte after the last partition holds the backup table and header.
+    let total = data_start + data_sectors + PART_START / SECTOR;
+    let last = total - 1;
+    let backup_table = last - TABLE_SECTORS;
+
+    let mut f = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(out)
+        .map_err(|e| e.to_string())?;
+    f.set_len(total * SECTOR).map_err(|e| e.to_string())?;
+
+    // Protective MBR: one partition of type 0xEE over the whole disk.
+    let mut mbr = [0u8; 512];
+    mbr[446 + 4] = 0xEE;
+    mbr[446 + 8..446 + 12].copy_from_slice(&1u32.to_le_bytes());
+    mbr[446 + 12..446 + 16].copy_from_slice(&u32::try_from(last).unwrap_or(u32::MAX).to_le_bytes());
+    mbr[510] = 0x55;
+    mbr[511] = 0xAA;
+
+    let mut table = vec![0u8; (ENTRIES * ENTRY_SIZE) as usize];
+    let parts = [
+        (EFI_SYSTEM, esp_start, esp_start + esp_sectors - 1, "EFI system"),
+        (BASIC_DATA, data_start, data_start + data_sectors - 1, "Space OS data"),
+    ];
+    for (i, (kind, first, end, name)) in parts.iter().enumerate() {
+        let e = &mut table[i * ENTRY_SIZE as usize..(i + 1) * ENTRY_SIZE as usize];
+        e[0..16].copy_from_slice(kind);
+        // Unique partition GUID: fixed, so the image is the same on every build.
+        let mut guid = *b"SPACEOS-PART-00\0";
+        guid[15] = i as u8 + 1;
+        e[16..32].copy_from_slice(&guid);
+        e[32..40].copy_from_slice(&first.to_le_bytes());
+        e[40..48].copy_from_slice(&end.to_le_bytes());
+        for (j, unit) in name.encode_utf16().enumerate() {
+            e[56 + j * 2..58 + j * 2].copy_from_slice(&unit.to_le_bytes());
+        }
+    }
+    let table_crc = crc32(&table);
+    let header = |mine: u64, other: u64, entries_at: u64| {
+        let mut h = [0u8; 512];
+        h[0..8].copy_from_slice(b"EFI PART");
+        h[8..12].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+        h[12..16].copy_from_slice(&92u32.to_le_bytes());
+        h[24..32].copy_from_slice(&mine.to_le_bytes());
+        h[32..40].copy_from_slice(&other.to_le_bytes());
+        h[40..48].copy_from_slice(&(2 + TABLE_SECTORS).to_le_bytes());
+        h[48..56].copy_from_slice(&(backup_table - 1).to_le_bytes());
+        h[56..72].copy_from_slice(b"SPACEOS-DATADISK");
+        h[72..80].copy_from_slice(&entries_at.to_le_bytes());
+        h[80..84].copy_from_slice(&(ENTRIES as u32).to_le_bytes());
+        h[84..88].copy_from_slice(&(ENTRY_SIZE as u32).to_le_bytes());
+        h[88..92].copy_from_slice(&table_crc.to_le_bytes());
+        let crc = crc32(&h[0..92]);
+        h[16..20].copy_from_slice(&crc.to_le_bytes());
+        h
+    };
+    let mut put = |at: u64, bytes: &[u8]| -> Result<(), String> {
+        f.seek(SeekFrom::Start(at * SECTOR)).map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())
+    };
+    put(0, &mbr)?;
+    put(1, &header(1, last, 2))?;
+    put(2, &table)?;
+    put(backup_table, &table)?;
+    put(last, &header(last, 1, backup_table))?;
+    put(data_start, &data)?;
+
+    // The EFI system partition gets a FAT32 volume with a label of its own: were
+    // the label not what picks the data volume, this one, first on the disk, would be.
+    let part = fscommon::StreamSlice::new(f, esp_start * SECTOR, (esp_start + esp_sectors) * SECTOR)
+        .map_err(|e| e.to_string())?;
+    let mut part = fscommon::BufStream::new(part);
+    fatfs::format_volume(
+        &mut part,
+        fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat32).volume_label(*b"SPACEOS    "),
+    )
+    .map_err(|e| format!("format the EFI system partition: {e}"))?;
+    part.flush().map_err(|e| e.to_string())?;
+    println!(
+        "== data disk {} (GPT: EFI system partition, {} MiB; data volume, {} MiB)",
+        out.display(),
+        ESP_SIZE >> 20,
+        (data_sectors * SECTOR) >> 20
+    );
+    Ok(())
+}
+
 /// Files the agent workspace starts with. `expect.txt` is `input.txt` with the rule
 /// in `task.txt` applied, so the broker's check compares against something the host
 /// computed, not something the guest produced.
@@ -731,6 +853,18 @@ struct Machine {
     extra: &'static [&'static str],
     /// Markers this configuration must produce on top of the common ones.
     must_contain: &'static [&'static str],
+    /// How the data volume sits on the data disk.
+    data_disk: DataDisk,
+}
+
+/// The data disk's layout.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DataDisk {
+    /// The FAT32 volume fills the disk (what every scenario uses).
+    Whole,
+    /// A GPT disk the way an installed system has one: an EFI system partition
+    /// first, the data volume in the second partition.
+    Gpt,
 }
 
 const LAB: Machine = Machine {
@@ -744,6 +878,7 @@ const LAB: Machine = Machine {
     rng_device: VIRTIO_RNG,
     extra: &[],
     must_contain: &[],
+    data_disk: DataDisk::Whole,
 };
 
 /// The network card most machines get: modern-only virtio-net with no option ROM
@@ -767,6 +902,7 @@ const MACHINES: &[Machine] = &[
         rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &["[kernel] vfs: FAT32 mounted", "[init] ALL TESTS PASSED"],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "i440fx",
@@ -787,6 +923,7 @@ const MACHINES: &[Machine] = &[
             "[init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no entropy source)",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "cpu-max",
@@ -806,6 +943,7 @@ const MACHINES: &[Machine] = &[
             "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "virtio-transitional",
@@ -826,6 +964,7 @@ const MACHINES: &[Machine] = &[
             "[kernel] entropy: virtio-rng",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "virtio-small-queue",
@@ -844,6 +983,7 @@ const MACHINES: &[Machine] = &[
             "[kernel] vfs: FAT32 mounted",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "no-disk",
@@ -859,12 +999,80 @@ const MACHINES: &[Machine] = &[
         // disk-backed tests are skipped instead of failing.
         must_contain: &[
             "[kernel] virtio-blk: no device present",
-            "[kernel] vfs: no block device",
+            // The boot disk is on the AHCI controller; it must not pass for data.
+            "[kernel] block: no disk holds a volume labelled SPACEDATA",
+            "[kernel] vfs: no data volume",
             "[init] storage: none",
             "[init] SKIP A01",
             "[init] SKIP TLS: an expired certificate is refused (no disk, which holds the lab authority's certificate)",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "sata-data",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        // The data disk on the second port of the q35's own AHCI controller, next
+        // to the boot disk on the first: how most PCs keep their disks. The boot
+        // disk is found too, and must be left alone.
+        block_device: "ide-hd,drive=spacedata,bus=ide.1",
+        net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
+        extra: &[],
+        must_contain: &[
+            "[kernel] block: AHCI 00:1f.2 port 0 (",
+            "MBR with 1 partition(s), none labelled SPACEDATA; not used",
+            "[kernel] block: AHCI 00:1f.2 port 1 (",
+            "holds the data volume (the whole disk)",
+            "[kernel] vfs: FAT32 mounted from AHCI 00:1f.2 port 1",
+            "[init] ALL TESTS PASSED",
+        ],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "nvme-data",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        // The data disk as namespace 1 of an NVMe controller.
+        block_device: "nvme,drive=spacedata,serial=SPACEDATA1",
+        net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
+        extra: &[],
+        must_contain: &[
+            "1 usable namespace(s) among IDs 1-16",
+            "namespace 1 (",
+            "holds the data volume (the whole disk)",
+            "[kernel] vfs: FAT32 mounted from NVMe",
+            "[init] ALL TESTS PASSED",
+        ],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "sata-gpt",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        // The data disk laid out like an installed system's: GPT, an EFI system
+        // partition holding a FAT32 volume of its own first, the data volume second.
+        // The label, not the order, picks the volume, and every request stays
+        // inside the partition.
+        block_device: "ide-hd,drive=spacedata,bus=ide.1",
+        net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
+        extra: &[],
+        must_contain: &[
+            "[kernel] block: AHCI 00:1f.2 port 1 (",
+            "holds the data volume (GPT partition 2)",
+            "[kernel] vfs: FAT32 mounted from AHCI 00:1f.2 port 1",
+            "[init] ALL TESTS PASSED",
+        ],
+        data_disk: DataDisk::Gpt,
     },
     Machine {
         name: "e1000-only",
@@ -884,6 +1092,7 @@ const MACHINES: &[Machine] = &[
             "[init] SKIP NET",
             "[init] ALL TESTS PASSED",
         ],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "no-vga",
@@ -897,6 +1106,7 @@ const MACHINES: &[Machine] = &[
         extra: &["-vga", "none"],
         // Without a GOP the console has to fall back to serial only.
         must_contain: &["[kernel] framebuffer: none usable; serial console only", "[init] ALL TESTS PASSED"],
+        data_disk: DataDisk::Whole,
     },
     Machine {
         name: "vmware-vga",
@@ -909,6 +1119,7 @@ const MACHINES: &[Machine] = &[
         rng_device: VIRTIO_RNG,
         extra: &["-vga", "vmware"],
         must_contain: &["[kernel] framebuffer:", "[init] ALL TESTS PASSED"],
+        data_disk: DataDisk::Whole,
     },
 ];
 
@@ -2087,10 +2298,15 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
     make_image(&built, "", &image)?;
     let data_image = root().join("build/data.img");
     make_data_disk(&data_image)?;
+    let gpt_image = root().join("build/data-gpt.img");
+    let selected = || MACHINES.iter().filter(|m| only.is_none_or(|n| n == m.name));
+    if selected().any(|m| m.data_disk == DataDisk::Gpt) {
+        make_data_disk_gpt(&data_image, &gpt_image)?;
+    }
 
     let mut failures = 0;
     let mut ran = 0;
-    for m in MACHINES.iter().filter(|m| only.is_none_or(|n| n == m.name)) {
+    for m in selected() {
         ran += 1;
         println!(
             "== machine {}: -machine {} -cpu {} -smp {} -m {} ({}){}",
@@ -2106,7 +2322,7 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
         let run = run_qemu_capture_on(
             m,
             &image,
-            &data_image,
+            if m.data_disk == DataDisk::Gpt { &gpt_image } else { &data_image },
             &log_path,
             &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
         )?;
@@ -2691,6 +2907,47 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The GPT data disk reads back as what it claims: both headers and the table
+    /// check out, partition 2 holds the volume byte for byte, and partition 1 is a
+    /// FAT32 volume with another label.
+    #[test]
+    fn gpt_data_disk_is_valid() {
+        let dir = std::env::temp_dir().join(format!("spaceos-gpt-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let volume: Vec<u8> = (0..3 * 1024 * 1024 + 512).map(|i: u32| (i % 251) as u8).collect();
+        let (vol_path, disk_path) = (dir.join("volume.img"), dir.join("disk.img"));
+        fs::write(&vol_path, &volume).unwrap();
+        make_data_disk_gpt(&vol_path, &disk_path).unwrap();
+        let disk = fs::read(&disk_path).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+
+        let sector = |lba: u64| &disk[(lba * 512) as usize..(lba * 512 + 512) as usize];
+        let le32 = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+        let le64 = |b: &[u8], at: usize| u64::from_le_bytes(b[at..at + 8].try_into().unwrap());
+        assert_eq!((disk[510], disk[511], disk[446 + 4]), (0x55, 0xAA, 0xEE), "protective MBR");
+        let last = disk.len() as u64 / 512 - 1;
+        for (at, other) in [(1, last), (last, 1)] {
+            let h = sector(at);
+            assert_eq!(&h[0..8], b"EFI PART");
+            let mut copy = h[0..92].to_vec();
+            copy[16..20].fill(0);
+            assert_eq!(le32(h, 16), crc32(&copy), "header CRC at LBA {at}");
+            assert_eq!((le64(h, 24), le64(h, 32)), (at, other));
+            let table = le64(h, 72);
+            let bytes = (le32(h, 80) * le32(h, 84)) as usize;
+            let entries = &disk[(table * 512) as usize..(table * 512) as usize + bytes];
+            assert_eq!(le32(h, 88), crc32(entries), "table CRC at LBA {at}");
+            let (first, end) = (le64(entries, 128 + 32), le64(entries, 128 + 40));
+            assert_eq!(&disk[(first * 512) as usize..(first * 512) as usize + volume.len()], &volume[..]);
+            assert_eq!(end - first + 1, (volume.len() as u64).div_ceil(512));
+            assert!(end < le64(h, 48) + 1, "partition 2 ends inside the usable area");
+        }
+        // Partition 1's entry is the first in the table at LBA 2.
+        let esp = sector(le64(&disk[2 * 512..], 32));
+        assert_eq!(&esp[82..90], b"FAT32   ");
+        assert_eq!(&esp[71..82], b"SPACEOS    ");
+    }
 
     /// The pass line as `init` prints it (user/init/src/stress.rs) reads back into
     /// the figures the memory record is made of.

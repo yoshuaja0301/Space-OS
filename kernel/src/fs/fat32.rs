@@ -7,9 +7,10 @@
 //!
 //! Writing follows the same rule and adds three of its own:
 //!
-//! * **Only the data volume is reachable.** The only block device the kernel binds
-//!   is the virtio disk; the ESP the firmware booted from is not one, so no write
-//!   here can reach the bootloader or the kernel image.
+//! * **Only the data volume is reachable.** The block layer hands this file system
+//!   the one disk whose boot sector says `SPACEDATA` (ADR-0025); the ESP the
+//!   firmware booted from is never that disk, so no write here can reach the
+//!   bootloader or the kernel image.
 //! * **Every FAT copy is updated.** A volume whose FATs disagree is a volume another
 //!   implementation may read differently from this one.
 //! * **A newly allocated cluster is zeroed before it joins a file.** It still holds
@@ -22,7 +23,7 @@ use alloc::vec::Vec;
 use spaceabi::error::Error;
 use spaceabi::syscall::DirEntry;
 
-use crate::dev::virtio_blk::{self, SECTOR_SIZE};
+use crate::dev::block::{self, SECTOR_SIZE};
 
 const ATTR_DIRECTORY: u8 = 0x10;
 const ATTR_VOLUME_ID: u8 = 0x08;
@@ -86,7 +87,7 @@ impl Fat32 {
     /// Parse the boot sector of the volume starting at `start_lba`.
     pub fn mount() -> Result<Fat32, Error> {
         let mut boot = vec![0u8; SECTOR_SIZE as usize];
-        virtio_blk::read_sectors(0, &mut boot)?;
+        block::read_sectors(0, &mut boot)?;
         if rd16(&boot, 510) != 0xAA55 {
             return Err(Error::NoExec);
         }
@@ -155,7 +156,7 @@ impl Fat32 {
         }
         if self.fat_cache_sector != sector {
             let mut buf = core::mem::take(&mut self.fat_cache);
-            let r = virtio_blk::read_sectors(sector, &mut buf);
+            let r = block::read_sectors(sector, &mut buf);
             self.fat_cache = buf;
             r?;
             self.fat_cache_sector = sector;
@@ -174,7 +175,7 @@ impl Fat32 {
     /// Read one cluster into `buf` (which must be exactly one cluster long).
     fn read_cluster(&mut self, cluster: u32, buf: &mut [u8]) -> Result<(), Error> {
         let lba = self.cluster_lba(cluster)?;
-        virtio_blk::read_sectors(lba, buf)
+        block::read_sectors(lba, buf)
     }
 
     /// 8.3 name of a directory entry, e.g. `MODEL.SLM`.
@@ -376,7 +377,7 @@ impl Fat32 {
         }
         if self.fat_cache_sector != sector {
             let mut buf = core::mem::take(&mut self.fat_cache);
-            let r = virtio_blk::read_sectors(sector, &mut buf);
+            let r = block::read_sectors(sector, &mut buf);
             self.fat_cache = buf;
             r?;
             self.fat_cache_sector = sector;
@@ -398,12 +399,12 @@ impl Fat32 {
         let mut buf = vec![0u8; SECTOR_SIZE as usize];
         for copy in 0..self.num_fats as u64 {
             let sector = self.fat_start + copy * self.fat_sectors as u64 + sector_in_fat;
-            virtio_blk::read_sectors(sector, &mut buf)?;
+            block::read_sectors(sector, &mut buf)?;
             // The top four bits are reserved; the spec says to leave them alone.
             let old = rd32(&buf, off);
             let new = (old & 0xF000_0000) | (value & 0x0FFF_FFFF);
             buf[off..off + 4].copy_from_slice(&new.to_le_bytes());
-            virtio_blk::write_sectors(sector, &buf)?;
+            block::write_sectors(sector, &buf)?;
         }
         // The cached sector may be one of the ones just rewritten.
         self.fat_cache_sector = u64::MAX;
@@ -416,7 +417,7 @@ impl Fat32 {
             return Err(Error::Invalid);
         }
         let lba = self.cluster_lba(cluster)?;
-        virtio_blk::write_sectors(lba, buf)
+        block::write_sectors(lba, buf)
     }
 
     /// Claim a free cluster as the end of a chain, zeroed and ready to use.
@@ -475,11 +476,11 @@ impl Fat32 {
             return Err(Error::Invalid);
         }
         let mut sector = vec![0u8; SECTOR_SIZE as usize];
-        virtio_blk::read_sectors(node.entry_lba, &mut sector)?;
+        block::read_sectors(node.entry_lba, &mut sector)?;
         sector[off + 20..off + 22].copy_from_slice(&((node.first_cluster >> 16) as u16).to_le_bytes());
         sector[off + 26..off + 28].copy_from_slice(&(node.first_cluster as u16).to_le_bytes());
         sector[off + 28..off + 32].copy_from_slice(&(node.size as u32).to_le_bytes());
-        virtio_blk::write_sectors(node.entry_lba, &sector)
+        block::write_sectors(node.entry_lba, &sector)
     }
 
     /// Write `data` at `offset`, growing the file if it runs past the end.
@@ -540,7 +541,7 @@ impl Fat32 {
         }
         node.size = node.size.max(end);
         self.update_entry(node)?;
-        virtio_blk::flush()?;
+        block::flush()?;
         Ok(written)
     }
 
@@ -631,7 +632,7 @@ impl Fat32 {
                     self.free_chain(e.first)?;
                 }
                 self.update_entry(&node)?;
-                virtio_blk::flush()?;
+                block::flush()?;
                 Ok(node)
             }
             Err(Error::NotFound) => {
@@ -641,15 +642,15 @@ impl Fat32 {
                     return Err(Error::Invalid);
                 }
                 let mut sector = vec![0u8; SECTOR_SIZE as usize];
-                virtio_blk::read_sectors(lba, &mut sector)?;
+                block::read_sectors(lba, &mut sector)?;
                 // A fresh entry: name, "plain file", and nothing else. Timestamps are
                 // left at zero because this kernel has no wall clock to put in them,
                 // and inventing one would be a lie stored on disk.
                 sector[at..at + DIR_ENTRY].fill(0);
                 sector[at..at + 11].copy_from_slice(&short);
                 sector[at + 11] = ATTR_ARCHIVE;
-                virtio_blk::write_sectors(lba, &sector)?;
-                virtio_blk::flush()?;
+                block::write_sectors(lba, &sector)?;
+                block::flush()?;
                 Ok(FileNode { first_cluster: 0, size: 0, entry_lba: lba, entry_off: off })
             }
             Err(e) => Err(e),

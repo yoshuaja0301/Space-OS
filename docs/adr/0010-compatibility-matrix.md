@@ -40,7 +40,9 @@ keluar. Perintah ini bagian dari `cargo xtask ci`, jadi setiap push menjalankann
 **Degradasi anggun punya jalur yang terdefinisi.** Perangkat yang hilang menempuh
 urutan yang sama di setiap lapis: laporkan, lanjut, dan beri tahu user space.
 
-- `virtio-blk: no device present` → `vfs: no block device; file system unavailable`.
+- `virtio-blk: no device present` → `block: no disk holds a volume labelled SPACEDATA` →
+  `vfs: no data volume; file system unavailable` (sejak ADR-0025; sebelumnya
+  `vfs: no block device`).
 - `KernelStats.volume_sectors` bernilai 0 ketika tidak ada volume ter-mount. Itu
   satu-satunya cara user space membedakan "mesin ini tidak punya disk" dari
   "pembacaan gagal"; `fs_open` yang mengembalikan `NotFound` tidak membedakan.

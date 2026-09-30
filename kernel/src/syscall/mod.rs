@@ -498,7 +498,7 @@ fn sys_clock_realtime() -> Result<usize, Error> {
 
 fn sys_fs_stat(h: Handle, out: u64) -> Result<usize, Error> {
     let stat = with_file(h, rights::READ, |f| {
-        Ok(FileStat { size: f.node.lock().size, block_size: crate::dev::virtio_blk::SECTOR_SIZE })
+        Ok(FileStat { size: f.node.lock().size, block_size: crate::dev::block::SECTOR_SIZE })
     })?;
     write_user(out, stat)?;
     Ok(0)

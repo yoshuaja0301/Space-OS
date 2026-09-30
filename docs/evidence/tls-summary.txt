@@ -4,31 +4,31 @@ Diambil dari build/logs/acceptance.log dan acceptance.lab.log skenario acceptanc
 lab ADR-0003), keluaran cargo xtask build, dan matriks compat. Log lengkap: acceptance.log.
 
 ## Gerbang build: tidak ada instruksi FPU/vektor
-== no x87/MMX/SSE/AVX instructions in the kernel and 24 programs, besides the two `fault` runs on purpose (777375 instructions decoded)
+== no x87/MMX/SSE/AVX instructions in the kernel and 25 programs, besides the two `fault` runs on purpose (783961 instructions decoded)
 
 ## Kernel
 [kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
 [kernel] entropy: virtio-rng
-[kernel] rtc: 1790751814 s since the Unix epoch (UTC)
+[kernel] rtc: 1790790614 s since the Unix epoch (UTC)
 
 ## Uji K02: unit FPU mati, SYS_RANDOM
 [init] PASS K02: an SSE instruction kills the process instead of sharing XMM registers
 [init] PASS K02: an x87 instruction kills the process (no FPU for user space)
 [init] entropy: available
 [init] PASS K02: random: requests are checked, and refused outright without a source
-[init] random: 4096 bytes, chi-square 269 over 255 degrees of freedom, 16370 of 32768 bits set
+[init] random: 4096 bytes, chi-square 213 over 255 degrees of freedom, 16471 of 32768 bits set
 [init] PASS K02: random: 4 KiB look like noise, and no draw repeats
 [kernel] pid 11 'bin/fault' killed (invalid opcode, addr 0x400466)
 [kernel] pid 12 'bin/fault' killed (x87 instruction without an FPU, addr 0x4001bd)
 
 ## Uji TLS (guest): jawaban bin/tlsprobe dan hasilnya
-[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 1009 ms, handshake in 50 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 1008 ms, handshake in 57 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 8 ms, handshake in 52 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 10 ms, handshake in 49 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 11 ms, handshake in 56 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 9 ms, handshake in 76 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1790751823 (UNIX), but certificate is not valid after 1790665410 (86413 seconds ago)
+[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1790790622 (UNIX), but certificate is not valid after 1790704209 (86413 seconds ago)
 [init] PASS TLS: an expired certificate is refused
 [tlsprobe] refuse on port 445: err wrong-name TLS: invalid peer certificate: NotValidForNameContext { expected: DnsName("tls.lab.test"), presented: ["DnsName(\"other.lab.test\")"] }
 [init] PASS TLS: a certificate for another name is refused

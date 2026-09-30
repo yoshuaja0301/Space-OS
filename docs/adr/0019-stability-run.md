@@ -158,7 +158,11 @@ berlangsung berjam-jam sementara pengembangan jalan terus:
   menolaknya: heap yang tidak kembali tetap heap yang tidak kembali. Kini run queue dan daftar
   sleeper diberi ruang untuk 256 thread saat boot (ADR-0024 keputusan 10), jadi ukuran heap tidak
   lagi bergantung pada kapan puncak konkurensi terjadi; empat run `stress` berturut-turut dan run
-  bukti sesudahnya lulus tanpa kebocoran.
+  bukti sesudahnya lulus tanpa kebocoran. Penyebabnya dibuktikan dengan salinan tanpa perbaikan
+  yang mencatat setiap kali run queue tumbuh, dengan enam putaran per boot: di run pertama
+  `run queue room 8` muncul di tengah putaran 4 dan putaran itu juga yang melaporkan `LEAK against
+  pass 1: kernel heap bytes +32`; di run kedua pertumbuhan yang sama jatuh di putaran 1, baseline
+  sudah memuatnya (9840 byte, tepat 32 lebih banyak), dan tidak ada putaran yang bocor.
 - *`SYS_CMDLINE`.* `init` perlu membaca `stress=`. Command line kernel kini bisa dibaca lewat handle
   root dengan hak `STATS` (cara kernel dikonfigurasi bukan urusan program yang tidak diberi hak
   itu). K02 menuntut isinya utuh, buffer pendek mendapat awalnya dan tetap tahu panjang aslinya,

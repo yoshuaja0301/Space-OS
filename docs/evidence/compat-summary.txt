@@ -2,13 +2,13 @@
 
 Sesi verifikasi 2026-09-30, QEMU 8.2.2 / OVMF 4M. Image yang sama untuk semua mesin;
 baris cpu: CPU yang dinyalakan kernel (ADR-0024) dan hasil uji paralel K02.
-kesepuluh konfigurasi boot dan lulus (exit QEMU 33). Baris tcp berasal dari rekaman
+13 konfigurasi, semuanya boot dan lulus (exit QEMU 33). Baris blok: disk dan volume data (ADR-0025). Baris tcp berasal dari rekaman
 pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari ADR-0017, I01 dari ADR-0018.
 
 == lab
    init : ALL TESTS PASSED (117/117, 0 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
@@ -19,7 +19,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == q35-1cpu-2g
    init : ALL TESTS PASSED (116/116, 1 skipped)
    cpu  : one processor 
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
@@ -29,8 +29,8 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == i440fx
    init : ALL TESTS PASSED (97/97, 20 skipped)
-   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:03.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 2 ms
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
    entr : entropy: none
@@ -41,7 +41,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == cpu-max
    init : ALL TESTS PASSED (117/117, 0 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: RDRAND
@@ -52,7 +52,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == virtio-transitional
    init : ALL TESTS PASSED (117/117, 0 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
@@ -62,10 +62,10 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == virtio-small-queue
    init : ALL TESTS PASSED (117/117, 0 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 2 ms
-   blok : virtio-blk: pci 00:02.0 queue size 4 (max 4), 2 data pages/request, writable with flush, status 0xf
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
@@ -74,7 +74,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == no-disk
    init : ALL TESTS PASSED (78/78, 39 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: no device present
+   blok : no data volume; file system unavailable
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
@@ -82,10 +82,54 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    i01  : dilewati bersama TLS
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 3/4 uji desktop lulus, sisanya dilewati (no framebuffer or no disk on this machine)
+== sata-data
+   init : ALL TESTS PASSED (117/117, 0 skipped)
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : AHCI 00:1f.2 port 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from AHCI 00:1f.2 port 1 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== nvme-data
+   init : ALL TESTS PASSED (117/117, 0 skipped)
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : NVMe 00:02.0 namespace 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from NVMe 00:02.0 namespace 1 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== sata-gpt
+   init : ALL TESTS PASSED (117/117, 0 skipped)
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : AHCI 00:1f.2 port 1 (130 MiB) holds the data volume (GPT partition 2); FAT32 mounted from AHCI 00:1f.2 port 1 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== e1000-only
+   init : ALL TESTS PASSED (82/82, 35 skipped)
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
+   net  : virtio-net: no device present
+   tcp  : tidak ada kartu yang didukung; uji NET dilewati
+   entr : entropy: virtio-rng
+   tls  : dilewati (no network device)
+   i01  : dilewati bersama TLS
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
 == no-vga
    init : ALL TESTS PASSED (111/111, 6 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:01.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
@@ -96,22 +140,11 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == vmware-vga
    init : ALL TESTS PASSED (117/117, 0 skipped)
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
+   blok : virtio-blk (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
-   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
-   desk : 4/4 uji desktop lulus
-== e1000-only
-   init : ALL TESTS PASSED (82/82, 35 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
-   blok : virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
-   net  : virtio-net: no device present
-   tcp  : tidak ada kartu yang didukung; uji NET dilewati
-   entr : entropy: virtio-rng
-   tls  : dilewati (no network device)
-   i01  : dilewati bersama TLS
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus

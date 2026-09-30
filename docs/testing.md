@@ -31,7 +31,10 @@ Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
 | `cpu-max` | `-cpu max` | — |
 | `virtio-transitional` | `disable-legacy=off,disable-modern=off` | `vfs: FAT32 mounted` |
 | `virtio-small-queue` | `queue-size=4` | `virtio-blk: … queue size 4 (max 4), 2 data pages/request` |
-| `no-disk` | tanpa perangkat blok | `virtio-blk: no device present`, `vfs: no block device`, `[init] storage: none`, `[init] SKIP A01` |
+| `no-disk` | tanpa disk data (disk boot tetap di AHCI) | `virtio-blk: no device present`, `block: no disk holds a volume labelled SPACEDATA`, `vfs: no data volume`, `[init] storage: none`, `[init] SKIP A01` |
+| `sata-data` | disk data di port 1 AHCI bawaan q35, disk boot di port 0 | `block: AHCI 00:1f.2 port 0 (…): MBR with 1 partition(s), none labelled SPACEDATA; not used`, `… port 1 (…) holds the data volume (the whole disk)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 1` |
+| `nvme-data` | disk data sebagai namespace 1 pengendali NVMe | `1 usable namespace(s) among IDs 1-16`, `holds the data volume (the whole disk)`, `vfs: FAT32 mounted from NVMe` |
+| `sata-gpt` | disk data GPT seperti disk terpasang: ESP ber-FAT32 `SPACEOS` di partisi 1, volume data di partisi 2 | `holds the data volume (GPT partition 2)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 1` |
 | `no-vga` | `-vga none` | `framebuffer: none usable; serial console only` |
 | `vmware-vga` | `-vga vmware` | `framebuffer:` |
 | `e1000-only` | kartu jaringan e1000 saja (tanpa virtio-net) | `virtio-net: no device present`, `[init] network: none; network tests will be skipped`, `[init] SKIP NET` |

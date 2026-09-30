@@ -23,6 +23,12 @@ pub struct Address {
     pub function: u8,
 }
 
+impl core::fmt::Display for Address {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:02x}:{:02x}.{}", self.bus, self.device, self.function)
+    }
+}
+
 impl Address {
     fn encode(&self, offset: u8) -> u32 {
         0x8000_0000
@@ -140,6 +146,17 @@ pub fn init() {
     }
     println!("[kernel] pci: {} functions present", found.len());
     *DEVICES.lock() = found;
+}
+
+/// Every function of class `class`, subclass `subclass` and programming interface
+/// `prog_if` (e.g. 01/06/01 for AHCI, 01/08/02 for NVMe), in bus order.
+pub fn find_class(class: u8, subclass: u8, prog_if: u8) -> Vec<Address> {
+    DEVICES
+        .lock()
+        .iter()
+        .copied()
+        .filter(|a| a.read8(0x0B) == class && a.read8(0x0A) == subclass && a.read8(0x09) == prog_if)
+        .collect()
 }
 
 /// First device matching `vendor` and any of `devices`.

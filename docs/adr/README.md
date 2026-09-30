@@ -18,7 +18,7 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0012](0012-tool-broker-and-agent-scope.md) | Tool Broker, scope workspace, dan audit agent | Diterima |
 | [0013](0013-spacelink-index-revocation-bundle.md) | SpaceLink: indeks, revokasi, dan context bundle | Diterima |
 | [0014](0014-package-format-and-rollback.md) | Format paket, autentikasi HMAC, dan rollback | Diterima |
-| [0015](0015-writable-storage.md) | Penyimpanan yang bisa ditulis: hak terpisah, FAT32 tulis, durabilitas | Diterima |
+| [0015](0015-writable-storage.md) | Penyimpanan yang bisa ditulis: hak terpisah, FAT32 tulis, durabilitas | Diterima; alasan "ESP bukan virtio" digantikan 0025 |
 | [0016](0016-network-stack.md) | Jaringan: kernel memindahkan frame, TCP/IP di user space, tujuan sebagai kapabilitas | Diterima |
 | [0017](0017-tls.md) | TLS: pustaka yang di-port, kunci dari sumber entropi kernel, kepercayaan hanya dari yang diberikan | Diterima |
 | [0018](0018-cloud-adapter.md) | Adapter cloud: satu program memegang kredensial, jaringan ke satu alamat, dan tool hanya lewat broker | Diterima |
@@ -28,3 +28,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0022](0022-command-center.md) | Command Center: pencarian SpaceLink di desktop, dengan asal setiap hasil | Diterima |
 | [0023](0023-spacelink-update.md) | SpaceLink: satu berkas yang berubah diindeks ulang sendirian, tanpa full rescan | Diterima |
 | [0024](0024-smp.md) | SMP: setiap CPU menjalankan thread — satu run queue, `on_cpu`, tanpa TLB shootdown | Diterima |
+| [0025](0025-block-devices.md) | Disk SATA (AHCI) dan NVMe, dan volume data yang dipilih dari labelnya | Diterima |

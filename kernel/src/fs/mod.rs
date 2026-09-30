@@ -1,13 +1,14 @@
 //! Virtual file system.
 //!
-//! One FAT32 volume on the VirtIO block device, exposed to user space through
+//! One FAT32 volume, the data volume the block layer chose, exposed to user space through
 //! `SYS_FS_OPEN` / `SYS_FS_READ` / `SYS_FS_STAT` behind the root `FS` capability
 //! (requirement D01), and `SYS_FS_CREATE` / `SYS_FS_WRITE` behind a second root
 //! right, `FS_WRITE`. The two rights are separate so that a process may be given
 //! the ability to read the volume without the ability to change it.
 //!
-//! The MVP mounts exactly one volume: the data disk. The ESP the firmware booted
-//! from is not a virtio device, so nothing here can reach the bootloader or the
+//! The MVP mounts exactly one volume: the data disk, on virtio-blk, SATA (AHCI) or
+//! NVMe, whichever carries the `SPACEDATA` label (ADR-0025). The ESP the firmware
+//! booted from never carries it, so nothing here can reach the bootloader or the
 //! kernel image. A real mount table is still Developer Preview work.
 
 pub mod fat32;
@@ -15,22 +16,23 @@ pub mod fat32;
 use spaceabi::error::Error;
 
 use self::fat32::{Fat32, FileNode};
-use crate::dev::virtio_blk;
+use crate::dev::block;
 use crate::sync::SpinLock;
 
 static VOLUME: SpinLock<Option<Fat32>> = SpinLock::new(None);
 
 pub fn init() {
-    if !virtio_blk::present() {
-        println!("[kernel] vfs: no block device; file system unavailable");
+    if !block::present() {
+        println!("[kernel] vfs: no data volume; file system unavailable");
         return;
     }
     match Fat32::mount() {
         Ok(fs) => {
             println!(
-                "[kernel] vfs: FAT32 mounted from virtio-blk ({} byte clusters, {} MiB volume)",
+                "[kernel] vfs: FAT32 mounted from {} ({} byte clusters, {} MiB volume)",
+                block::data_description(),
                 fs.cluster_bytes(),
-                virtio_blk::capacity_sectors() * virtio_blk::SECTOR_SIZE / (1024 * 1024)
+                block::capacity_sectors() * block::SECTOR_SIZE / (1024 * 1024)
             );
             *VOLUME.lock() = Some(fs);
             // Say it once, at mount: a volume the device refuses to write is a
@@ -43,7 +45,7 @@ pub fn init() {
 
 /// Sectors of the mounted volume, 0 when nothing is mounted.
 pub fn volume_sectors() -> u64 {
-    if VOLUME.lock().is_some() { virtio_blk::capacity_sectors() } else { 0 }
+    if VOLUME.lock().is_some() { block::capacity_sectors() } else { 0 }
 }
 
 pub fn open(path: &str) -> Result<FileNode, Error> {
@@ -67,7 +69,7 @@ pub fn read(node: &FileNode, offset: u64, buf: &mut [u8]) -> Result<usize, Error
 
 /// True when the volume is mounted and the device will accept writes.
 pub fn writable() -> bool {
-    VOLUME.lock().is_some() && !virtio_blk::read_only()
+    VOLUME.lock().is_some() && !block::read_only()
 }
 
 /// Create `path` empty, or empty it if it already exists.
