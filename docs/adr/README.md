@@ -26,3 +26,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0020](0020-desktop.md) | Desktop: layar sebagai lease, jendela sebagai memori klien, dan manajemen jendela dari keyboard | Diterima |
 | [0021](0021-inference-job-and-cooperative-stop.md) | Worker inferensi di dalam sesi: laporan per token dan Stop kooperatif | Diterima |
 | [0022](0022-command-center.md) | Command Center: pencarian SpaceLink di desktop, dengan asal setiap hasil | Diterima |
+| [0023](0023-spacelink-update.md) | SpaceLink: satu berkas yang berubah diindeks ulang sendirian, tanpa full rescan | Diterima |

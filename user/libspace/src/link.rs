@@ -110,6 +110,14 @@ impl Link {
         Ok(reply)
     }
 
+    /// Re-read the one document at `path` and re-index it if it changed (see
+    /// [`req::UPDATE`]).
+    pub fn update(&self, path: &str) -> Result<LinkReply, Error> {
+        let r = self.call(&LinkRequest::with_path(req::UPDATE, path))?;
+        r.result()?;
+        Ok(r)
+    }
+
     /// Ask the service to exit, and make sure it has.
     pub fn quit(self) {
         let _ = self.call(&LinkRequest::new(req::QUIT));

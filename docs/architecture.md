@@ -108,7 +108,8 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
 - **`bin/spacelink`** (L01–L03): mengindeks korpus, memberi peringkat chunk,
   mencabut dokumen, dan menyusun context bundle di bawah anggaran byte. Setiap
   chunk membawa path, rentang byte, dan SHA-256 sehingga pemanggil bisa
-  memverifikasi provenance-nya sendiri (ADR-0013).
+  memverifikasi provenance-nya sendiri (ADR-0013). Satu berkas yang berubah
+  diindeks ulang sendirian lewat `UPDATE`, di tempat chunk lamanya (ADR-0023).
 - **`bin/spacepkg`** (P01): memasang paket yang terautentikasi HMAC-SHA256,
   menolak paket rusak/palsu/terpotong dengan alasannya tanpa mengubah apa pun, dan
   `ROLLBACK` mengembalikan payload versi sebelumnya (ADR-0014).

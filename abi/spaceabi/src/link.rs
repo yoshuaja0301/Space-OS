@@ -49,6 +49,14 @@ pub mod req {
     /// Forget every revocation, on disk as well as in memory. Exists so a test can
     /// start from a known state on a volume that remembers.
     pub const FORGET: u32 = 8;
+    /// Re-read the indexed document at `path` -- that one, and nothing else -- and
+    /// re-chunk it if its content changed. The answer's `value` is 1 when it changed
+    /// and 0 when not, `value2` the bytes read (the document's size: nothing else was
+    /// read), `value3` the chunks in the index, and `total` the document's chunks.
+    /// `NotFound` for a path that is not indexed; a revoked document is not read. A
+    /// document that cannot be read any more loses its chunks, and the error is the
+    /// answer.
+    pub const UPDATE: u32 = 9;
 }
 
 #[repr(C)]

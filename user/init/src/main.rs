@@ -3364,6 +3364,161 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         },
     );
 
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "L01",
+        "a changed file is re-indexed on its own, and the next search answers from the new text",
+        || {
+            // PRD §9, the second end-to-end scenario: index the workspace, change a
+            // file, and ask again -- the answer comes from the new text, with its
+            // provenance, and without a full rescan.
+            const FRESH: &str = "/spaceos/ws/FRESH.TXT";
+            const LATER: &str = "/spaceos/ws/LATER.TXT";
+            let write = |path: &str, body: &[u8]| -> Result<(), String> {
+                let f = sys::fs_create(ROOT, path).map_err(|e| alloc::format!("create {path}: {e}"))?;
+                let n = sys::fs_write(f, 0, body).map_err(|e| alloc::format!("write {path}: {e}"));
+                sys::handle_close(f).ok();
+                if n? != body.len() {
+                    return Err(alloc::format!("{path} took fewer than {} bytes", body.len()));
+                }
+                Ok(())
+            };
+            let update = |link: Handle, path: &str| link_call(link, &LinkRequest::with_path(lreq::UPDATE, path));
+            // The first hit for `query`, which must come from `path`, checked against
+            // the disk.
+            let found_in = |link: Handle, query: &str, path: &str| -> Result<LinkReply, String> {
+                let hit = link_call(link, &LinkRequest::with_query(lreq::QUERY, query))?;
+                hit.result().map_err(|e| alloc::format!("query {query:?}: {e}"))?;
+                if hit.path() != path {
+                    return Err(alloc::format!("{query:?} found {}, expected {path}", hit.path()));
+                }
+                Ok(hit)
+            };
+            write(FRESH, b"Freshness check, first version.\nThe tide is low this morning.\n")?;
+            write(LATER, b"A second file, changed at the same time.\nThe lighthouse is dark tonight.\n")?;
+            let (link, svc) = link_start()?;
+            let r = (|| {
+                link_call(link, &LinkRequest::with_path(lreq::INDEX, "/spaceos/ws"))?
+                    .result()
+                    .map_err(|e| alloc::format!("index: {e}"))?;
+                verify_provenance(&found_in(link, "tide", FRESH)?)?;
+                found_in(link, "lighthouse", LATER)?;
+
+                // Both files change; only one is named.
+                let second = b"Freshness check, second version.\nThe harbour is full of boats tonight.\n\
+                               Nothing about the sea level any more.\n";
+                write(FRESH, second)?;
+                write(LATER, b"A second file, changed at the same time.\nThe beacon is lit tonight.\n")?;
+                let t0 = sys::ticks_ms();
+                let up = update(link, FRESH)?;
+                up.result().map_err(|e| alloc::format!("update: {e}"))?;
+                let ms = sys::ticks_ms() - t0;
+                if up.value != 1 {
+                    return Err(String::from("the service did not notice that the file changed"));
+                }
+                if up.value2 as usize != second.len() {
+                    return Err(alloc::format!(
+                        "the service says it read {} bytes to update a {}-byte file",
+                        up.value2,
+                        second.len()
+                    ));
+                }
+                // PRD §9: fresh within 2 seconds of a small edit.
+                if ms > 2000 {
+                    return Err(alloc::format!("the update took {ms} ms"));
+                }
+
+                // The new text answers, its provenance is the new bytes on disk, and
+                // the old text is gone.
+                verify_provenance(&found_in(link, "harbour", FRESH)?)?;
+                assert_absent(link, "tide", FRESH)?;
+                // Nothing else was read: the other file is still what the index read
+                // at first, which a full rescan would have replaced.
+                found_in(link, "lighthouse", LATER)
+                    .map_err(|e| alloc::format!("updating {FRESH} touched {LATER}: {e}"))?;
+                assert_absent(link, "beacon", LATER)
+                    .map_err(|e| alloc::format!("updating {FRESH} read {LATER} again: {e}"))?;
+                // Until it is named itself.
+                let later = update(link, LATER)?;
+                if later.result().is_err() || later.value != 1 {
+                    return Err(alloc::format!("updating {LATER} gave {:?}", later.result()));
+                }
+                verify_provenance(&found_in(link, "beacon", LATER)?)?;
+                assert_absent(link, "lighthouse", LATER)?;
+
+                // A bundle built now carries the new chunk.
+                let mut b = LinkRequest::with_query(lreq::BUNDLE, "harbour");
+                b.budget = 512;
+                let n = link_call(link, &b)?.result().map_err(|e| alloc::format!("bundle: {e}"))?;
+                if n == 0 {
+                    return Err(String::from("the bundle for the new text is empty"));
+                }
+                let mut e = LinkRequest::new(lreq::BUNDLE_ENTRY);
+                e.offset = 0;
+                let entry = link_call(link, &e)?;
+                entry.result().map_err(|e| alloc::format!("bundle entry: {e}"))?;
+                if entry.path() != FRESH {
+                    return Err(alloc::format!("the bundle leads with {}, expected {FRESH}", entry.path()));
+                }
+                verify_provenance(&entry)?;
+
+                // Looked at again without a change, nothing changes.
+                let same = update(link, FRESH)?;
+                same.result().map_err(|e| alloc::format!("update again: {e}"))?;
+                if same.value != 0 {
+                    return Err(String::from("an unchanged file was reported as changed"));
+                }
+                // A file that can no longer be read loses what the index held for it:
+                // stale text with a digest the disk no longer matches is worse than
+                // no answer.
+                write(FRESH, &[b'x'; 9000])?;
+                let big = update(link, FRESH)?;
+                if big.result() != Err(Error::MsgSize) {
+                    return Err(alloc::format!("updating a file too large to index gave {:?}", big.result()));
+                }
+                assert_absent(link, "harbour", FRESH)
+                    .map_err(|e| alloc::format!("after a failed update: {e}"))?;
+                write(FRESH, second)?;
+                let back = update(link, FRESH)?;
+                if back.result().is_err() || back.value != 1 {
+                    return Err(alloc::format!("updating {FRESH} once it fits again gave {:?}", back.result()));
+                }
+                verify_provenance(&found_in(link, "harbour", FRESH)?)?;
+
+                // Only what is indexed can be updated, and a revoked file is not read.
+                let unknown = update(link, "/spaceos/ws/NOPE.TXT")?;
+                if unknown.result() != Err(Error::NotFound) {
+                    return Err(alloc::format!("updating a file that is not indexed gave {:?}", unknown.result()));
+                }
+                link_call(link, &LinkRequest::with_path(lreq::REVOKE, LATER))?
+                    .result()
+                    .map_err(|e| alloc::format!("revoke: {e}"))?;
+                write(LATER, b"Revoked, and changed once more.\nThe beacon is out.\n")?;
+                let revoked = update(link, LATER)?;
+                if revoked.result().is_err() || revoked.value != 0 || revoked.value2 != 0 {
+                    return Err(alloc::format!(
+                        "updating a revoked file gave {:?}, changed {}, {} bytes read",
+                        revoked.result(),
+                        revoked.value,
+                        revoked.value2
+                    ));
+                }
+                assert_absent(link, "beacon", LATER)?;
+                println!(
+                    "[init] link: {FRESH} changed; re-indexed on its own in {ms} ms ({} bytes read); {LATER}, changed too, kept its old text until it was named",
+                    up.value2
+                );
+                Ok(())
+            })();
+            // Leave no revocation behind: the next test starts from none either way.
+            let forgot = link_call(link, &LinkRequest::new(lreq::FORGET));
+            link_stop(link, svc)?;
+            forgot?;
+            r
+        },
+    );
+
     r.run("P01", "HMAC-SHA256 matches the RFC 4231 test vectors", || {
         // The package MAC is only worth anything if the primitive under it is right,
         // and "the host and the guest agree" would not catch a shared mistake.

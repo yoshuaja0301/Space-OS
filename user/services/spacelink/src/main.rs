@@ -40,6 +40,9 @@ const DOC_MAX: usize = 8 * 1024;
 struct Doc {
     path: String,
     revoked: bool,
+    /// SHA-256 of the whole document as it was last read, if its chunks are in the
+    /// index: how `UPDATE` tells a changed document from one that is the same.
+    digest: Option<[u8; 32]>,
 }
 
 struct Chunk {
@@ -97,6 +100,40 @@ fn score(text: &[u8], query: &str) -> u32 {
     total
 }
 
+/// Cut `body` into the chunks of document `doc`, at most `room` of them; the flag
+/// says the document did not fit.
+fn chunk(doc: u16, body: &[u8], room: usize) -> Result<(Vec<Chunk>, bool), Error> {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    while offset < body.len() {
+        if out.len() >= room {
+            return Ok((out, true));
+        }
+        // Prefer to break on a line boundary so a chunk is readable prose.
+        let hard = (offset + CHUNK_BYTES).min(body.len());
+        let end = body[offset..hard]
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map(|i| offset + i + 1)
+            .filter(|e| *e > offset && hard < body.len())
+            .unwrap_or(hard);
+        let slice = &body[offset..end];
+        let mut text = Vec::new();
+        text.try_reserve(slice.len()).map_err(|_| Error::NoMemory)?;
+        text.extend_from_slice(slice);
+        out.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        out.push(Chunk {
+            doc,
+            offset: offset as u32,
+            len: slice.len() as u32,
+            digest: sha256::digest(slice),
+            text,
+        });
+        offset = end;
+    }
+    Ok((out, false))
+}
+
 impl Link {
     fn new(channel: Handle) -> Link {
         Link {
@@ -126,18 +163,22 @@ impl Link {
     fn read_doc(&self, path: &str) -> Result<Vec<u8>, Error> {
         let root = self.root.ok_or(Error::Denied)?;
         let f = sys::fs_open(root, path)?;
-        let stat = sys::fs_stat(f)?;
-        if stat.size as usize > DOC_MAX {
-            sys::handle_close(f).ok();
-            return Err(Error::MsgSize);
-        }
-        let mut buf = Vec::new();
-        buf.try_reserve(stat.size as usize).map_err(|_| Error::NoMemory)?;
-        buf.resize(stat.size as usize, 0);
-        let n = sys::fs_read(f, 0, &mut buf)?;
+        // Closed on every way out, errors included: a document can be updated again
+        // and again, and a handle lost each time would add up.
+        let body = (|| {
+            let stat = sys::fs_stat(f)?;
+            if stat.size as usize > DOC_MAX {
+                return Err(Error::MsgSize);
+            }
+            let mut buf = Vec::new();
+            buf.try_reserve(stat.size as usize).map_err(|_| Error::NoMemory)?;
+            buf.resize(stat.size as usize, 0);
+            let n = sys::fs_read(f, 0, &mut buf)?;
+            buf.truncate(n);
+            Ok(buf)
+        })();
         sys::handle_close(f).ok();
-        buf.truncate(n);
-        Ok(buf)
+        body
     }
 
     /// Index every regular file directly inside `dir`. Re-indexing replaces the
@@ -165,40 +206,17 @@ impl Link {
             }
             path.push_str(e.name());
             let revoked = self.is_revoked(&path);
-            let body = if revoked { Vec::new() } else { self.read_doc(&path)? };
             let doc = self.docs.len() as u16;
-            self.docs.push(Doc { path, revoked });
             if revoked {
                 // A revoked document is listed as known, and indexed as nothing.
+                self.docs.push(Doc { path, revoked, digest: None });
                 continue;
             }
-            let mut offset = 0usize;
-            while offset < body.len() {
-                if self.chunks.len() >= MAX_CHUNKS {
-                    skipped += 1;
-                    break;
-                }
-                // Prefer to break on a line boundary so a chunk is readable prose.
-                let hard = (offset + CHUNK_BYTES).min(body.len());
-                let end = body[offset..hard]
-                    .iter()
-                    .rposition(|b| *b == b'\n')
-                    .map(|i| offset + i + 1)
-                    .filter(|e| *e > offset && hard < body.len())
-                    .unwrap_or(hard);
-                let slice = &body[offset..end];
-                let mut text = Vec::new();
-                text.try_reserve(slice.len()).map_err(|_| Error::NoMemory)?;
-                text.extend_from_slice(slice);
-                self.chunks.push(Chunk {
-                    doc,
-                    offset: offset as u32,
-                    len: slice.len() as u32,
-                    digest: sha256::digest(slice),
-                    text,
-                });
-                offset = end;
-            }
+            let body = self.read_doc(&path)?;
+            self.docs.push(Doc { path, revoked, digest: Some(sha256::digest(&body)) });
+            let (chunks, truncated) = chunk(doc, &body, MAX_CHUNKS - self.chunks.len())?;
+            skipped += u32::from(truncated);
+            self.chunks.extend(chunks);
         }
         println!(
             "[link] indexed {} document(s) into {} chunk(s) from {dir}{}",
@@ -207,6 +225,59 @@ impl Link {
             if skipped > 0 { " (corpus truncated)" } else { "" }
         );
         Ok((self.docs.len() as u32, self.chunks.len() as u32))
+    }
+
+    /// Re-read the one indexed document at `path` and, if its content changed, put
+    /// its new chunks where the old ones were: for this one path what `index` does
+    /// for every path. Nothing else is read, so a small edit costs one file, not the
+    /// corpus. Returns whether it changed, the bytes read, and its chunks now.
+    fn update(&mut self, path: &str) -> Result<(bool, u32, u32), Error> {
+        let i = self.docs.iter().position(|d| d.path.eq_ignore_ascii_case(path)).ok_or(Error::NotFound)?;
+        let doc = i as u16;
+        let path = self.docs[i].path.clone();
+        if self.is_revoked(&path) {
+            // Revoked stays revoked: the document is not even read.
+            println!("[link] {path} is revoked; not read");
+            return Ok((false, 0, 0));
+        }
+        // Chunks are kept in document order, so this document's are the run that
+        // starts at the first chunk of a document not before it.
+        let at = self.chunks.iter().position(|c| c.doc >= doc).unwrap_or(self.chunks.len());
+        let old = self.chunks[at..].iter().take_while(|c| c.doc == doc).count();
+        let body = match self.read_doc(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                // Whoever asked knows the file changed, and it cannot be read now:
+                // what the index holds for it can no longer be vouched for.
+                self.chunks.drain(at..at + old);
+                self.docs[i].digest = None;
+                self.bundle.clear();
+                self.bundle_bytes = 0;
+                println!("[link] {path} cannot be read ({e}); its {old} chunk(s) are dropped");
+                return Err(e);
+            }
+        };
+        let digest = sha256::digest(&body);
+        if self.docs[i].digest == Some(digest) {
+            println!("[link] {path} unchanged ({} bytes read)", body.len());
+            return Ok((false, body.len() as u32, old as u32));
+        }
+        let room = MAX_CHUNKS - (self.chunks.len() - old);
+        let (fresh, truncated) = chunk(doc, &body, room)?;
+        let n = fresh.len();
+        self.chunks.splice(at..at + old, fresh);
+        // Revoked when the corpus was indexed and forgotten since: indexed now.
+        self.docs[i].revoked = false;
+        self.docs[i].digest = Some(digest);
+        // A bundle built before names chunks by position: it is gone.
+        self.bundle.clear();
+        self.bundle_bytes = 0;
+        println!(
+            "[link] updated {path}: {n} chunk(s) from {} bytes; nothing else was read{}",
+            body.len(),
+            if truncated { " (corpus truncated)" } else { "" }
+        );
+        Ok((true, body.len() as u32, n as u32))
     }
 
     /// Chunks that match `query`, best first. Revoked documents never appear.
@@ -387,6 +458,8 @@ impl Link {
         for d in self.docs.iter_mut() {
             if d.path.eq_ignore_ascii_case(path) {
                 d.revoked = true;
+                // Its chunks go below, so the index holds nothing of it any more.
+                d.digest = None;
                 hit = true;
             }
         }
@@ -456,6 +529,16 @@ impl Link {
                 let reply = self.bundle_entry(r.offset);
                 self.reply(&reply);
             }
+            req::UPDATE => match self.update(r.path()) {
+                Ok((changed, read, chunks)) => self.reply(&LinkReply {
+                    total: chunks,
+                    value: changed as u32,
+                    value2: read,
+                    value3: self.chunks.len() as u32,
+                    ..Default::default()
+                }),
+                Err(e) => self.reply_err(e),
+            },
             req::STATS => self.reply(&LinkReply {
                 total: self.chunks.len() as u32,
                 value: self.docs.iter().filter(|d| !d.revoked).count() as u32,

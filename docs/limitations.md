@@ -91,6 +91,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Peringkat **leksikal**: jumlah kemunculan istilah kueri per chunk, seri dipecah oleh posisi. Tidak ada embedding, TF-IDF, stemming, atau tokenizer.
 - Batas keras: 16 dokumen, 128 chunk, 8 KiB per dokumen, 192 byte per chunk, 8 entri per bundle.
 - Indeks hanya ada di memori layanan dan dibangun ulang saat layanan mulai; **daftar revokasi ada di disk** (`/spaceos/var/revoked.txt`, ADR-0015) dan bertahan melewati matinya layanan maupun reboot.
+- Kesegaran per berkas (`UPDATE`, ADR-0023) harus **diminta** oleh yang mengubah berkas: belum ada notifikasi perubahan berkas dari kernel, jadi berkas yang diubah tanpa `UPDATE` tetap memegang teks lamanya sampai `INDEX` berikutnya. Berkas baru hanya masuk lewat `INDEX`. `UPDATE` membaca seluruh berkas untuk membandingkan digest (belum ada waktu modifikasi di `SYS_FS_STAT`). Command Center belum memakainya.
 - Kueri memindai seluruh chunk secara linear; belum ada indeks terbalik.
 - Satu hasil per panggilan (dengan `total`), jadi menelusuri N hasil butuh N round trip; teks per balasan dipotong 128 byte (batas pesan IPC).
 - Repo SpaceLink dari PRD §10 tidak tersedia di lingkungan ini; yang diimplementasikan adalah kontrak L01–L03, bukan mesin retrieval SpaceLink yang dimaksud PRD.

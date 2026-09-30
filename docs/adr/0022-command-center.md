@@ -60,6 +60,7 @@ Setiap pelemahan dijalankan sendiri terhadap skenario `acceptance`, lalu dikemba
 - Pencarian di desktop memakai kontrak yang sama dengan pemanggil lain: tidak ada jalur khusus yang
   bisa melewati revokasi atau menyembunyikan asal.
 - Batas yang jujur: hanya `/spaceos/docs` yang diindeks, saat jendela dibuka — perubahan berkas
-  sesudahnya tidak terlihat sampai jendela dibuka lagi (belum ada pembaruan per berkas); peringkat
+  sesudahnya tidak terlihat sampai jendela dibuka lagi (Command Center belum memanggil `UPDATE`,
+  ADR-0023); peringkat
   leksikal (ADR-0013); paling banyak lima hasil ditampilkan; cuplikan adalah awal chunk, bukan bagian
   yang cocok; tidak ada revokasi dari desktop.
