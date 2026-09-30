@@ -58,7 +58,7 @@ pesan per putaran, jadi yang membanjiri tidak membuat yang lain kelaparan.
 | Alt+F4 / Super+Q | tutup |
 | Ctrl+Alt+←/→ | workspace sebelumnya/berikut (empat) |
 | Ctrl+Alt+Shift+←/→ | bawa jendela yang fokus ke workspace sebelah |
-| Super+Enter, Super+E, Super+A (juga Alt+F1/F2/F3) | terminal, file manager, Agent Center |
+| Super+Enter, Super+E, Super+A, Super+Space (juga Alt+F1/F2/F3/F5) | terminal, file manager, Agent Center, Command Center (ADR-0022) |
 | Super+H | kontras tinggi |
 | Ctrl+Alt+Delete | matikan mesin (hanya bila desktop adalah sesi, `init=bin/spacedesk`) |
 
@@ -74,14 +74,15 @@ cacat nyata: screenshot kontras tinggi pertama menunjukkan angka workspace dan t
 kuning (1,43:1), dan label Stop putih di atas merah (2,78:1). Status yang ditunjukkan warna juga
 dikatakan dengan tanda: jendela yang di-minimize muncul di dock sebagai `_ Nama`.
 
-**5. Aplikasi dengan otoritas minimum.** `bin/deskapps` adalah tiga aplikasi dalam satu program;
+**5. Aplikasi dengan otoritas minimum.** `bin/deskapps` adalah empat aplikasi dalam satu program;
 server memberi tahu mode mana dan menyerahkan satu kapabilitas yang dibutuhkan mode itu:
 
 | Aplikasi | Diberi | Isinya |
 |---|---|---|
 | Terminal | `SPAWN \| FS \| DUP` | sesi `spaceshell` sendiri: `help`, `status`, `ls`, `run`, `stop`, `clear` |
 | Agent Center | `SPAWN \| FS \| DUP` | sesi `spaceshell` sendiri untuk worker inferensi: model sungguhan (5) dengan tugas, rencana, progres, memori, akses, biaya dan perubahan (ADR-0021); worker uji (1–4); **Stop** (S) |
-| File manager | `FS` | menelusuri volume: atas/bawah, Enter membuka folder, Backspace naik |
+| File manager | `FS` | menelusuri volume: atas/bawah, Enter membuka folder, Backspace naik; bisa dibuka di path tertentu (ADR-0022) |
+| Command Center | `SPAWN \| FS \| DUP`, lalu dilepas | `spacelink` sendiri yang hanya bisa membaca: cari, asal setiap hasil, status indeks, context bundle, tampilkan di Files (ADR-0022) |
 
 Karena worker milik sebuah **sesi**, bukan milik jendela yang menampilkannya — dan bukan milik
 desktop — worker yang crash atau macet tidak bisa menyeret apa pun bersamanya.
@@ -105,10 +106,10 @@ IRQ 1 → dekoder → event → pengelola jendela), dengan screenshot di setiap 
 |---|---|
 | Satu lease; tanpa `DISPLAY` ditolak; layar kembali setelah desktop keluar | U01 "the desktop takes the screen, and one display server at a time" |
 | Fokus, pindah, ubah ukuran (aplikasi menggambar ulang), minimize, workspace, tutup — dari keyboard | U01 "windows take the keyboard, …" |
-| Worker crash (page fault), worker macet dihentikan Stop (32 ms dalam run bukti; PRD §9 meminta ≤ 2 detik), terminal menjawab perintah yang diketik setelah crash, file manager tetap bisa ditelusuri, desktop terus menampilkan frame | U01 "the desktop, terminal, file manager and Stop keep working while inference workers crash" |
+| Worker crash (page fault), worker macet dihentikan Stop (43 ms dalam run bukti; PRD §9 meminta ≤ 2 detik), terminal menjawab perintah yang diketik setelah crash, file manager tetap bisa ditelusuri, desktop terus menampilkan frame | U01 "the desktop, terminal, file manager and Stop keep working while inference workers crash" |
 | Desktop yang dibunuh dengan jendela terbuka mengembalikan layar, desktop baru bisa mulai | U01 "a desktop that is killed gives the screen back, and a new one starts" |
 | Jalur keyboard sungguhan: pintasan, teks ke terminal, Stop, kontras tinggi, Ctrl+Alt+Delete | skenario `desktop`; screenshot `docs/evidence/desktop-*.png` |
-| Mesin tanpa framebuffer melewati empat uji itu dengan alasan, tidak gagal | `compat` mesin `no-vga`: 108/108, 4 skipped |
+| Mesin tanpa framebuffer melewati uji yang membutuhkan layar dengan alasan, tidak gagal | `compat` mesin `no-vga`: 109/109, 6 skipped (keempat uji itu, ditambah Agent Center dan Command Center) |
 | Desktop ikut uji stabilitas | setiap putaran `cargo xtask stress` menjalankan keempat uji itu (ADR-0019) |
 
 ## Gigi
@@ -130,8 +131,7 @@ skenario `acceptance` dan membuatnya gagal (exit 1); dua yang terakhir bahkan ti
 - Kernel tidak lagi menggambar ketika ada server tampilan; log lengkap tetap di port serial.
 - Tidak ada yang dibagi antara jendela kecuali lewat server, dan server hanya membaca.
 - Batas yang jujur: **tanpa mouse** (hanya keyboard, sesuai prioritas PRD, tetapi resize/pindah
-  dengan mouse belum ada); belum ada Command Center (pencarian SpaceLink) dan pengaturan model di
-  desktop; kontras tinggi hanya untuk bingkai, top bar dan dock — isi aplikasi tetap di tema biasa
+  dengan mouse belum ada); belum ada pengaturan model di desktop; kontras tinggi hanya untuk bingkai, top bar dan dock — isi aplikasi tetap di tema biasa
   (yang memenuhi 4,5:1); belum ada
   scaling; satu huruf (Noto Sans Mono bitmap 16 px, Latin dasar saja); penyusunan ulang seluruh layar setiap perubahan
   (tanpa damage region); framebuffer UEFI saja (belum virtio-gpu); tata letak keyboard US.

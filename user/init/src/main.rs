@@ -2731,6 +2731,13 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         desktest::inference,
     );
     r.run_if(
+        display && disk,
+        "no framebuffer or no disk on this machine",
+        "L01",
+        "the Command Center searches the index, shows where each result came from, bundles it and opens it in Files",
+        desktest::command,
+    );
+    r.run_if(
         display,
         no_screen,
         "U01",

@@ -589,6 +589,10 @@ impl Desk {
                 self.launch(app::AGENT, false).ok();
                 true
             }
+            (key::SPACE, SUPER) | (key::F5, ALT) => {
+                self.launch(app::COMMAND, false).ok();
+                true
+            }
             (key::H, SUPER) => {
                 self.contrast = !self.contrast;
                 println!("[desk] high contrast {}", if self.contrast { "on" } else { "off" });
@@ -618,6 +622,11 @@ impl Desk {
 
     /// Start an app; its window comes when it asks for one.
     fn launch(&mut self, which: u32, for_operator: bool) -> Result<(), Error> {
+        self.launch_at(which, "", for_operator)
+    }
+
+    /// Start an app at `path` (where the file manager opens; empty for the default).
+    fn launch_at(&mut self, which: u32, path: &str, for_operator: bool) -> Result<(), Error> {
         if self.windows.len() + self.starting.len() >= MAX_WINDOWS || self.starting.len() >= MAX_STARTING {
             println!("[desk] not starting {}: too many windows", app::name(which));
             return Err(Error::Busy);
@@ -626,8 +635,11 @@ impl Desk {
         // run a session (they spawn it and list files through it); the file manager
         // reads the volume.
         let need = match which {
-            // DUP: they narrow it once more for the session they start.
-            app::TERMINAL | app::AGENT => rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP,
+            // DUP: they narrow it once more for the session (or, for the Command
+            // Center, the SpaceLink service) they start.
+            app::TERMINAL | app::AGENT | app::COMMAND => {
+                rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP
+            }
             app::FILES => rights::FS | rights::TRANSFER,
             _ => return Err(Error::Invalid),
         };
@@ -649,7 +661,7 @@ impl Desk {
                 return Err(e);
             }
         };
-        let mut hello = Msg::new(msg::HELLO);
+        let mut hello = Msg::with_text(msg::HELLO, path);
         hello.value = which;
         if let Err(e) = sys::send(mine, hello.as_bytes(), Some(cap)) {
             sys::handle_close(cap).ok();
@@ -921,6 +933,13 @@ impl Desk {
                     self.answer_describe(Ok(m.text().to_string()));
                 }
             }
+            // An app asks for a path to be shown: the desktop opens a file manager
+            // there. The app gains nothing by asking - no answer, no capability - and
+            // the new window gets exactly what any file manager gets.
+            msg::OPEN if m.value == app::FILES && m.text().starts_with('/') => {
+                println!("[desk] '{}' asked to show {} in the file manager", self.windows[i].title, m.text());
+                self.launch_at(app::FILES, m.text(), false).ok();
+            }
             _ => {}
         }
         if let Some(h) = carried {
@@ -1128,7 +1147,7 @@ impl Desk {
             s.text(tx + gw, dy + (DOCK_H - GLYPH_H) / 2, &label, color);
             tx += tw + 8;
         }
-        let hint = "Super+Enter terminal  Super+E files  Super+A agent  Alt+Tab switch";
+        let hint = "Super+Enter terminal  Super+E files  Super+A agent  Super+Space search  Alt+Tab switch";
         s.text(sw - hint.len() as i32 * gw - 12, dy + (DOCK_H - GLYPH_H) / 2, hint, pal.dim_text);
 
         self.windows = windows;

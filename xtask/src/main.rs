@@ -1586,6 +1586,18 @@ const DESKTOP_SCRIPT: &[&str] = &[
     "!wait closed: the app",
     "!sleep 600",
     "!shot 5-after-close",
+    // The Command Center: search the index, a context bundle, and show the best
+    // result in the file manager.
+    "!key meta_l-spc",
+    "!wait [desk] window 4 'Command Center' (command) opened",
+    "channel",
+    "!wait results for 'channel'; first /spaceos/docs/IPC.TXT",
+    "!key ctrl-b",
+    "!wait [deskcmd] context bundle for 'channel'",
+    "!key ctrl-o",
+    "!wait [deskfiles] selected IPC.TXT",
+    "!sleep 600",
+    "!shot 6-command-center",
     "!key ctrl-alt-delete",
 ];
 
@@ -1883,6 +1895,11 @@ const SCENARIOS: &[Scenario] = &[
             "[desk] workspace 1",
             "[desk] high contrast on",
             "closed: the app",
+            "[deskcmd] index: ",
+            "results for 'channel'; first /spaceos/docs/IPC.TXT",
+            "[deskcmd] context bundle for 'channel'",
+            "[desk] 'Command Center' asked to show /spaceos/docs/IPC.TXT in the file manager",
+            "[deskfiles] selected IPC.TXT",
             "[desk] shutting down at the person's request",
         ],
         must_contain_extra: &[],

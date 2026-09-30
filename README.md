@@ -7,7 +7,8 @@ capability, user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 baca-tulis
 (virtio-net + TCP/IP di user space dengan allowlist tujuan per sesi), TLS 1.3 dengan kunci dari
 sumber entropi kernel, objek memori
 bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baseline yang dipatok,
-serta layanan Developer Preview (desktop grafis dengan terminal, file manager dan Agent Center,
+serta layanan Developer Preview (desktop grafis dengan terminal, file manager, Agent Center yang
+menjalankan model dengan Stop kooperatif, dan Command Center untuk pencarian SpaceLink,
 sesi terminal, tool broker, SpaceLink, paket bertanda tangan, adapter cloud) — dengan bukti uji
 otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01** di QEMU, **I01
 terhadap penyedia cloud tiruan** di jaringan lab (belum pernah terhadap layanan sungguhan), dan uji
@@ -31,12 +32,12 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacecloud` | `user/services/spacecloud` | `x86_64-unknown-none` | Adapter cloud (I01): memegang kredensial dan sesi ke satu alamat, streaming SSE di atas TLS, alat model hanya lewat Tool Broker, budget dan retry terbatas, local-only ditolak (ADR-0018) |
 | `spacecompute` | `user/services/spacecompute` | `x86_64-unknown-none` | Layanan Space Compute ABI v0 di user space, backend CPU |
 | `spaceai` | `user/services/spaceai` | `x86_64-unknown-none` | Runtime AI: memuat SpaceLM v0 dari disk, verifikasi checksum, generate token lewat Compute ABI |
-| `spacedesk` + `deskapps` | `user/services/spacedesk`, `user/services/deskapps` | `x86_64-unknown-none` | Desktop (U01, ADR-0020): server tampilan yang memegang layar lewat lease kernel, menyusun jendela dari memori klien (dibaca saja), dock, workspace dan semua manajemen jendela dari keyboard, API otomasi; aplikasinya terminal, file manager dan Agent Center dengan Stop |
+| `spacedesk` + `deskapps` | `user/services/spacedesk`, `user/services/deskapps` | `x86_64-unknown-none` | Desktop (U01, ADR-0020): server tampilan yang memegang layar lewat lease kernel, menyusun jendela dari memori klien (dibaca saja), dock, workspace dan semua manajemen jendela dari keyboard, API otomasi; aplikasinya terminal, file manager, Agent Center (model sungguhan, progres, Stop kooperatif; ADR-0021) dan Command Center (pencarian SpaceLink dengan asal setiap hasil; ADR-0022) |
 | `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 112 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 115 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/stress/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan dan kombinasi tombol ke guest serta screenshot, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
@@ -51,7 +52,7 @@ cargo xtask unit                           # uji unit host (codec DNS, tata leta
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
 cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU
 cargo xtask run --serial-input --cmdline "init=bin/spaceterm"  # sama, tanpa jendela: ketik ke pty COM2 yang dicetak QEMU
-cargo xtask run --gui --cmdline "init=bin/spacedesk"          # desktop grafis (Super+Enter terminal, Alt+Tab, Ctrl+Alt+Delete mati)
+cargo xtask run --gui --cmdline "init=bin/spacedesk"          # desktop grafis (Super+Enter terminal, Super+A Agent Center, Super+Space cari, Alt+Tab, Ctrl+Alt+Delete mati)
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
 cargo xtask stress --minutes 480           # PRD §9: suite berulang 8 jam dalam satu boot, hasil di build/stress/
 ```
@@ -62,28 +63,32 @@ Keluaran acceptance (dipotong):
 spaceboot 0.1.0: Space OS UEFI bootloader
 spacekernel 0.1.0: Space OS kernel booting
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] spawn pid 1 'bin/init': entry=0x44ea88, 128 pages mapped, quota 2048 pages
-[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (128 used)
+[kernel] spawn pid 1 'bin/init': entry=0x453344, 133 pages mapped, quota 2048 pages
+[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (133 used)
 [kernel] pid 3 'bin/fault' killed: page fault at rip=0x40041c (error=0x7, addr=0xffff800000000000)
 [init] PASS K02: write to kernel memory kills the process (page fault)
 ...
-[init] frames free before=2090036 after=2090036 ; heap used before=3432 after=3432 ; switches=165
+[init] frames free before=2090017 after=2090017 ; heap used before=3432 after=3432 ; switches=165
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [ai] model verified: sha256 a1955def6c7b4e8e...
 [ai] generated 128 tokens offline, all matching the pinned baseline
-[init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 8 commands served (32 ms after Stop was pressed)
+[init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (43 ms after Stop was pressed)
 [init] PASS U01: the desktop, terminal, file manager and Stop keep working while inference workers crash
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [shell] input was lost; the line was discarded
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
-[init] ALL TESTS PASSED (112/112, 0 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 25306 ms, 39994 context switches)
+[init] desktop: agent: worker 'infer' stopped between two steps after 9 of 128 tokens (Stop took 3 ms); 9/128 tokens, 9 matching; Stop has nothing to stop; 26 commands served (11 ms after Stop was pressed)
+[init] PASS U01: the model writes text in the Agent Center, Stop ends it between two steps, and the terminal answers
+[init] desktop: command: 3 results for 'channel'; selected 1 /spaceos/docs/IPC.TXT bytes 0+186 sha 0d37dfc6; index 4 docs 7 chunks 0 revoked
+[init] PASS L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files
+[init] ALL TESTS PASSED (115/115, 0 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 34168 ms, 91513 context switches)
 ```
 
 ## Dokumentasi
 
 - [docs/architecture.md](docs/architecture.md) — rantai boot, layout memori, objek kernel, scheduler, diagnosis.
-- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT, storage, compute, layanan 5A, jaringan, TLS, adapter cloud, uji stabilitas, desktop).
+- [docs/adr/](docs/adr/README.md) — keputusan arsitektur (microkernel/Rust stable, bootloader UEFI, profil QEMU, ABI v0, ELF/initrd, PIC/PIT, storage, compute, layanan 5A, jaringan, TLS, adapter cloud, uji stabilitas, desktop, Stop kooperatif, Command Center).
 - [docs/requirements.md](docs/requirements.md) — traceability K01…H02 dengan status planned/experimental/verified.
 - [docs/testing.md](docs/testing.md) dan [docs/evidence/](docs/evidence/) — skenario uji, marker, kode keluar, log bukti.
 - [docs/build.md](docs/build.md) — prasyarat dan perintah.

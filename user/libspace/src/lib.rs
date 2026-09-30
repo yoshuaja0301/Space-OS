@@ -14,6 +14,7 @@ pub mod desk;
 pub mod gfx;
 pub mod heap;
 pub mod io;
+pub mod link;
 pub mod net;
 pub mod shell;
 pub mod sys;

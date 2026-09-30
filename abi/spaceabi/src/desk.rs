@@ -48,10 +48,15 @@ pub mod msg {
     pub const RESIZED: u32 = 4;
     /// The answer to [`DESCRIBE`]: what the window shows, in words, in `text`.
     pub const DESCRIPTION: u32 = 5;
+    /// Show `text`, a path, in the app `value` (only [`super::app::FILES`]): a folder
+    /// is opened, a file is selected in its folder. The server starts a new window
+    /// for it; the asking app gets no answer and no capability.
+    pub const OPEN: u32 = 6;
 
     // ---- server -> client ----
     /// First message to an app the server started: `value` is which app
-    /// ([`super::app`]); may carry the capability the app needs.
+    /// ([`super::app`]), `text` where it starts (a path, for the file manager); may
+    /// carry the capability the app needs.
     pub const HELLO: u32 = 16;
     /// The answer to [`CREATE`]: `id` is the window, or `status` says why not.
     pub const CREATED: u32 = 17;
@@ -95,6 +100,8 @@ pub mod app {
     pub const TERMINAL: u32 = 1;
     pub const FILES: u32 = 2;
     pub const AGENT: u32 = 3;
+    /// Search the indexed documents (SpaceLink) and act on what is found.
+    pub const COMMAND: u32 = 4;
 
     /// The name the operator launches it by.
     pub fn by_name(name: &str) -> Option<u32> {
@@ -102,6 +109,7 @@ pub mod app {
             "terminal" => Some(TERMINAL),
             "files" => Some(FILES),
             "agent" => Some(AGENT),
+            "command" => Some(COMMAND),
             _ => None,
         }
     }
@@ -111,6 +119,7 @@ pub mod app {
             TERMINAL => "terminal",
             FILES => "files",
             AGENT => "agent",
+            COMMAND => "command",
             _ => "?",
         }
     }

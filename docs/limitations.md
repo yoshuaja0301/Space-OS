@@ -71,7 +71,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
   file manager hanya **menelusuri** (belum membuka, menyalin atau menghapus); Agent Center menjalankan model
   referensi lewat `spaceai` (ADR-0021) dan worker uji — belum `spaceagent`, pilihan prompt atau model, batas
   token/waktu yang bisa diatur, atau job cloud (jadi baris biayanya selalu "tidak ada").
-- Belum ada Command Center (pencarian SpaceLink), pengaturan model, notifikasi, login atau layar kunci; satu pengguna.
+- Command Center (ADR-0022) hanya mengindeks `/spaceos/docs`, saat jendelanya dibuka: berkas yang berubah sesudahnya tidak terlihat sampai jendela dibuka lagi. Paling banyak lima hasil, cuplikan dari awal chunk, dan tidak ada revokasi dari desktop (layanannya hanya bisa membaca).
+- Belum ada pengaturan model, notifikasi, login atau layar kunci; satu pengguna.
 - Paling banyak 12 jendela (4 yang sedang dimulai); setiap klien dilayani paling banyak 16 pesan per putaran; judul dan
   deskripsi jendela paling panjang 180 byte.
 - Ctrl+Alt+Delete hanya mematikan mesin bila desktop adalah sesinya (`init=bin/spacedesk`); desktop yang dijalankan proses

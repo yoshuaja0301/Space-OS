@@ -85,6 +85,7 @@ pub mod key {
     pub const E: u16 = 0x12;
     pub const R: u16 = 0x13;
     pub const T: u16 = 0x14;
+    pub const O: u16 = 0x18;
     pub const ENTER: u16 = 0x1C;
     pub const LCTRL: u16 = 0x1D;
     pub const A: u16 = 0x1E;
@@ -95,6 +96,7 @@ pub mod key {
     pub const LSHIFT: u16 = 0x2A;
     pub const Z: u16 = 0x2C;
     pub const C: u16 = 0x2E;
+    pub const B: u16 = 0x30;
     pub const M: u16 = 0x32;
     pub const RSHIFT: u16 = 0x36;
     pub const LALT: u16 = 0x38;

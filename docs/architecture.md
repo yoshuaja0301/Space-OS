@@ -132,7 +132,9 @@ klien ──Ask/Event──► bin/spacecloud ──sesi (api.cloud.test:443)─
   masing-masing sesi `spaceshell` sendiri (`SPAWN|FS`), file manager hanya `FS`. Server yang
   dijalankan proses lain menerima operatornya lewat channel bootstrap (`OP_*`): jalankan aplikasi,
   tekan tombol, baca keadaan jendela, dan minta jendela menjelaskan isinya dengan kata-kata — API
-  otomasi yang dipakai uji U01.
+  otomasi yang dipakai uji U01. Command Center (ADR-0022) memunculkan `bin/spacelink`
+  sendiri dengan akses baca saja, dan meminta desktop membuka file manager di sebuah path
+  lewat pesan `OPEN` — permintaan, bukan kapabilitas.
 
 ```
 keyboard ─IRQ1─► kernel (decoder) ─SYS_INPUT_READ─► bin/spacedesk ──KEY──► aplikasi yang fokus

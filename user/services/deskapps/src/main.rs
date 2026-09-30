@@ -17,10 +17,11 @@ use alloc::vec::Vec;
 
 use libspace::desk::{Window, recv};
 use libspace::gfx::{GLYPH_H, Surface, contrast_x100, glyph_w};
+use libspace::link::{Link, Stats};
 use libspace::shell::Session;
-use libspace::spaceabi::desk::{app, msg};
+use libspace::spaceabi::desk::{Msg, app, msg};
 use libspace::spaceabi::handle::rights;
-use libspace::spaceabi::input::{InputEvent, key};
+use libspace::spaceabi::input::{InputEvent, flags, key};
 use libspace::spaceabi::shell::{Progress, Reply, job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
 use libspace::{Handle, handle, kill_reason, println, sys};
@@ -360,6 +361,28 @@ impl Files {
             }
         }
         self.selected = 0;
+    }
+
+    /// Start at `path`: a folder is opened; a file is selected in its folder.
+    fn start_at(&mut self, path: &str) {
+        let path = if path.is_empty() { "/spaceos" } else { path };
+        let mut probe = [DirEntry::default(); 1];
+        if sys::fs_list(self.root, path, &mut probe).is_ok() {
+            self.path = path.to_string();
+            self.load();
+            return;
+        }
+        let (dir, name) = match path.rfind('/') {
+            Some(0) => ("/", &path[1..]),
+            Some(i) => (&path[..i], &path[i + 1..]),
+            None => ("/", path),
+        };
+        self.path = dir.to_string();
+        self.load();
+        if let Some(i) = self.entries.iter().position(|e| e.name().eq_ignore_ascii_case(name)) {
+            self.selected = i;
+            println!("[deskfiles] selected {}", self.entries[i].name());
+        }
     }
 
     fn open(&mut self) {
@@ -760,6 +783,297 @@ impl App for Agent {
     }
 }
 
+/// Pages for the SpaceLink service a Command Center starts.
+const LINK_QUOTA: u64 = 256;
+/// The folder the Command Center indexes.
+const CORPUS: &str = "/spaceos/docs";
+/// Results a search shows.
+const RESULTS_SHOWN: usize = 5;
+/// Bytes a context bundle may hold.
+const BUNDLE_BUDGET: u32 = 512;
+
+fn hex8(d: &[u8; 32]) -> String {
+    format!("{:02x}{:02x}{:02x}{:02x}", d[0], d[1], d[2], d[3])
+}
+
+/// One search result, with what is needed to check it: path, byte range, digest.
+struct Hit {
+    path: String,
+    offset: u32,
+    len: u32,
+    score: u32,
+    digest: [u8; 32],
+    text: String,
+}
+
+impl Hit {
+    fn from_reply(r: &libspace::spaceabi::link::LinkReply) -> Hit {
+        let text: String =
+            r.text().iter().map(|&b| if (32..127).contains(&b) { b as char } else { ' ' }).collect();
+        Hit {
+            path: r.path().to_string(),
+            offset: r.offset,
+            len: r.len,
+            score: r.score,
+            digest: r.digest,
+            text,
+        }
+    }
+
+    fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+}
+
+/// The Command Center (PRD §6): SpaceLink search, where each result came from, the
+/// state of the index, and what can be done with a result. It runs a SpaceLink
+/// service of its own with read access to the volume and nothing else.
+struct Command {
+    /// The window's channel to the desktop: where "show in Files" is asked.
+    desk: Handle,
+    link: Option<Link>,
+    stats: Stats,
+    query: String,
+    searched: String,
+    total: u32,
+    hits: Vec<Hit>,
+    selected: usize,
+    bundle: Option<String>,
+    note: String,
+}
+
+impl Command {
+    fn index(&mut self) {
+        let Some(link) = &self.link else { return };
+        let indexed = link.index(CORPUS).and_then(|_| link.stats());
+        match indexed {
+            Ok(st) => {
+                self.stats = st;
+                self.note = format!("indexed {CORPUS}; type, then Enter");
+                println!(
+                    "[deskcmd] index: {} documents, {} chunks, {} revoked in {CORPUS}",
+                    st.documents, st.chunks, st.revoked
+                );
+            }
+            Err(e) => {
+                self.note = format!("index {CORPUS}: {e}");
+                println!("[deskcmd] {}", self.note);
+            }
+        }
+    }
+
+    fn search(&mut self) {
+        let q = self.query.trim().to_string();
+        if q.is_empty() {
+            self.note = String::from("type what to look for, then Enter");
+            return;
+        }
+        let Some(link) = &self.link else { return };
+        self.hits.clear();
+        self.selected = 0;
+        self.bundle = None;
+        self.total = 0;
+        match link.query(&q, 0) {
+            Ok(first) => {
+                self.total = first.total;
+                if first.status == 0 {
+                    self.hits.push(Hit::from_reply(&first));
+                    for i in 1..(first.total as usize).min(RESULTS_SHOWN) {
+                        if let Ok(r) = link.query(&q, i as u32)
+                            && r.status == 0
+                        {
+                            self.hits.push(Hit::from_reply(&r));
+                        }
+                    }
+                }
+                self.note = String::new();
+            }
+            Err(e) => self.note = format!("search: {e}"),
+        }
+        match self.hits.first() {
+            Some(h) => println!(
+                "[deskcmd] {} results for '{q}'; first {} bytes {}+{} sha {}",
+                self.total,
+                h.path,
+                h.offset,
+                h.len,
+                hex8(&h.digest)
+            ),
+            None => println!("[deskcmd] no results for '{q}'"),
+        }
+        self.searched = q;
+    }
+
+    fn bundle(&mut self) {
+        if self.searched.is_empty() {
+            self.note = String::from("search first: a bundle is built for a query");
+            return;
+        }
+        let Some(link) = &self.link else { return };
+        match link.bundle(&self.searched, BUNDLE_BUDGET) {
+            Ok(r) => {
+                let text = format!(
+                    "{} entries, {} of {BUNDLE_BUDGET} bytes, digest {}",
+                    r.total,
+                    r.value,
+                    hex8(&r.digest)
+                );
+                println!("[deskcmd] context bundle for '{}': {text}", self.searched);
+                self.bundle = Some(text);
+            }
+            Err(e) => self.note = format!("bundle: {e}"),
+        }
+    }
+
+    fn show_in_files(&mut self) {
+        let Some(h) = self.hits.get(self.selected) else {
+            self.note = String::from("no result selected");
+            return;
+        };
+        let mut m = Msg::with_text(msg::OPEN, &h.path);
+        m.value = app::FILES;
+        self.note = match sys::send(self.desk, m.as_bytes(), None) {
+            Ok(()) => {
+                println!("[deskcmd] showing {} in the file manager", h.path);
+                format!("showing {} in Files", h.name())
+            }
+            Err(e) => format!("show in Files: {e}"),
+        };
+    }
+}
+
+impl App for Command {
+    fn title(&self) -> String {
+        String::from("Command Center")
+    }
+
+    fn draw(&self, s: &mut Surface, focused: bool) {
+        s.fill(0, 0, s.w, s.h, BG);
+        let gw = glyph_w();
+        let mut y = PAD;
+        s.text(PAD, y, "Search the indexed documents", ACCENT);
+        y += ROW_H + 4;
+        let cursor = if focused { "_" } else { "" };
+        row(s, &mut y, "search", &format!("> {}{cursor}", self.query), FG);
+        let st = &self.stats;
+        row(
+            s,
+            &mut y,
+            "index",
+            &format!("{} documents, {} chunks, {} revoked in {CORPUS}", st.documents, st.chunks, st.revoked),
+            FG,
+        );
+        let head = if self.searched.is_empty() {
+            String::from("-")
+        } else {
+            format!("{} for \"{}\"", self.total, self.searched)
+        };
+        row(s, &mut y, "results", &head, FG);
+        let text_chars = ((s.w - PAD - LABEL_CHARS * gw) / gw).max(8) as usize;
+        for (i, h) in self.hits.iter().enumerate() {
+            if i == self.selected {
+                s.fill(
+                    PAD - 4,
+                    y - 1,
+                    s.w - 2 * PAD + 8,
+                    2 * ROW_H,
+                    if focused { SELECT } else { SELECT_IDLE },
+                );
+            }
+            let marker = if i == self.selected { ">" } else { " " };
+            s.text(PAD, y, marker, FG);
+            s.text(
+                PAD + LABEL_CHARS * gw,
+                y,
+                &format!(
+                    "{} bytes {}+{}  score {}  sha {}",
+                    h.path,
+                    h.offset,
+                    h.len,
+                    h.score,
+                    hex8(&h.digest)
+                ),
+                WARN,
+            );
+            y += ROW_H;
+            let snippet: String = h.text.chars().take(text_chars).collect();
+            s.text(PAD + LABEL_CHARS * gw, y, &snippet, DIM);
+            y += ROW_H;
+        }
+        y = y.max(PAD + 5 * ROW_H + 4 + 2 * ROW_H * RESULTS_SHOWN as i32);
+        if let Some(b) = &self.bundle {
+            row(s, &mut y, "bundle", b, FG);
+        } else {
+            y += ROW_H;
+        }
+        row(
+            s,
+            &mut y,
+            "keys",
+            "Enter search, Up/Down choose, Ctrl+B context bundle, Ctrl+O show in Files",
+            DIM,
+        );
+        if !self.note.is_empty() {
+            row(s, &mut y, "", &self.note, DIM);
+        }
+    }
+
+    fn key(&mut self, e: InputEvent) -> bool {
+        let ctrl = e.flags & flags::CTRL != 0;
+        match e.key {
+            key::ENTER | key::KP_ENTER => self.search(),
+            key::UP => self.selected = self.selected.saturating_sub(1),
+            key::DOWN => {
+                if self.selected + 1 < self.hits.len() {
+                    self.selected += 1;
+                }
+            }
+            key::BACKSPACE => {
+                self.query.pop();
+            }
+            key::ESC => self.query.clear(),
+            key::B if ctrl => self.bundle(),
+            key::O if ctrl => self.show_in_files(),
+            _ => match char::from_u32(e.ch) {
+                Some(c) if (' '..='~').contains(&c) && self.query.len() < 48 => self.query.push(c),
+                _ => return false,
+            },
+        }
+        true
+    }
+
+    fn describe(&self) -> String {
+        let st = &self.stats;
+        let q: String = self.searched.chars().take(24).collect();
+        let sel = match self.hits.get(self.selected) {
+            Some(h) => format!(
+                "; selected {} {} bytes {}+{} sha {}",
+                self.selected + 1,
+                h.path,
+                h.offset,
+                h.len,
+                hex8(&h.digest)
+            ),
+            None => String::new(),
+        };
+        let bundle = match &self.bundle {
+            Some(_) if self.hits.is_empty() => String::new(),
+            Some(b) => format!("; bundle {}", b.split(", digest").next().unwrap_or(b)),
+            None => String::new(),
+        };
+        format!(
+            "command: {} results for '{q}'{sel}; index {} docs {} chunks {} revoked{bundle}",
+            self.total, st.documents, st.chunks, st.revoked
+        )
+    }
+
+    fn close(&mut self) {
+        if let Some(link) = self.link.take() {
+            link.quit();
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn space_main() -> i32 {
     let chan = handle::BOOTSTRAP;
@@ -783,14 +1097,9 @@ pub extern "C" fn space_main() -> i32 {
             }
         },
         app::FILES => {
-            let mut f = Files {
-                root: cap,
-                path: String::from("/spaceos"),
-                entries: Vec::new(),
-                selected: 0,
-                error: None,
-            };
-            f.load();
+            let mut f =
+                Files { root: cap, path: String::new(), entries: Vec::new(), selected: 0, error: None };
+            f.start_at(hello.text());
             run_app(chan, f, 460, 360)
         }
         app::AGENT => match start_session(cap) {
@@ -812,6 +1121,35 @@ pub extern "C" fn space_main() -> i32 {
                 1
             }
         },
+        app::COMMAND => {
+            // Read access for the index, and nothing else: the SpaceLink service it
+            // starts cannot write, and this app keeps no capability once it has.
+            let link = sys::handle_dup(cap, rights::FS | rights::TRANSFER)
+                .and_then(|fs| Link::start(cap, fs, LINK_QUOTA));
+            sys::handle_close(cap).ok();
+            match link {
+                Ok(link) => {
+                    let mut c = Command {
+                        desk: chan,
+                        link: Some(link),
+                        stats: Stats::default(),
+                        query: String::new(),
+                        searched: String::new(),
+                        total: 0,
+                        hits: Vec::new(),
+                        selected: 0,
+                        bundle: None,
+                        note: String::new(),
+                    };
+                    c.index();
+                    run_app(chan, c, 680, 400)
+                }
+                Err(e) => {
+                    println!("[deskcmd] cannot start SpaceLink: {e}");
+                    1
+                }
+            }
+        }
         other => {
             println!("[deskapps] unknown app {other}");
             1

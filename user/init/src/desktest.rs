@@ -11,7 +11,7 @@ use libspace::spaceabi::desk::{self, Msg, msg, window_flags};
 use libspace::spaceabi::error::Error;
 use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::input::{InputEvent, flags, key, kind};
-use libspace::{ExitStatus, Handle, println, sys};
+use libspace::{ExitStatus, Handle, println, sha256, sys};
 
 use crate::ROOT;
 
@@ -419,6 +419,87 @@ pub fn inference() -> Result<(), String> {
         d.focus(term)?;
         d.keys("status\n")?;
         let t = d.await_text(term, "the session has served", 5000)?;
+        println!("[init] desktop: {t}");
+        Ok(())
+    })();
+    let st = d.quit();
+    r?;
+    match st {
+        Ok(st) if st.is_exited_with(0) => Ok(()),
+        other => Err(format!("the desktop ended with {other:?}")),
+    }
+}
+
+/// The result the Command Center has selected, as it describes it: path, offset,
+/// length and the first four bytes of the digest, in hex.
+fn selected_result(t: &str) -> Option<(String, u64, usize, String)> {
+    let rest = t.split_once("; selected ")?.1;
+    let mut w = rest.split_whitespace();
+    let _index = w.next()?;
+    let path = w.next()?;
+    if w.next()? != "bytes" {
+        return None;
+    }
+    let (offset, len) = w.next()?.split_once('+')?;
+    if w.next()? != "sha" {
+        return None;
+    }
+    let sha = w.next()?.trim_end_matches(';');
+    Some((String::from(path), offset.parse().ok()?, len.parse().ok()?, String::from(sha)))
+}
+
+/// The Command Center (PRD §6): SpaceLink search in the desktop, where every result
+/// came from -- checked here the way any caller can check SpaceLink, by reading the
+/// bytes back -- a context bundle for the query, and "show in Files".
+pub fn command() -> Result<(), String> {
+    let d = Desk::start()?;
+    let r = (|| {
+        let cmd = d.launch("command")?;
+        d.focus(cmd)?;
+        d.keys("channel\n")?;
+        let t = d.await_text(cmd, "results for 'channel'; selected 1 ", 5000)?;
+        println!("[init] desktop: {t}");
+        let (path, offset, len, sha) =
+            selected_result(&t).ok_or_else(|| format!("no selected result in {t:?}"))?;
+        // IPC.TXT says "channel" three times; no other document comes close.
+        if path != "/spaceos/docs/IPC.TXT" {
+            return Err(format!("the best result for 'channel' is {path}"));
+        }
+        if len == 0 || len > 1024 {
+            return Err(format!("a chunk of {len} bytes"));
+        }
+        let f = sys::fs_open(ROOT, &path).map_err(|e| format!("open {path}: {e}"))?;
+        let mut buf = alloc::vec![0u8; len];
+        let n = sys::fs_read(f, offset, &mut buf).map_err(|e| format!("read {path}: {e}"));
+        sys::handle_close(f).ok();
+        if n? != len {
+            return Err(format!("{path} has fewer than {len} bytes at {offset}"));
+        }
+        let d8 = sha256::digest(&buf);
+        let on_disk = format!("{:02x}{:02x}{:02x}{:02x}", d8[0], d8[1], d8[2], d8[3]);
+        if on_disk != sha {
+            return Err(format!(
+                "the Command Center shows sha {sha} for {path} {offset}+{len}; the disk says {on_disk}"
+            ));
+        }
+        // A context bundle for the same query.
+        d.key(press(key::B, flags::CTRL))?;
+        let t = d.await_text(cmd, "; bundle ", 5000)?;
+        println!("[init] desktop: {}", t.split_once("; bundle ").map(|(_, b)| b).unwrap_or(&t));
+        // "Show in Files": the desktop opens a file manager there, with the file selected.
+        let before: Vec<u32> = d.state()?.windows.iter().map(|w| w.id).collect();
+        d.key(press(key::O, flags::CTRL))?;
+        let deadline = sys::ticks_ms() + 5000;
+        let files = loop {
+            if let Some(w) = d.state()?.windows.iter().find(|w| !before.contains(&w.id)) {
+                break w.id;
+            }
+            if sys::ticks_ms() > deadline {
+                return Err(String::from("Ctrl+O opened no file manager"));
+            }
+            sys::sleep_ms(50);
+        };
+        let t = d.await_text(files, "selected IPC.TXT", 5000)?;
         println!("[init] desktop: {t}");
         Ok(())
     })();
