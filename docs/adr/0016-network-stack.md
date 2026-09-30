@@ -75,7 +75,9 @@ jumlah koneksi, penutupan bersih, reset, dan segmen yang dikirim ulang peer. Pem
 menangkap bug nyata yang lolos dari semua uji di dalam guest: socket dibuang saat TIME-WAIT
 sebelum ACK tertundanya berangkat — klien menerima data dan EOF dengan benar, tetapi 24 koneksi
 dibiarkan menggantung di sisi peer, yang mengirim ulang 48 segmen. Perbaikannya: ACK tidak
-ditunda, dan TIME-WAIT ditahan 250 ms.
+ditunda, dan TIME-WAIT ditahan 250 ms. Satu-satunya pengecualian adalah koneksi yang ditinggalkan
+layanan yang dibunuh — guest sudah diam ≥ 20 detik di koneksi itu dan tidak pernah menutupnya —
+yang dilaporkan, bukan digagalkan (ADR-0019).
 
 ## Alternatif yang ditolak
 

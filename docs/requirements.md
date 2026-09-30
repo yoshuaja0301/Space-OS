@@ -38,7 +38,7 @@ kartu yang didukung:
 |---|---|
 | Driver (kernel) | lease butuh hak `NET` dan eksklusif, duplikat berbagi lease; MAC/link/MTU; ARP dan ICMP echo ke gateway QEMU dengan frame yang dibuat tangan, sampai frame 1514 byte; frame yang tiba **saat penerimanya tidur** membangunkannya dalam satu tick; frame dan buffer cacat ditolak |
 | Layanan `spacenet` | DHCP; DNS lewat TCP (CNAME diikuti, NXDOMAIN → `NotFound`); 64 KiB lewat echo TCP kembali utuh; nama, port, atau alamat di luar allowlist ditolak **sebelum satu frame pun keluar** (penghitung perangkat, bukan penghitung layanan); tujuan diam → `TimedOut`; port yang tidak mendengarkan → `Refused`; RST di tengah koneksi → `Reset`; koneksi yang ditutup saat peer masih mengirim di-reset sehingga peer berhenti (RFC 1122); 20 koneksi tanpa kebocoran memori kernel; layanan dibunuh saat koneksi terbuka → klien diberi tahu dan lease kembali, lalu instans baru melayani dan keluar bersih |
-| Kabel (harness) | setiap boot merekam pcap; setiap FIN dari peer harus di-ACK oleh guest. Laporan sesi ini (termasuk TLS dan I01): 110 koneksi, 104 ditutup bersih, 5 reset (semuanya disengaja), 0 segmen dikirim ulang peer |
+| Kabel (harness) | setiap boot merekam pcap; setiap FIN dari peer harus di-ACK oleh guest (koneksi yang ditinggalkan layanan yang dibunuh dilaporkan terpisah). Laporan sesi ini (termasuk TLS dan I01): 110 koneksi, 104 ditutup bersih, 5 reset (semuanya disengaja), 0 segmen dikirim ulang peer |
 
 **Catatan jujur:** jaringan lab tertutup (QEMU `restrict=on`) dan layanannya dibuat
 `xtask` sendiri — tidak ada internet di sini. IPv4 dan klien TCP saja.

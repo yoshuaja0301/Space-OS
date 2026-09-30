@@ -26,6 +26,10 @@ struct Flow {
     /// ports is a new connection. A long run goes through every local port more
     /// than once.
     guest_isn: Option<u32>,
+    /// When the guest last sent anything on this connection, and when the peer's
+    /// first FIN came (microseconds, capture time).
+    guest_last_us: Option<u64>,
+    peer_fin_first_us: Option<u64>,
 }
 
 /// A connection's ports and the peer's address: the guest's port, the peer's
@@ -39,7 +43,21 @@ pub struct TcpReport {
     pub peer_retransmits: u32,
     /// Connections whose FIN from the peer the guest never acknowledged.
     pub unacked_fins: Vec<String>,
+    /// Connections left behind by a network service that was killed: the guest had
+    /// said nothing on them for [`ABANDONED_AFTER_US`] when the peer's FIN came, had
+    /// not closed them, and never answered. Nothing is left in the guest to answer
+    /// until another service starts, and a later one answers with a reset -- if the
+    /// run lasts that long. Reported, not held against the guest.
+    pub abandoned: Vec<String>,
 }
+
+/// How long the guest must have been silent on a connection it never closed before
+/// an unanswered FIN is put down to a killed service rather than to its TCP. No
+/// connection in these tests stays quiet this long while its service lives; the
+/// lab's echo service waits 30 s for a guest that has gone quiet before it closes
+/// (`lab::ECHO_IDLE`), so a connection whose service was killed mid-transfer ends
+/// well past it.
+const ABANDONED_AFTER_US: u64 = 20_000_000;
 
 /// `a` is after `b` in sequence space.
 fn seq_after(a: u32, b: u32) -> bool {
@@ -55,9 +73,12 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
     if raw.len() < 24 {
         return Err(format!("{}: not a capture", path.display()));
     }
-    let le = match &raw[..4] {
-        [0xd4, 0xc3, 0xb2, 0xa1] | [0x4d, 0x3c, 0xb2, 0xa1] => true,
-        [0xa1, 0xb2, 0xc3, 0xd4] | [0xa1, 0xb2, 0x3c, 0x4d] => false,
+    // Byte order, and whether the second half of a timestamp counts nanoseconds.
+    let (le, nanos) = match &raw[..4] {
+        [0xd4, 0xc3, 0xb2, 0xa1] => (true, false),
+        [0x4d, 0x3c, 0xb2, 0xa1] => (true, true),
+        [0xa1, 0xb2, 0xc3, 0xd4] => (false, false),
+        [0xa1, 0xb2, 0x3c, 0x4d] => (false, true),
         _ => return Err(format!("{}: not a pcap file", path.display())),
     };
     let u32at = |b: &[u8], at: usize| {
@@ -71,6 +92,8 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
     let mut finished: Vec<(FlowKey, Flow)> = Vec::new();
     let mut at = 24;
     while at + 16 <= raw.len() {
+        let sub = u64::from(u32at(&raw, at + 4));
+        let now_us = u64::from(u32at(&raw, at)) * 1_000_000 + if nanos { sub / 1000 } else { sub };
         let incl = u32at(&raw, at + 8) as usize;
         let start = at + 16;
         at = start + incl;
@@ -121,6 +144,7 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
                 flow.guest_ack = Some(ack);
             }
             flow.guest_fin |= fin;
+            flow.guest_last_us = Some(now_us);
         } else {
             flow.handshake |= syn && has_ack;
             let data_start = seq.wrapping_add(syn as u32);
@@ -139,6 +163,7 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
             }
             if fin {
                 flow.peer_fin_end = Some(end.wrapping_add(1));
+                flow.peer_fin_first_us.get_or_insert(now_us);
             }
         }
     }
@@ -148,6 +173,7 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
         reset: 0,
         peer_retransmits: 0,
         unacked_fins: Vec::new(),
+        abandoned: Vec::new(),
     };
     for ((gport, peer, pport), f) in finished.iter().map(|(k, f)| (k, f)).chain(flows.iter()) {
         if !f.handshake {
@@ -165,7 +191,16 @@ pub fn analyze(path: &Path, guest: [u8; 4]) -> Result<TcpReport, String> {
                     report.closed_cleanly += 1;
                 }
             } else {
-                report.unacked_fins.push(format!("{}:{gport} <- {}:{pport}", ip(&guest), ip(peer)));
+                let name = format!("{}:{gport} <- {}:{pport}", ip(&guest), ip(peer));
+                let quiet = match (f.guest_last_us, f.peer_fin_first_us) {
+                    (Some(last), Some(fin)) => fin.saturating_sub(last),
+                    _ => 0,
+                };
+                if !f.guest_fin && quiet >= ABANDONED_AFTER_US {
+                    report.abandoned.push(name);
+                } else {
+                    report.unacked_fins.push(name);
+                }
             }
         }
     }
@@ -190,8 +225,13 @@ mod tests {
     const ACK: u8 = 16;
     const FIN: u8 = 1;
 
-    /// One Ethernet/IPv4/TCP frame as a pcap record.
+    /// One Ethernet/IPv4/TCP frame as a pcap record, at the start of the capture.
     fn record(from_guest: bool, seq: u32, ack: u32, flags: u8) -> Vec<u8> {
+        record_at(0, from_guest, seq, ack, flags)
+    }
+
+    /// One Ethernet/IPv4/TCP frame as a pcap record, `us` microseconds in.
+    fn record_at(us: u64, from_guest: bool, seq: u32, ack: u32, flags: u8) -> Vec<u8> {
         let (src, dst, sport, dport) =
             if from_guest { (GUEST, PEER, 50000u16, 7u16) } else { (PEER, GUEST, 7, 50000) };
         let mut f = vec![0u8; 14];
@@ -207,7 +247,9 @@ mod tests {
         tcp.extend_from_slice(&[0x50, flags, 0xff, 0xff, 0, 0, 0, 0]);
         f.extend(ip);
         f.extend(tcp);
-        let mut r = vec![0u8; 8];
+        let mut r = Vec::new();
+        r.extend_from_slice(&((us / 1_000_000) as u32).to_le_bytes());
+        r.extend_from_slice(&((us % 1_000_000) as u32).to_le_bytes());
         r.extend_from_slice(&(f.len() as u32).to_le_bytes());
         r.extend_from_slice(&(f.len() as u32).to_le_bytes());
         r.extend(f);
@@ -237,7 +279,10 @@ mod tests {
         for r in records {
             raw.extend(r);
         }
-        let path = std::env::temp_dir().join(format!("spaceos-pcap-test-{}.pcap", std::process::id()));
+        // Tests run side by side in one process: each capture gets its own file.
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("spaceos-pcap-test-{}-{n}.pcap", std::process::id()));
         std::fs::write(&path, raw).map_err(|e| e.to_string())?;
         let r = analyze(&path, GUEST);
         std::fs::remove_file(&path).ok();
@@ -261,5 +306,39 @@ mod tests {
         again.insert(1, record(true, 5000, 0, SYN));
         let r = capture(again).unwrap();
         assert_eq!((r.connections, r.closed_cleanly), (1, 1));
+    }
+
+    /// A network service killed mid-transfer leaves its connection open at the
+    /// peer, which gives up after a while and sends a FIN nobody in the guest is
+    /// left to answer. That is not the guest's TCP being rude -- but a FIN left
+    /// unanswered on a connection the guest was still using, or had closed its own
+    /// side of, is.
+    #[test]
+    fn a_killed_service_leaves_its_connections_behind() {
+        let (isn, peer_isn) = (4000u32, 70_000u32);
+        let opened = |fin_after_s: u64| {
+            vec![
+                record_at(0, true, isn, 0, SYN),
+                record_at(1_000, false, peer_isn, isn + 1, SYN | ACK),
+                record_at(2_000, true, isn + 1, peer_isn + 1, ACK),
+                record_at(2_000 + fin_after_s * 1_000_000, false, peer_isn + 1, isn + 1, FIN | ACK),
+            ]
+        };
+        let left = capture(opened(30)).unwrap();
+        assert_eq!((left.connections, left.unacked_fins.len(), left.abandoned.len()), (1, 0, 1));
+
+        let live = capture(opened(5)).unwrap();
+        assert_eq!((live.unacked_fins.len(), live.abandoned.len()), (1, 0));
+
+        let mut closed = opened(30);
+        closed.insert(3, record_at(3_000, true, isn + 1, peer_isn + 1, FIN | ACK));
+        let closed = capture(closed).unwrap();
+        assert_eq!((closed.unacked_fins.len(), closed.abandoned.len()), (1, 0));
+
+        // The next service answers a FIN it knows nothing about with a reset.
+        let mut reset = opened(30);
+        reset.push(record_at(40_000_000, true, isn + 1, 0, 4));
+        let reset = capture(reset).unwrap();
+        assert_eq!((reset.reset, reset.unacked_fins.len(), reset.abandoned.len()), (1, 0, 0));
     }
 }

@@ -679,12 +679,28 @@ fn tcp_problems(run: &QemuRun) -> Vec<String> {
     }
 }
 
+/// The connections a killed network service left behind, if there were any.
+fn abandoned_note(r: &pcap::TcpReport) -> String {
+    if r.abandoned.is_empty() {
+        return String::new();
+    }
+    format!(
+        ", {} left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: {})",
+        r.abandoned.len(),
+        r.abandoned.join(", ")
+    )
+}
+
 /// One line about the guest's TCP for a passing run, or nothing if it used none.
 fn tcp_summary(run: &QemuRun) -> String {
     match &run.tcp {
         Some(Ok(r)) if r.connections > 0 => format!(
-            "; tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again",
-            r.connections, r.closed_cleanly, r.reset, r.peer_retransmits
+            "; tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again{}",
+            r.connections,
+            r.closed_cleanly,
+            r.reset,
+            r.peer_retransmits,
+            abandoned_note(r)
         ),
         _ => String::new(),
     }
@@ -2345,6 +2361,8 @@ fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
             problems.push(format!("the lab services wrote {bad:?} {n} time(s)"));
         }
     }
+    // A live connection's FIN left unanswered is the guest's TCP, however long the run.
+    problems.extend(tcp_problems(run));
     let passes: Vec<PassLine> = run.log.lines().filter_map(parse_pass_line).collect();
     let reported =
         run.log.lines().filter(|l| l.starts_with("[stress] pass ") && l.contains(" frames_free=")).count();
@@ -2430,12 +2448,13 @@ fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
     ));
     match &run.tcp {
         Some(Ok(r)) => out.push_str(&format!(
-            "tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again, {} peer FIN(s) never answered (connections of a killed network service end this way)\n",
+            "tcp: {} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again; {} peer FIN(s) never answered on a live connection, {} connection(s) left behind by a killed network service and never answered\n",
             r.connections,
             r.closed_cleanly,
             r.reset,
             r.peer_retransmits,
-            r.unacked_fins.len()
+            r.unacked_fins.len(),
+            r.abandoned.len()
         )),
         Some(Err(e)) => out.push_str(&format!("tcp: the capture could not be read: {e}\n")),
         None => {}
@@ -2640,8 +2659,12 @@ fn main() {
         "tcpcheck" => match args.get(1) {
             Some(path) => pcap::analyze(Path::new(path), GUEST_IP).and_then(|r| {
                 println!(
-                    "{} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again",
-                    r.connections, r.closed_cleanly, r.reset, r.peer_retransmits
+                    "{} connections, {} closed cleanly, {} reset, {} segment(s) the peer sent again{}",
+                    r.connections,
+                    r.closed_cleanly,
+                    r.reset,
+                    r.peer_retransmits,
+                    abandoned_note(&r)
                 );
                 if r.unacked_fins.is_empty() {
                     Ok(())

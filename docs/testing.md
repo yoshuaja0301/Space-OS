@@ -319,6 +319,11 @@ Setiap boot juga direkam ke `build/logs/<skenario>.pcap` (QEMU `filter-dump`) da
 diperiksa harness (`xtask/src/pcap.rs`): **setiap FIN dari peer harus di-ACK oleh
 guest**, kecuali koneksinya di-reset. Hasilnya dicetak pada baris PASS, misalnya
 `tcp: 60 connections, 58 closed cleanly, 1 reset, 0 segment(s) the peer sent again`.
+Satu-satunya FIN yang tidak dijawab tanpa menggagalkan adalah milik koneksi yang ditinggalkan
+layanan jaringan yang dibunuh: guest sudah diam **≥ 20 detik** di koneksi itu, tidak pernah
+menutupnya, dan tidak ada lagi yang bisa menjawab sampai layanan berikutnya mulai (lalu menjawab
+dengan RST). Koneksi seperti itu disebut di baris PASS (`… left behind by a killed network service
+…`). Koneksi yang masih dipakai guest, atau yang sisinya sudah ditutup guest, tetap harus menjawab.
 Gigi pemeriksaan ini terbukti pada bug sungguhan: build yang membuang socket saat
 TIME-WAIT sebelum ACK tertundanya berangkat lulus semua uji di dalam guest, tetapi
 rekamannya gagal (`FINs never acknowledged by the guest: …` untuk 24 koneksi, 48
@@ -331,7 +336,8 @@ yang dibuat sendiri, misalnya dengan `SPACEOS_PCAP=<file> cargo xtask run`.
 tata letak pesan jaringan tanpa padding implisit, pencocokan allowlist, codec DNS
 (kueri, jawaban, rantai CNAME, pointer kompresi yang bermusuhan) — dan `xtask`
 sendiri, termasuk server DNS lab, analisis pcap (port yang dipakai ulang adalah koneksi
-baru, dan koneksi kedua yang mengabaikan FIN tetap tertangkap) dan pembaca baris putaran stress.
+baru, dan koneksi kedua yang mengabaikan FIN tetap tertangkap; koneksi yang ditinggalkan layanan
+yang dibunuh dibedakan dari FIN yang diabaikan koneksi hidup atau koneksi yang sudah ditutup guest) dan pembaca baris putaran stress.
 
 ## Selftest kernel (sebelum user-space)
 
@@ -367,9 +373,9 @@ Run gagal bila: kode keluar bukan 33, guest tidak menulis `STRESS PASSED`, log m
 `[init] FAIL`, `LEAK` atau `[churn]`, layanan lab menulis salah satu baris terlarang (kredensial
 bocor, percobaan keempat, aliran yang tidak dihentikan, ask yang seharusnya ditolak sampai ke
 penyedia), angka memori putaran mana pun berbeda dari putaran 1, atau guest berjalan kurang dari
-waktu yang diminta. FIN peer yang tidak pernah dijawab **dilaporkan tetapi tidak menggagalkan**:
-koneksi milik `spacenet` yang dibunuh memang berakhir begitu; sopan-santun TCP dinilai ketat di
-setiap skenario lain.
+waktu yang diminta, atau FIN peer tidak dijawab di koneksi yang masih hidup — aturan yang sama
+dengan setiap skenario lain. Koneksi yang ditinggalkan `spacenet` yang dibunuh dilaporkan tetapi
+tidak menggagalkan; koneksi itu memang berakhir begitu.
 
 ## Soak K01
 

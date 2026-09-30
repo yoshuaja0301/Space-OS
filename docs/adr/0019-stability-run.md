@@ -134,7 +134,22 @@ berlangsung berjam-jam sementara pengembangan jalan terus:
   bisa diganti" membunuh `spacenet` beberapa milidetik setelah pencarian nama; separuh penutupan
   koneksi DNS dari server datang setelah itu dan tidak ada yang menjawabnya. Itu koneksi kedua yang
   bukan pokok uji tersebut, jadi uji kini menunggu 200 ms sebelum membunuh; pemeriksaan kabel tetap
-  menghitung FIN yang tidak dijawab di setiap skenario selain run stress.
+  menghitung FIN yang tidak dijawab di setiap skenario.
+- *FIN untuk koneksi yang ditinggalkan.* CI sekali gagal di skenario `stress` pendek: `the guest
+  never acknowledged the FIN of 1 connection(s) … 10.0.2.15:56127 <- 10.0.2.101:7`, padahal guest
+  sendiri menulis `STRESS PASSED`. Itu koneksi echo milik `spacenet` yang dibunuh di putaran chaos:
+  layanan echo menyerah setelah 30 detik sepi dan menutup, dan saat FIN-nya datang tidak ada
+  layanan jaringan yang berjalan (uji pemulihan menjalankan `spacenet` sebentar lalu `QUIT`), jadi
+  tidak ada yang bisa menjawab — mesin tanpa layanan jaringan sama dengan kabel yang dicabut. Di
+  run panjang, layanan berikutnya menjawab FIN yang diulang itu dengan RST; di run pendek boot bisa
+  selesai lebih dulu. Harness kini membedakan: FIN yang tidak dijawab di koneksi yang **sudah
+  ≥ 20 detik tidak disentuh guest dan tidak pernah ditutupnya** dilaporkan sebagai koneksi yang
+  ditinggalkan; FIN yang tidak dijawab di koneksi lain tetap gagal — di setiap skenario, dan kini
+  juga di run stress panjang. Direproduksi dengan guest yang menunggu 45 detik tanpa layanan
+  jaringan setelah putaran chaos terakhir: harness lama gagal pada rekaman itu (`FINs never
+  acknowledged by the guest: 10.0.2.15:55846 <- 10.0.2.101:7`, FIN datang 30,8 detik setelah
+  segmen terakhir guest), yang baru lulus dan menyebut koneksi itu; rekaman bug TIME-WAIT (24
+  koneksi, ADR-0016) tetap gagal utuh.
 - *`SYS_CMDLINE`.* `init` perlu membaca `stress=`. Command line kernel kini bisa dibaca lewat handle
   root dengan hak `STATS` (cara kernel dikonfigurasi bukan urusan program yang tidak diberi hak
   itu). K02 menuntut isinya utuh, buffer pendek mendapat awalnya dan tetap tahu panjang aslinya,
