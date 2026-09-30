@@ -1,0 +1,16 @@
+[package]
+name = "deskapps"
+description = "Desktop apps: terminal, file manager and Agent Center with Stop, as windows of spacedesk (U01, ADR-0020)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "deskapps"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

@@ -14,7 +14,7 @@ use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::net::{NetRequest, req};
 use libspace::{Handle, println, sys};
 
-use crate::nettest::{Lab, op_call};
+use crate::nettest::{self, Lab, op_call};
 use crate::{
     as_tool_bytes, audit_contains, broker_hello, broker_quit, broker_reply, read_audit, stream_file,
 };
@@ -405,28 +405,20 @@ pub fn retries(c: &Cloud) -> Result<(), String> {
 }
 
 /// Frames the device sent while `f` ran, after letting earlier traffic settle.
-fn frames_during(lab: &Lab, f: impl FnOnce() -> Result<Outcome, String>) -> Result<(Outcome, u64), String> {
-    sys::sleep_ms(300);
-    let before = lab.frames_sent()?;
-    let o = f()?;
-    Ok((o, lab.frames_sent()? - before))
-}
-
 /// An ask whose worst case does not fit the budget left is refused before anything
 /// is sent: no connection, not one frame.
 pub fn budget_refusal(c: &Cloud, lab: &Lab) -> Result<(), String> {
-    let before = stats(c)?;
     // 4000 tokens at $15 per million could cost 60000 µ$: more than the whole budget.
-    let (o, frames) =
-        frames_during(lab, || ask(c, &Ask::new("lab-budget", "an expensive question", 0, 4000, 5000), 8000))?;
+    let ((o, before, after), _) = nettest::sends_nothing(lab, || {
+        let before = stats(c)?;
+        let o = ask(c, &Ask::new("lab-budget", "an expensive question", 0, 4000, 5000), 8000)?;
+        Ok((o, before, stats(c)?))
+    })
+    .map_err(|e| format!("a refused ask: {e}"))?;
     o.expect_fail(fail::BUDGET)?;
-    let after = stats(c)?;
-    println!("[init] cloud: {}; frames sent meanwhile: {frames}", o.describe());
-    if frames != 0 || after.connections != before.connections || o.last.attempts != 0 {
-        return Err(format!(
-            "{frames} frame(s) and {} connection(s) for a refused ask",
-            after.connections - before.connections
-        ));
+    println!("[init] cloud: {}; no frame sent meanwhile", o.describe());
+    if after.connections != before.connections || o.last.attempts != 0 {
+        return Err(format!("{} connection(s) for a refused ask", after.connections - before.connections));
     }
     if after.spent != before.spent || after.refused != before.refused + 1 {
         return Err(format!(
@@ -461,17 +453,17 @@ pub fn over_budget(c: &Cloud) -> Result<(), String> {
 /// Local-only work is refused before it could leave: nothing sent, whatever else
 /// the ask says.
 pub fn local_only(c: &Cloud, lab: &Lab) -> Result<(), String> {
-    let before = stats(c)?;
     let a = Ask::new("lab-local", "my private notes", flags::LOCAL_ONLY | flags::TOOLS, 64, 5000);
-    let (o, frames) = frames_during(lab, || ask(c, &a, 8000))?;
+    let ((o, before, after), _) = nettest::sends_nothing(lab, || {
+        let before = stats(c)?;
+        let o = ask(c, &a, 8000)?;
+        Ok((o, before, stats(c)?))
+    })
+    .map_err(|e| format!("local-only work: {e}"))?;
     o.expect_fail(fail::LOCAL_ONLY)?;
-    let after = stats(c)?;
-    println!("[init] cloud: {}; frames sent meanwhile: {frames}", o.describe());
-    if frames != 0 || after.connections != before.connections || after.refused != before.refused + 1 {
-        return Err(format!(
-            "{frames} frame(s), {} connection(s) for local-only work",
-            after.connections - before.connections
-        ));
+    println!("[init] cloud: {}; no frame sent meanwhile", o.describe());
+    if after.connections != before.connections || after.refused != before.refused + 1 {
+        return Err(format!("{} connection(s) for local-only work", after.connections - before.connections));
     }
     Ok(())
 }

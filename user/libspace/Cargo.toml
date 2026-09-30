@@ -10,3 +10,5 @@ build = "build.rs"
 [dependencies]
 spaceabi.workspace = true
 linked_list_allocator.workspace = true
+# The same bitmap font the kernel console uses, for windows and the desktop.
+noto-sans-mono-bitmap.workspace = true

@@ -60,6 +60,9 @@ pub mod rights {
     /// whoever holds the device sees every frame on the wire and can put any frame
     /// on it, so only the network service should.
     pub const NET: u32 = 1 << 16;
+    /// Root right: lease the screen. Whoever holds it draws every pixel the person
+    /// sees, the kernel console included, so only the display server should.
+    pub const DISPLAY: u32 = 1 << 17;
 
     pub const CHANNEL_ALL: u32 = SEND | RECV | TRANSFER | DUP;
     pub const PROCESS_ALL: u32 = WAIT | KILL | TRANSFER | DUP;
@@ -71,7 +74,7 @@ pub mod rights {
     /// A network device lease: receive frames (`READ`) and transmit them (`WRITE`).
     pub const NIC_ALL: u32 = READ | WRITE | TRANSFER | DUP;
     pub const ROOT_ALL: u32 =
-        SPAWN | STATS | SHUTDOWN | DEBUG | FS | FS_WRITE | CONSOLE | NET | TRANSFER | DUP;
+        SPAWN | STATS | SHUTDOWN | DEBUG | FS | FS_WRITE | CONSOLE | NET | DISPLAY | TRANSFER | DUP;
 }
 
 /// Kind of kernel object behind a handle (returned by `SYS_HANDLE_INFO`).

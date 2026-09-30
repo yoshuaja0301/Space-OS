@@ -16,6 +16,8 @@
 //!   [`dns`] is the resolver's message codec.
 //! * [`cloud`]   – the cloud adapter contract (operator configuration, asks, streamed
 //!   answers).
+//! * [`input`]   – keyboard events (`SYS_INPUT_READ`).
+//! * [`desk`]    – the desktop contract (windows, their buffers, input, automation).
 //!
 //! It is `no_std`, allocation free, and must stay `#[repr(C)]`-stable: changing a
 //! layout here means bumping [`ABI_VERSION`] (see docs/adr/0004-syscall-abi-v0.md).
@@ -27,11 +29,13 @@ pub mod agent;
 pub mod boot;
 pub mod cloud;
 pub mod compute;
+pub mod desk;
 pub mod dns;
 pub mod elf;
 pub mod error;
 pub mod handle;
 pub mod hmac;
+pub mod input;
 pub mod link;
 pub mod math;
 pub mod model;

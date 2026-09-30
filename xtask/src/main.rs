@@ -50,6 +50,8 @@ const USER_PROGRAMS: &[&str] = &[
     "tlsprobe",
     "spacecloud",
     "churn",
+    "spacedesk",
+    "deskapps",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -1217,6 +1219,13 @@ fn type_on_guest(
         Typing::None => Ok(()),
         Typing::Keyboard => {
             for line in lines {
+                // A line starting with `!` is a step of a script rather than text:
+                // `!key alt-tab` presses a combination, `!wait text` waits for the log
+                // to show it, `!shot name` keeps a picture of the screen.
+                if let Some(step) = line.strip_prefix('!') {
+                    script_step(&mut mon, step, log_path, guest_gone)?;
+                    continue;
+                }
                 for ch in line.chars() {
                     monitor_cmd(&mut mon, &format!("sendkey {}", key_name(ch)?), KEY_DRAIN)?;
                     std::thread::sleep(Duration::from_millis(30));
@@ -1243,6 +1252,105 @@ fn type_on_guest(
             Ok(())
         }
     }
+}
+
+/// One scripted step (see `type_on_guest`).
+fn script_step(
+    mon: &mut std::os::unix::net::UnixStream,
+    step: &str,
+    log_path: &Path,
+    guest_gone: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    let (verb, arg) = step.split_once(' ').unwrap_or((step, ""));
+    match verb {
+        "key" => {
+            monitor_cmd(mon, &format!("sendkey {arg}"), KEY_DRAIN)?;
+            std::thread::sleep(Duration::from_millis(300));
+            Ok(())
+        }
+        "wait" => wait_for_marker(log_path, arg, guest_gone),
+        "sleep" => {
+            std::thread::sleep(Duration::from_millis(arg.parse().map_err(|_| format!("sleep {arg:?}"))?));
+            Ok(())
+        }
+        "shot" => screenshot(mon, log_path, arg),
+        _ => Err(format!("unknown script step {step:?}")),
+    }
+}
+
+/// Keep a picture of the screen as `<log dir>/<log stem>-<name>.png`: QEMU writes
+/// what the display shows as PPM, and the harness turns it into a PNG half the size
+/// -- small enough to keep as evidence, large enough to read.
+fn screenshot(mon: &mut std::os::unix::net::UnixStream, log_path: &Path, name: &str) -> Result<(), String> {
+    let stem = log_path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ppm = log_path.with_file_name(format!("{stem}-{name}.ppm"));
+    let png_path = log_path.with_file_name(format!("{stem}-{name}.png"));
+    fs::remove_file(&ppm).ok();
+    monitor_cmd(mon, &format!("screendump {}", ppm.display()), Duration::from_millis(500))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let raw = loop {
+        if let Ok(b) = fs::read(&ppm)
+            && let Some(img) = parse_ppm(&b)
+        {
+            break img;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("QEMU never wrote the screenshot {}", ppm.display()));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let (w, h, rgb) = raw;
+    let (hw, hh) = (w / 2, h / 2);
+    let mut half = Vec::with_capacity(hw * hh * 3);
+    for y in 0..hh {
+        for x in 0..hw {
+            for c in 0..3 {
+                let at = |xx: usize, yy: usize| rgb[(yy * w + xx) * 3 + c] as u32;
+                let v = (at(2 * x, 2 * y)
+                    + at(2 * x + 1, 2 * y)
+                    + at(2 * x, 2 * y + 1)
+                    + at(2 * x + 1, 2 * y + 1))
+                    / 4;
+                half.push(v as u8);
+            }
+        }
+    }
+    let f = fs::File::create(&png_path).map_err(|e| format!("{}: {e}", png_path.display()))?;
+    let mut enc = png::Encoder::new(io::BufWriter::new(f), hw as u32, hh as u32);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.set_compression(png::Compression::Best);
+    let mut writer = enc.write_header().map_err(|e| format!("png: {e}"))?;
+    writer.write_image_data(&half).map_err(|e| format!("png: {e}"))?;
+    fs::remove_file(&ppm).ok();
+    Ok(())
+}
+
+/// Width, height and RGB bytes of a binary PPM (`P6`, maxval 255).
+fn parse_ppm(b: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
+    let mut fields = Vec::new();
+    let mut i = 0;
+    while fields.len() < 4 && i < b.len() {
+        if b[i] == b'#' {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if b[i].is_ascii_whitespace() {
+            i += 1;
+        } else {
+            let start = i;
+            while i < b.len() && !b[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            fields.push(String::from_utf8_lossy(&b[start..i]).into_owned());
+        }
+    }
+    if fields.len() < 4 || fields[0] != "P6" || fields[3] != "255" {
+        return None;
+    }
+    let (w, h): (usize, usize) = (fields[1].parse().ok()?, fields[2].parse().ok()?);
+    let data = b.get(i + 1..i + 1 + w * h * 3)?;
+    Some((w, h, data.to_vec()))
 }
 
 /// How long to drain the monitor after a keystroke: long enough that its echo never
@@ -1410,6 +1518,60 @@ const TERMINAL_MARKERS: &[&str] = &[
     "[shell] worker stopped (hang), last exit code -1",
     "[shell] closing the session",
     "[term] session ended",
+];
+
+/// The desktop driven from the keyboard (ADR-0020): every step a person would take,
+/// with a picture of the screen at the points worth seeing. `!wait` waits for the
+/// desktop's own account of a step; keys typed after it are handled in order.
+const DESKTOP_SCRIPT: &[&str] = &[
+    "!wait [desk] window 1 'Terminal' (terminal) opened",
+    "!sleep 600",
+    "!shot 1-terminal",
+    "ls /spaceos",
+    "!wait [deskterm] /spaceos:",
+    "!key meta_l-e",
+    "!wait [desk] window 2 'Files' (files) opened",
+    "!key down",
+    "!key down",
+    "!key meta_l-a",
+    "!wait [desk] window 3 'Agent Center' (agent) opened",
+    // The inference worker crashes; everything else must carry on.
+    "!key 2",
+    "!wait [deskagent] worker 'crash' crashed (page fault)",
+    "!sleep 600",
+    "!shot 2-worker-crashed",
+    "!key alt-tab",
+    "status",
+    "!wait the session has served",
+    "!key alt-tab",
+    "!key down",
+    "!key alt-tab",
+    // A worker that never returns, and the Stop that ends it.
+    "!key 3",
+    "!wait [deskagent] worker 'hang' running",
+    "!key s",
+    "!wait [deskagent] Stop: worker 'hang' stopped",
+    "!key alt-shift-right",
+    "!wait [desk] resized 'Agent Center'",
+    "!key alt-down",
+    "!wait [desk] moved 'Agent Center'",
+    "!key meta_l-m",
+    "!wait [desk] minimized 'Agent Center'",
+    "!key ctrl-alt-right",
+    "!wait [desk] workspace 2",
+    "!key ctrl-alt-left",
+    "!wait [desk] workspace 1",
+    "!key meta_l-h",
+    "!wait [desk] high contrast on",
+    "!sleep 600",
+    "!shot 3-high-contrast",
+    "!key meta_l-h",
+    "!wait [desk] high contrast off",
+    "!key alt-f4",
+    "!wait closed: the app",
+    "!sleep 600",
+    "!shot 4-after-close",
+    "!key ctrl-alt-delete",
 ];
 
 /// What the lab services must never write, in one pass or in a thousand.
@@ -1668,6 +1830,46 @@ const SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "desktop",
+        // The image booted into the desktop (ADR-0020) and driven from the emulated
+        // keyboard: windows opened, used, moved, resized, minimized, moved between
+        // workspaces and closed, an inference worker crashing and another stopped --
+        // with screenshots kept as `build/logs/desktop-*.png`.
+        cmdline: "init=bin/spacedesk",
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "[kernel] display: leased to pid 1 'bin/spacedesk'",
+            "[desk] Space OS desktop on a 1280x800 screen",
+            "[desk] window 1 'Terminal' (terminal) opened",
+            "[deskterm] /spaceos:",
+            "[desk] window 2 'Files' (files) opened",
+            "[deskfiles] /spaceos:",
+            "[desk] window 3 'Agent Center' (agent) opened",
+            "[deskagent] worker 'crash' crashed (page fault)",
+            // Typed into the terminal after the crash, and answered.
+            "the session has served",
+            "[deskagent] Stop: worker 'hang' stopped",
+            "[desk] shortcut Alt+Tab",
+            "[desk] resized 'Agent Center'",
+            "[desk] moved 'Agent Center'",
+            "[desk] minimized 'Agent Center'",
+            "[desk] workspace 2",
+            "[desk] workspace 1",
+            "[desk] high contrast on",
+            "closed: the app",
+            "[desk] shutting down at the person's request",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "unknown command", "did not start", "no window", "cannot"],
+        runs: 1,
+        typing: Typing::Keyboard,
+        final_boot_markers: &[],
+        type_lines: DESKTOP_SCRIPT,
+        ready_marker: "[desk] desktop ready",
         lab_must_contain: &[],
         lab_must_not_contain: &[],
     },

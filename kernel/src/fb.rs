@@ -1,9 +1,19 @@
 //! Framebuffer text console (software rendering, PRD §6 MVP graphics).
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use alloc::sync::{Arc, Weak};
+use alloc::vec::Vec;
+
 use noto_sans_mono_bitmap::{FontWeight, RasterHeight, get_raster, get_raster_width};
 use spaceabi::boot::{BootInfo, fb_format};
+use spaceabi::error::Error;
+use spaceabi::syscall::DisplayInfo;
+use x86_64::PhysAddr;
+use x86_64::structures::paging::PhysFrame;
 
 use crate::mm::phys_to_virt;
+use crate::proc::handles::{MemoryKind, MemoryObject};
 use crate::sync::SpinLock;
 
 const FONT_H: usize = 16;
@@ -11,6 +21,8 @@ const BG: (u8, u8, u8) = (0x0B, 0x12, 0x20);
 const FG: (u8, u8, u8) = (0xD8, 0xE0, 0xEC);
 
 struct Fb {
+    /// Physical address of pixel (0, 0), for handing the screen to user space.
+    phys: u64,
     ptr: *mut u32,
     width: usize,
     height: usize,
@@ -30,6 +42,10 @@ struct Fb {
 unsafe impl Send for Fb {}
 
 static FB: SpinLock<Option<Fb>> = SpinLock::new(None);
+
+/// A display server holds the screen (`SYS_DISPLAY_OPEN`): the console keeps
+/// writing to the serial port and leaves the pixels alone.
+static LEASED: AtomicBool = AtomicBool::new(false);
 
 impl Fb {
     fn pack(&self, (r, g, b): (u8, u8, u8)) -> u32 {
@@ -159,6 +175,7 @@ pub fn init(bi: &BootInfo) {
         return;
     }
     let mut fb = Fb {
+        phys: f.phys_addr,
         ptr: phys_to_virt(f.phys_addr).as_mut_ptr::<u32>(),
         width,
         height,
@@ -186,6 +203,9 @@ pub fn init(bi: &BootInfo) {
 }
 
 pub fn write_str(s: &str) {
+    if LEASED.load(Ordering::Acquire) {
+        return;
+    }
     // The console lock is already held by the caller; FB has its own lock so the
     // panic path can bypass the console lock safely.
     // `try_lock`: if the framebuffer lock is held (panic inside the renderer) we
@@ -195,5 +215,74 @@ pub fn write_str(s: &str) {
         for c in s.chars() {
             fb.put_char(c);
         }
+    }
+}
+
+/// Hand the screen to a display server: a memory object over the framebuffer's
+/// pages, which the server maps. One lease at a time. The object's frames are the
+/// device's, not RAM: dropping it gives the screen back ([`release`]) and frees
+/// nothing.
+pub fn lease() -> Result<Arc<MemoryObject>, Error> {
+    let g = FB.lock();
+    let fb = g.as_ref().ok_or(Error::NotFound)?;
+    if LEASED.swap(true, Ordering::AcqRel) {
+        return Err(Error::Busy);
+    }
+    let base = fb.phys & !0xFFF;
+    let bytes = (fb.phys - base) + (fb.stride * fb.height * 4) as u64;
+    let pages = bytes.div_ceil(4096) as usize;
+    let mut frames = Vec::new();
+    if frames.try_reserve_exact(pages).is_err() {
+        LEASED.store(false, Ordering::Release);
+        return Err(Error::NoMemory);
+    }
+    for i in 0..pages as u64 {
+        frames.push(PhysFrame::containing_address(PhysAddr::new(base + i * 4096)));
+    }
+    Ok(Arc::new(MemoryObject {
+        frames,
+        len: pages as u64 * 4096,
+        owner: Weak::new(),
+        kind: MemoryKind::Display,
+    }))
+}
+
+/// The screen's geometry, for whoever holds the lease.
+pub fn info() -> Option<DisplayInfo> {
+    let g = FB.lock();
+    let fb = g.as_ref()?;
+    Some(DisplayInfo {
+        width: fb.width as u32,
+        height: fb.height as u32,
+        stride: fb.stride as u32,
+        format: if fb.bgr { fb_format::BGRX } else { fb_format::RGBX },
+        offset: fb.phys & 0xFFF,
+        size: (fb.phys & 0xFFF) + (fb.stride * fb.height * 4) as u64,
+    })
+}
+
+/// The lease is over -- the display server quit, crashed or was killed, and the
+/// last mapping went with it. The console takes the screen back and says so: a
+/// desktop that fails must leave a way to see what happened (PRD §3, recovery).
+pub fn release() {
+    if !LEASED.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    if let Some(mut g) = FB.try_lock()
+        && let Some(fb) = g.as_mut()
+    {
+        fb.clear();
+    }
+    println!("[kernel] display: returned to the console");
+}
+
+/// The kernel is going down: whatever a display server drew, the panic message must
+/// be what the person sees.
+pub fn take_back_for_panic() {
+    if LEASED.swap(false, Ordering::AcqRel)
+        && let Some(mut g) = FB.try_lock()
+        && let Some(fb) = g.as_mut()
+    {
+        fb.clear();
     }
 }

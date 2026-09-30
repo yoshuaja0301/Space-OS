@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use x86_64::structures::paging::PageTableFlags;
 
 use crate::mm::{self, AddressSpace, frame, heap, paging};
-use crate::proc::handles::MemoryObject;
+use crate::proc::handles::{MemoryKind, MemoryObject};
 use crate::{arch, cmdline};
 
 const SCRATCH_VA: u64 = mm::KSTACK_BASE + 512 * 1024 * 1024;
@@ -92,7 +92,12 @@ pub fn run_early() {
         for _ in 0..2 {
             frames.push(frame::alloc_zeroed().expect("frame"));
         }
-        let object = Arc::new(MemoryObject { frames, len: 2 * mm::PAGE_SIZE, owner: Weak::new() });
+        let object = Arc::new(MemoryObject {
+            frames,
+            len: 2 * mm::PAGE_SIZE,
+            owner: Weak::new(),
+            kind: MemoryKind::Ram,
+        });
         let mut space = AddressSpace::new().expect("address space");
         let addr = space.map_shared(object.clone(), true).expect("map shared");
         let (_, mapped) = frame::stats();

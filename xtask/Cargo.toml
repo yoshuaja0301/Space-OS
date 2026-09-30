@@ -22,4 +22,6 @@ getrandom = "0.2"
 # Decodes every instruction of the kernel and the programs, to prove none of them
 # needs the FPU or vector units the kernel switches off (ADR-0017).
 iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info", "gas"] }
+# Screenshots of the desktop (QEMU's `screendump` writes PPM) kept as evidence.
+png = "0.17"
 spaceabi.workspace = true

@@ -9,6 +9,7 @@
 extern crate alloc;
 
 mod cloudtest;
+mod desktest;
 mod netcheck;
 mod nettest;
 mod stress;
@@ -626,7 +627,23 @@ pub extern "C" fn space_main() -> i32 {
         "[init] network: {}",
         if nic { "virtio-net present" } else { "none; network tests will be skipped" }
     );
-    let hw = Hardware { disk, nic };
+    // A screen, likewise: taking it is how to find out, and it goes straight back.
+    let display = match sys::display_open(ROOT) {
+        Ok(h) => {
+            sys::handle_close(h).ok();
+            true
+        }
+        Err(Error::NotFound) => false,
+        Err(e) => {
+            println!("[init] display_open failed: {e}");
+            false
+        }
+    };
+    println!(
+        "[init] display: {}",
+        if display { "framebuffer present" } else { "none; desktop tests will be skipped" }
+    );
+    let hw = Hardware { disk, nic, display };
     match stress::mode() {
         Ok(None) => {}
         Ok(Some(limit)) => return stress::run(hw, limit),
@@ -655,18 +672,20 @@ pub extern "C" fn space_main() -> i32 {
     0
 }
 
-/// What this machine has, found once at boot. A configuration without a disk or a
-/// network card is supported: the tests that need one are skipped, not failed.
+/// What this machine has, found once at boot. A configuration without a disk, a
+/// network card or a screen is supported: the tests that need one are skipped,
+/// not failed.
 #[derive(Clone, Copy)]
 struct Hardware {
     disk: bool,
     nic: bool,
+    display: bool,
 }
 
 /// Every acceptance test, in order. `pass` counts how often they have run in this
 /// boot: 1, unless the stability run (ADR-0019) repeats them.
 fn suite(hw: Hardware, pass: u32) -> Runner {
-    let Hardware { disk, nic } = hw;
+    let Hardware { disk, nic, display } = hw;
     let mut r = Runner { passed: 0, failed: Vec::new(), skipped: Vec::new() };
 
     r.run("K01", "boot reached init in user space", || {
@@ -1433,24 +1452,43 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
                     return Err(String::from("the sender did not report ready"));
                 }
                 let asleep_from = sys::ticks_ms();
-                let woken = sys::wait_any(&[h], 3000);
-                let woke_at = sys::ticks_ms();
+                let deadline = asleep_from + 3000;
+                // Sleep until the gateway's answer is there. Whatever else arrives
+                // meanwhile wakes the receiver too -- that is what waiting on the
+                // lease means, and a network is never quiet -- and is set aside.
+                let mut others = 0u32;
+                let woke_at = loop {
+                    let left = deadline.saturating_sub(sys::ticks_ms()).max(1);
+                    match sys::wait_any(&[h], left) {
+                        Ok(0) => {}
+                        Err(Error::TimedOut) => {
+                            return Err(String::from("the gateway's answer never woke the receiver"));
+                        }
+                        other => return Err(alloc::format!("wait_any gave {other:?}")),
+                    }
+                    let at = sys::ticks_ms();
+                    let mut answered = false;
+                    while let Ok(n) = sys::net_recv(h, &mut frame) {
+                        if netcheck::parse_arp_reply(&frame[..n], me, netcheck::GATEWAY_IP).is_some() {
+                            answered = true;
+                        } else {
+                            others += 1;
+                        }
+                    }
+                    if answered {
+                        break at;
+                    }
+                };
+                if others > 0 {
+                    println!(
+                        "[init] network: {others} other frame(s) arrived during the sleep and were set aside"
+                    );
+                }
                 let (n, _) = sys::recv(mine, &mut buf, false).map_err(|e| alloc::format!("report: {e}"))?;
                 if n != 8 {
                     return Err(alloc::format!("the sender's report is {n} bytes"));
                 }
                 let sent_at = u64::from_le_bytes(buf[..8].try_into().unwrap_or([0; 8]));
-                match woken {
-                    Ok(0) => {}
-                    other => return Err(alloc::format!("wait_any gave {other:?}")),
-                }
-                let mut answered = false;
-                while let Ok(n) = sys::net_recv(h, &mut frame) {
-                    answered |= netcheck::parse_arp_reply(&frame[..n], me, netcheck::GATEWAY_IP).is_some();
-                }
-                if !answered {
-                    return Err(String::from("woken, but not by the gateway's answer"));
-                }
                 // Signed: a frame that left before the sleep began is the failure.
                 let left_into_sleep = sent_at as i64 - asleep_from as i64;
                 println!(
@@ -2546,6 +2584,38 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         }
         Ok(())
     });
+
+    // The desktop (ADR-0020): driven as its operator, through the same paths the
+    // keyboard's keys take. Skipped on a machine without a usable framebuffer.
+    let no_screen = "no framebuffer on this machine";
+    r.run_if(
+        display,
+        no_screen,
+        "U01",
+        "the desktop takes the screen, and one display server at a time",
+        desktest::lease,
+    );
+    r.run_if(
+        display,
+        no_screen,
+        "U01",
+        "windows take the keyboard, move, resize, minimize, change workspace and close from the keyboard",
+        desktest::windows,
+    );
+    r.run_if(
+        display && disk,
+        "no framebuffer or no disk on this machine",
+        "U01",
+        "the desktop, terminal, file manager and Stop keep working while inference workers crash",
+        desktest::worker_crash,
+    );
+    r.run_if(
+        display,
+        no_screen,
+        "U01",
+        "a desktop that is killed gives the screen back, and a new one starts",
+        desktest::killed,
+    );
 
     r.run_if(disk, "no disk on this machine", "D01", "a written file reads back byte for byte", || {
         const PATH: &str = "/spaceos/var/scratch.dat";

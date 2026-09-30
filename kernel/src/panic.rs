@@ -28,6 +28,7 @@ fn panic(info: &PanicInfo) -> ! {
         arch::qemu_exit(qemu_exit::PANIC);
         arch::halt_forever();
     }
+    crate::fb::take_back_for_panic();
     eprint!("\n!!! KERNEL PANIC !!!\n");
     if let Some(loc) = info.location() {
         eprint!("at {}:{}:{}\n", loc.file(), loc.line(), loc.column());

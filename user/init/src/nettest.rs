@@ -41,9 +41,9 @@ pub struct Lab {
 }
 
 impl Lab {
-    /// Frames the device has transmitted so far.
-    pub fn frames_sent(&self) -> Result<u64, String> {
-        sys::net_info(self.watch).map(|i| i.tx_frames).map_err(|e| format!("net_info: {e}"))
+    /// Frames transmitted and frames handed to the service, so far.
+    pub fn counters(&self) -> Result<(u64, u64), String> {
+        sys::net_info(self.watch).map(|i| (i.tx_frames, i.rx_frames)).map_err(|e| format!("net_info: {e}"))
     }
 
     /// Let go of everything held; the service itself is left running.
@@ -230,39 +230,72 @@ pub fn echo_large(lab: &Lab) -> Result<(), String> {
     Ok(())
 }
 
+/// Tries [`sends_nothing`] makes before a frame that could be an answer counts.
+const QUIET_TRIES: u32 = 5;
+
+/// Run `f`, which must put nothing on the wire, and hold it to that with the
+/// device's own counters.
+///
+/// A network is never quiet, though. A peer may send at any moment -- a connection
+/// left behind by a network service killed earlier only gets its reset when the
+/// peer next retransmits -- and answering it is a frame. So a count taken while
+/// nothing arrived is conclusive; one taken while frames came in is taken again,
+/// up to [`QUIET_TRIES`] times. A frame `f` itself causes shows in every try.
+pub fn sends_nothing<T>(lab: &Lab, mut f: impl FnMut() -> Result<T, String>) -> Result<(T, u64), String> {
+    for answered in 0..QUIET_TRIES {
+        // Let earlier work's last segments go out before counting.
+        sys::sleep_ms(20);
+        let (tx0, rx0) = lab.counters()?;
+        let v = f()?;
+        let (tx1, rx1) = lab.counters()?;
+        if tx1 == tx0 {
+            return Ok((v, u64::from(answered)));
+        }
+        if rx1 == rx0 {
+            return Err(format!(
+                "{} frame(s) left the device, and nothing had arrived that they could answer",
+                tx1 - tx0
+            ));
+        }
+        println!(
+            "[init] network: {} frame(s) left while {} arrived (answers to something else); counting again",
+            tx1 - tx0,
+            rx1 - rx0
+        );
+    }
+    Err(format!("frames left the device in each of {QUIET_TRIES} tries, every time while others arrived"))
+}
+
 pub fn refused_before_sending(lab: &Lab) -> Result<(), String> {
     let s = &lab.session;
-    // Let the previous tests' last segments go out before counting.
-    sys::sleep_ms(20);
-    let (_, refused_before, _) = s.stats().map_err(|e| format!("stats: {e}"))?;
-    let sent_before = lab.frames_sent()?;
     let tries: [(&str, u16, &str); 3] = [
         ("api.cloud.test", 80, "a name that is not on the list"),
         ("echo.lab.test", 8, "an allowed name on another port"),
         ("10.0.2.101", 7, "the allowed name's address, written as an address"),
     ];
-    for (host, port, what) in tries {
-        match s.connect(host, port, 1000) {
-            Err(Error::Denied) => {}
-            Ok(_) => return Err(format!("{what} ({host}:{port}) was let through")),
-            Err(e) => return Err(format!("{what} ({host}:{port}): {e}, expected Denied")),
+    let ((before, after), retried) = sends_nothing(lab, || {
+        let (_, refused_before, _) = s.stats().map_err(|e| format!("stats: {e}"))?;
+        for (host, port, what) in tries {
+            match s.connect(host, port, 1000) {
+                Err(Error::Denied) => {}
+                Ok(_) => return Err(format!("{what} ({host}:{port}) was let through")),
+                Err(e) => return Err(format!("{what} ({host}:{port}): {e}, expected Denied")),
+            }
         }
-    }
-    match s.resolve("api.cloud.test", 1000) {
-        Err(Error::Denied) => {}
-        other => return Err(format!("looking up a name not on the list gave {other:?}")),
-    }
-    let sent_after = lab.frames_sent()?;
-    let (_, refused_after, _) = s.stats().map_err(|e| format!("stats: {e}"))?;
+        match s.resolve("api.cloud.test", 1000) {
+            Err(Error::Denied) => {}
+            other => return Err(format!("looking up a name not on the list gave {other:?}")),
+        }
+        let (_, refused_after, _) = s.stats().map_err(|e| format!("stats: {e}"))?;
+        Ok((refused_before, refused_after))
+    })
+    .map_err(|e| format!("while refusing: {e}"))?;
     println!(
-        "[init] network: 4 refusals counted ({refused_before} -> {refused_after}); frames sent meanwhile: {}",
-        sent_after - sent_before
+        "[init] network: 4 refusals counted ({before} -> {after}); no frame sent meanwhile{}",
+        if retried > 0 { format!(" (counted {} time(s))", retried + 1) } else { String::new() }
     );
-    if sent_after != sent_before {
-        return Err(format!("{} frame(s) left the device while refusing", sent_after - sent_before));
-    }
-    if refused_after != refused_before + 4 {
-        return Err(format!("refusals counted {refused_before} -> {refused_after}, expected +4"));
+    if after != before + 4 {
+        return Err(format!("refusals counted {before} -> {after}, expected +4"));
     }
     Ok(())
 }
@@ -419,6 +452,11 @@ pub fn tls_probe(lab: &Lab, root: Handle, case: &str, port: u16) -> Result<Strin
 /// lease comes back, and a new instance starts, serves and quits cleanly.
 pub fn kill_and_restart(root: Handle, lab: Lab) -> Result<(), String> {
     let mut s = lab.session.connect("echo.lab.test", 7, 3000).map_err(|e| format!("connect: {e}"))?;
+    // The name lookup had a connection of its own, and the DNS server's half of its
+    // close comes a few milliseconds after ours. Killed before that, the service
+    // would leave the server's FIN with nobody to acknowledge it -- a second open
+    // connection this test is not about, and one the capture rightly counts.
+    sys::sleep_ms(200);
     sys::kill(lab.process).map_err(|e| format!("kill: {e}"))?;
     let st = sys::wait(lab.process).map_err(|e| format!("wait: {e}"))?;
     if !st.is_killed_by(kill_reason::SIGNAL) {

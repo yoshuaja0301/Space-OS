@@ -100,12 +100,45 @@ pub mod nr {
     /// size. Needs the root `STATS` right: it is how the kernel was configured,
     /// which a program told nothing else has no business reading.
     pub const CMDLINE: usize = 37;
+    /// `display_open(root_handle) -> display_handle`: take the screen. Needs the root
+    /// `DISPLAY` right; one lease at a time (`Busy`), `NotFound` without a usable
+    /// framebuffer. The handle is a memory object: `SYS_VMO_MAP` maps the pixels.
+    /// While it or a mapping of it lives the kernel console stops drawing, and it
+    /// takes the screen back when the last of them is gone.
+    pub const DISPLAY_OPEN: usize = 38;
+    /// `display_info(display_handle, out: *mut DisplayInfo) -> 0`
+    pub const DISPLAY_INFO: usize = 39;
+    /// `input_read(root_handle, out: *mut InputEvent, count) -> events`: key presses
+    /// and releases with the modifiers held, oldest first (see [`crate::input`]).
+    /// Needs the root `CONSOLE` right; at most [`super::INPUT_READ_MAX`] per call.
+    /// Never blocks: 0 means nothing happened.
+    pub const INPUT_READ: usize = 40;
 
-    pub const COUNT: usize = 38;
+    pub const COUNT: usize = 41;
 }
 
 /// Most bytes one `SYS_RANDOM` call returns.
 pub const RANDOM_MAX: usize = 256;
+
+/// Most events one `SYS_INPUT_READ` call returns.
+pub const INPUT_READ_MAX: usize = 64;
+
+/// What `SYS_DISPLAY_INFO` reports about the leased screen.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    /// Pixels per row in the mapping; may exceed `width`.
+    pub stride: u32,
+    /// [`crate::boot::fb_format::RGBX`] or [`crate::boot::fb_format::BGRX`], four
+    /// bytes per pixel.
+    pub format: u32,
+    /// Byte offset of pixel (0, 0) in the mapping.
+    pub offset: u64,
+    /// Bytes in the mapping.
+    pub size: u64,
+}
 
 /// Largest Ethernet frame `SYS_NET_SEND` accepts and `SYS_NET_RECV` returns: 14 bytes
 /// of header and 1500 of payload. No VLAN tags, no jumbo frames, no FCS.

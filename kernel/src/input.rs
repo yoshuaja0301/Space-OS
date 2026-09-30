@@ -10,6 +10,8 @@
 //! service decides what a line is and what to show. That keeps the kernel out of
 //! the business of terminal semantics, which is user space's to define.
 
+use spaceabi::input::{InputEvent, flags, key, kind};
+
 use crate::sync::SpinLock;
 
 /// Bytes buffered before the oldest are dropped. A person cannot outrun this, and a
@@ -67,61 +69,179 @@ pub fn take_dropped() -> u32 {
     core::mem::take(&mut RING.lock().dropped)
 }
 
-/// Translate one scan code (set 1) into a byte, tracking the shift keys.
+/// What one scan code meant: the key event, if it completed one, and the byte it
+/// types for a terminal, if any.
+pub struct Decoded {
+    pub event: Option<InputEvent>,
+    pub ch: Option<u8>,
+}
+
+/// The decoder's memory between scan codes: the `0xE0` prefix, and which
+/// modifiers are down. Each modifier key is tracked on its own side: releasing one
+/// while the other is still held must not drop the modifier.
+struct KeyState {
+    extended: bool,
+    shift_left: bool,
+    shift_right: bool,
+    ctrl_left: bool,
+    ctrl_right: bool,
+    alt_left: bool,
+    alt_right: bool,
+    super_left: bool,
+    super_right: bool,
+}
+
+static KEYS: SpinLock<KeyState> = SpinLock::new(KeyState {
+    extended: false,
+    shift_left: false,
+    shift_right: false,
+    ctrl_left: false,
+    ctrl_right: false,
+    alt_left: false,
+    alt_right: false,
+    super_left: false,
+    super_right: false,
+});
+
+impl KeyState {
+    fn mods(&self) -> u8 {
+        let mut m = 0;
+        if self.shift_left || self.shift_right {
+            m |= flags::SHIFT;
+        }
+        if self.ctrl_left || self.ctrl_right {
+            m |= flags::CTRL;
+        }
+        if self.alt_left || self.alt_right {
+            m |= flags::ALT;
+        }
+        if self.super_left || self.super_right {
+            m |= flags::SUPER;
+        }
+        m
+    }
+}
+
+/// Decode one scan code (set 1).
 ///
-/// Only the keys a command line needs are mapped. An unmapped key produces nothing
-/// rather than a guess.
+/// Every key that goes down or up becomes an event for a desktop, with the
+/// modifiers held. A press also types a byte for a terminal when the key has one
+/// and no Ctrl, Alt or Super is held: those make shortcuts, not text.
 ///
-/// Extended keys (arrows, Insert, the keypad) arrive as `0xE0` followed by a second
-/// byte. The second byte is deliberately dropped except for the two keypad keys that
-/// mean something here, because several of those sequences carry a *fake* shift
-/// (`0xE0 0x2A` / `0xE0 0x36`): decoding it as a real shift press would leave the
-/// keyboard stuck in upper case after an arrow key.
-pub fn scancode(code: u8) -> Option<u8> {
+/// Extended keys (arrows, the right-hand modifiers, Super, the keypad) arrive as
+/// `0xE0` then a second byte. Several of those sequences carry a *fake* shift
+/// (`0xE0 0x2A` / `0xE0 0x36`); counting it as a real shift would leave the keyboard
+/// stuck in upper case after an arrow key, so it is dropped.
+pub fn decode(code: u8) -> Decoded {
     const UNSHIFTED: [u8; 58] = *b"\0\x1b1234567890-=\x08\tqwertyuiop[]\n\0asdfghjkl;'`\0\\zxcvbnm,./\0*\0 ";
     const SHIFTED: [u8; 58] = *b"\0\x1b!@#$%^&*()_+\x08\tQWERTYUIOP{}\n\0ASDFGHJKL:\"~\0|ZXCVBNM<>?\0*\0 ";
-    /// Keypad Enter and keypad `/`: the only extended keys worth a character.
-    const EXTENDED_ENTER: u8 = 0x1C;
-    const EXTENDED_SLASH: u8 = 0x35;
-    // Both shift keys are tracked separately: releasing one while the other is still
-    // held must not drop out of upper case.
-    static SHIFT_LEFT: SpinLock<bool> = SpinLock::new(false);
-    static SHIFT_RIGHT: SpinLock<bool> = SpinLock::new(false);
-    static EXTENDED: SpinLock<bool> = SpinLock::new(false);
-
+    let nothing = Decoded { event: None, ch: None };
+    let mut k = KEYS.lock();
     if code == 0xE0 {
-        *EXTENDED.lock() = true;
-        return None;
+        k.extended = true;
+        return nothing;
     }
-    let was_extended = core::mem::replace(&mut *EXTENDED.lock(), false);
+    let extended = core::mem::replace(&mut k.extended, false);
     // Bit 7 set means the key was released.
-    let released = code & 0x80 != 0;
-    let key = code & 0x7F;
-    if was_extended {
-        if released {
-            return None;
-        }
-        return match key {
-            EXTENDED_ENTER => Some(b'\n'),
-            EXTENDED_SLASH => Some(b'/'),
+    let pressed = code & 0x80 == 0;
+    let make = code & 0x7F;
+    if extended && (make == 0x2A || make == 0x36) {
+        return nothing; // a fake shift
+    }
+    let keycode = if extended { key::EXT | make as u16 } else { make as u16 };
+    match keycode {
+        key::LSHIFT => k.shift_left = pressed,
+        key::RSHIFT => k.shift_right = pressed,
+        key::LCTRL => k.ctrl_left = pressed,
+        key::RCTRL => k.ctrl_right = pressed,
+        key::LALT => k.alt_left = pressed,
+        key::RALT => k.alt_right = pressed,
+        key::LSUPER => k.super_left = pressed,
+        key::RSUPER => k.super_right = pressed,
+        _ => {}
+    }
+    let mods = k.mods();
+    drop(k);
+    let ch = if !pressed || mods & (flags::CTRL | flags::ALT | flags::SUPER) != 0 {
+        None
+    } else if extended {
+        match keycode {
+            key::KP_ENTER => Some(b'\n'),
+            key::KP_SLASH => Some(b'/'),
             _ => None,
+        }
+    } else {
+        let table = if mods & flags::SHIFT != 0 { &SHIFTED } else { &UNSHIFTED };
+        match table.get(make as usize).copied() {
+            Some(0) | None => None,
+            Some(b) => Some(b),
+        }
+    };
+    let event = InputEvent {
+        kind: kind::KEY,
+        flags: mods | if pressed { flags::PRESSED } else { 0 },
+        key: keycode,
+        ch: ch.map_or(0, u32::from),
+        time_ms: crate::sched::uptime_ms(),
+    };
+    Decoded { event: Some(event), ch }
+}
+
+/// Translate one scan code into the byte it types, if any. The terminal's half of
+/// [`decode`]; the kernel selftest drives it with real sequences.
+pub fn scancode(code: u8) -> Option<u8> {
+    decode(code).ch
+}
+
+/// Events buffered for a desktop before the oldest are dropped.
+const EVENTS: usize = 128;
+
+struct EventRing {
+    buf: [InputEvent; EVENTS],
+    head: usize,
+    len: usize,
+    dropped: u32,
+}
+
+const NO_EVENT: InputEvent = InputEvent { kind: 0, flags: 0, key: 0, ch: 0, time_ms: 0 };
+
+static EVENT_RING: SpinLock<EventRing> =
+    SpinLock::new(EventRing { buf: [NO_EVENT; EVENTS], head: 0, len: 0, dropped: 0 });
+
+/// Queue one key event. Called from interrupt context.
+pub fn push_event(e: InputEvent) {
+    let mut r = EVENT_RING.lock();
+    if r.len == EVENTS {
+        r.head = (r.head + 1) % EVENTS;
+        r.len -= 1;
+        r.dropped = r.dropped.saturating_add(1);
+    }
+    let tail = (r.head + r.len) % EVENTS;
+    r.buf[tail] = e;
+    r.len += 1;
+}
+
+/// Take up to `out.len()` events, oldest first. When events were dropped since the
+/// last call, the first one returned says how many ([`kind::LOST`]).
+pub fn read_events(out: &mut [InputEvent]) -> usize {
+    let mut r = EVENT_RING.lock();
+    let mut n = 0;
+    if r.dropped > 0 && !out.is_empty() {
+        out[0] = InputEvent {
+            kind: kind::LOST,
+            flags: 0,
+            key: 0,
+            ch: core::mem::take(&mut r.dropped),
+            time_ms: crate::sched::uptime_ms(),
         };
+        n = 1;
     }
-    if key == 0x2A {
-        *SHIFT_LEFT.lock() = !released;
-        return None;
+    while n < out.len() && r.len > 0 {
+        let head = r.head;
+        out[n] = r.buf[head];
+        r.head = (head + 1) % EVENTS;
+        r.len -= 1;
+        n += 1;
     }
-    if key == 0x36 {
-        *SHIFT_RIGHT.lock() = !released;
-        return None;
-    }
-    if released {
-        return None;
-    }
-    let shifted = *SHIFT_LEFT.lock() || *SHIFT_RIGHT.lock();
-    let table = if shifted { &SHIFTED } else { &UNSHIFTED };
-    match table.get(key as usize).copied() {
-        Some(0) | None => None,
-        Some(b) => Some(b),
-    }
+    n
 }

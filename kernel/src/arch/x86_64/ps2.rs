@@ -79,7 +79,11 @@ pub fn read_scancodes() {
             if st & FROM_AUX != 0 {
                 continue;
             }
-            if let Some(b) = crate::input::scancode(byte) {
+            let d = crate::input::decode(byte);
+            if let Some(e) = d.event {
+                crate::input::push_event(e);
+            }
+            if let Some(b) = d.ch {
                 crate::input::push(b);
             }
         }

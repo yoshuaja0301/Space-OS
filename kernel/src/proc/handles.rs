@@ -19,18 +19,35 @@ pub struct OpenFile {
     pub node: crate::sync::SpinLock<FileNode>,
 }
 
+/// What a memory object's frames are.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MemoryKind {
+    /// RAM from the frame allocator, owned by the object.
+    Ram,
+    /// The framebuffer, leased to a display server (`SYS_DISPLAY_OPEN`). Device
+    /// memory: never handed to the frame allocator.
+    Display,
+}
+
 /// A block of physical frames several processes can map (the buffers of the
-/// Compute ABI). The frames belong to the object: mappings come and go, the frames
-/// are freed when the last handle to the object is closed.
+/// Compute ABI, or the screen). The frames belong to the object: mappings come and
+/// go, the frames are freed when the last handle and the last mapping are gone.
 pub struct MemoryObject {
     pub frames: Vec<PhysFrame>,
     pub len: u64,
     /// Process charged for the frames, so its quota is refunded when the object dies.
     pub owner: Weak<Process>,
+    pub kind: MemoryKind,
 }
 
 impl Drop for MemoryObject {
     fn drop(&mut self) {
+        if self.kind == MemoryKind::Display {
+            // The screen's pages are not the allocator's to take back.
+            self.frames.clear();
+            crate::fb::release();
+            return;
+        }
         if let Some(p) = self.owner.upgrade() {
             // `try_lock`: an owner that is tearing down already holds its address
             // space lock and is dropping the whole quota anyway.

@@ -19,7 +19,7 @@ use crate::arch::syscall::SyscallFrame;
 use crate::fs;
 use crate::ipc::channel::{Endpoint, Message};
 use crate::mm::{PAGE_SIZE, frame, heap};
-use crate::proc::handles::{HandleEntry, MemoryObject, Object, OpenFile};
+use crate::proc::handles::{HandleEntry, MemoryKind, MemoryObject, Object, OpenFile};
 use crate::proc::{self, Process};
 use crate::sched;
 
@@ -72,6 +72,9 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::CLOCK_REALTIME => sys_clock_realtime(),
         nr::RANDOM => sys_random(a[0], a[1]),
         nr::CMDLINE => sys_cmdline(a[0] as Handle, a[1], a[2]),
+        nr::DISPLAY_OPEN => sys_display_open(a[0] as Handle),
+        nr::DISPLAY_INFO => sys_display_info(a[0] as Handle, a[1]),
+        nr::INPUT_READ => sys_input_read(a[0] as Handle, a[1], a[2]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -226,6 +229,51 @@ fn sys_console_read(root: Handle, buf_ptr: u64, len: u64) -> Result<usize, Error
     // start delivering once more.
     crate::arch::serial::resume_input();
     Ok(n)
+}
+
+/// Key events for a display server: which key, pressed or released, with which
+/// modifiers. Same right as the typed bytes, and the same promise: never blocks.
+fn sys_input_read(root: Handle, ptr: u64, count: u64) -> Result<usize, Error> {
+    require_root(root, rights::CONSOLE)?;
+    if count > spaceabi::syscall::INPUT_READ_MAX as u64 {
+        return Err(Error::Invalid);
+    }
+    let size = core::mem::size_of::<spaceabi::input::InputEvent>() as u64;
+    // Check the destination before taking anything off the ring.
+    user_bytes(ptr, count * size, true)?;
+    let mut events = [spaceabi::input::InputEvent::default(); spaceabi::syscall::INPUT_READ_MAX];
+    let n = crate::input::read_events(&mut events[..count as usize]);
+    for (i, e) in events[..n].iter().enumerate() {
+        user_bytes(ptr + i as u64 * size, size, true)?.copy_from_slice(e.as_bytes());
+    }
+    Ok(n)
+}
+
+// ---- display --------------------------------------------------------------------
+
+fn sys_display_open(root: Handle) -> Result<usize, Error> {
+    require_root(root, rights::DISPLAY)?;
+    heap::reserve(cost::HANDLE)?;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    let screen = crate::fb::lease()?;
+    let (pid, name) = proc::current_identity();
+    println!("[kernel] display: leased to pid {pid} '{name}'; the console goes on on the serial port");
+    // A failed insert drops the object, and with it the lease.
+    let entry = HandleEntry { object: Object::Memory(screen), rights: rights::MEMORY_ALL };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+fn sys_display_info(h: Handle, out: u64) -> Result<usize, Error> {
+    let is_display = with_memory(h, rights::READ, |m, _| Ok(m.kind == MemoryKind::Display))?;
+    if !is_display {
+        return Err(Error::Denied);
+    }
+    let info = crate::fb::info().ok_or(Error::NotFound)?;
+    write_user(out, info)?;
+    Ok(0)
 }
 
 // ---- network device ------------------------------------------------------------
@@ -498,7 +546,7 @@ fn sys_vmo_create(len: u64) -> Result<usize, Error> {
     p.space.lock().used_pages += pages;
     // From here the object owns the frames: dropping it frees them and refunds the
     // quota, so a failed insert cannot leak.
-    let obj = Arc::new(MemoryObject { frames, len, owner: Arc::downgrade(&p) });
+    let obj = Arc::new(MemoryObject { frames, len, owner: Arc::downgrade(&p), kind: MemoryKind::Ram });
     let entry = HandleEntry { object: Object::Memory(obj), rights: rights::MEMORY_ALL };
     Ok(p.handles.lock().insert(entry)? as usize)
 }
