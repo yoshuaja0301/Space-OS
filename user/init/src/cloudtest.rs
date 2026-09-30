@@ -303,7 +303,12 @@ pub fn streaming(c: &Cloud) -> Result<(), String> {
     if o.deltas < 4 {
         return Err(format!("{} pieces arrived; the provider sent 4", o.deltas));
     }
-    if o.end_ms - first < 300 {
+    // An answer held back until it is complete arrives all at once: 0 ms between the
+    // first piece and the end. Streamed, the pieces are three gaps of 150 ms apart.
+    // One gap is the line: a busy host can hold the guest still long enough to bunch
+    // two pieces together (286 ms once, on a machine sharing its CPUs with three
+    // others), but not to fold three gaps into less than one.
+    if o.end_ms - first < 150 {
         return Err(format!(
             "the first piece came only {} ms before the end: the answer was held back",
             o.end_ms - first

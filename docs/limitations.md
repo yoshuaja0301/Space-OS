@@ -48,6 +48,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Sesi dan antarmuka
 
 - `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
+- Stop kooperatif (ADR-0021) diperiksa `spaceai` sebelum setiap operasi compute, tetapi tidak selama pemuatan model (baca + SHA-256): Stop pada saat itu baru terlihat sesudahnya, dan bila pemuatan belum selesai dalam 1 detik, worker dibunuh. Job uji selalu dibunuh.
 - Loop sesi memakai polling 2 ms. Waktu ADR-0011 ditulis belum ada multi-wait; sekarang ada (`SYS_WAIT_ANY`, ADR-0016), tetapi `spaceshell` belum dipindahkan ke sana.
 - Masukan datang dari keyboard PS/2 (scan code set 1, tata letak US) dan COM2. Setiap tombol menjadi *event* untuk desktop (`SYS_INPUT_READ`), tetapi aliran **byte** untuk terminal hanya berisi karakter cetak, Enter, Backspace, Tab dan Esc (plus Enter dan `/` keypad): panah, F1–F12, Home/End tidak mengetik apa pun, dan tekanan dengan Ctrl/Alt/Super juga tidak — jadi tidak ada Ctrl+C sebagai byte `0x03`. Caps Lock, Num Lock dan lampu keyboard tidak ditangani. Shift palsu yang menyertai tombol panah dibuang; kalau didekode, keyboard akan tersangkut huruf besar.
 - Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
@@ -67,8 +68,9 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Satu huruf: Noto Sans Mono bitmap 16 px, **Latin dasar saja**; karakter lain tampil sebagai `?`. Tanpa scaling.
 - Kontras tinggi (Super+H) hanya untuk bingkai, top bar dan dock; isi aplikasi tetap di tema biasa. Kontras yang diperiksa saat build hanya untuk pasangan warna yang didaftarkan di kode; teks yang digambar klien di atas gambar (belum ada) tidak bisa diperiksa dengan cara itu.
 - Aplikasinya sempit: terminal adalah sesi `spaceshell` dengan perintahnya (`help`, `status`, `ls`, `run`, `stop`, `clear`);
-  file manager hanya **menelusuri** (belum membuka, menyalin atau menghapus); Agent Center menjalankan worker uji
-  `bin/uiworker` (selesai, crash, macet, lambat) — belum menjalankan `spaceai` atau `spaceagent` dari desktop.
+  file manager hanya **menelusuri** (belum membuka, menyalin atau menghapus); Agent Center menjalankan model
+  referensi lewat `spaceai` (ADR-0021) dan worker uji — belum `spaceagent`, pilihan prompt atau model, batas
+  token/waktu yang bisa diatur, atau job cloud (jadi baris biayanya selalu "tidak ada").
 - Belum ada Command Center (pencarian SpaceLink), pengaturan model, notifikasi, login atau layar kunci; satu pengguna.
 - Paling banyak 12 jendela (4 yang sedang dimulai); setiap klien dilayani paling banyak 16 pesan per putaran; judul dan
   deskripsi jendela paling panjang 180 byte.

@@ -368,6 +368,68 @@ pub fn worker_crash() -> Result<(), String> {
     }
 }
 
+/// `done`, `total` and `matched` out of an Agent Center description
+/// ("... 57/128 tokens, 57 matching the baseline ...").
+fn tokens(t: &str) -> Option<(u32, u32, u32)> {
+    let (head, rest) = t.split_once(" tokens, ")?;
+    let (done, total) = head.rsplit(' ').next()?.split_once('/')?;
+    let matched = rest.split(' ').next()?;
+    Some((done.parse().ok()?, total.parse().ok()?, matched.parse().ok()?))
+}
+
+/// PRD §9, the first end-to-end scenario, in the desktop: offline, the model on the
+/// guest disk writes text in the Agent Center; Stop ends the worker between two
+/// compute steps; the terminal still answers.
+pub fn inference() -> Result<(), String> {
+    let d = Desk::start()?;
+    let r = (|| {
+        let term = d.launch("terminal")?;
+        let agent = d.launch("agent")?;
+        d.focus(agent)?;
+        d.keys("5")?;
+        let deadline = sys::ticks_ms() + 60_000;
+        let t = loop {
+            let t = d.describe(agent)?;
+            if tokens(&t).is_some_and(|(done, _, _)| done >= 8) {
+                break t;
+            }
+            if !t.contains("running") && tokens(&t).is_some() {
+                return Err(format!("the worker ended before writing 8 tokens: {t:?}"));
+            }
+            if sys::ticks_ms() > deadline {
+                return Err(format!("no 8 tokens after 60 s: {t:?}"));
+            }
+            sys::sleep_ms(50);
+        };
+        println!("[init] desktop: {t}");
+        let t0 = sys::ticks_ms();
+        d.keys("s")?;
+        let t = d.await_text(agent, "stopped between two steps", 5000)?;
+        let stop_ms = sys::ticks_ms() - t0;
+        println!("[init] desktop: {t} ({stop_ms} ms after Stop was pressed)");
+        let (done, total, matched) = tokens(&t).ok_or_else(|| format!("no token count in {t:?}"))?;
+        if done == 0 || done >= total || matched != done {
+            return Err(format!("after Stop: {done}/{total} tokens, {matched} matching the baseline"));
+        }
+        // PRD §9: a worker stops within 2 seconds on the CPU backend.
+        if stop_ms > 2000 {
+            return Err(format!("Stop took {stop_ms} ms"));
+        }
+        // The terminal answers a command typed after the worker was stopped.
+        d.focus(term)?;
+        d.keys("status\n")?;
+        let t = d.await_text(term, "the session has served", 5000)?;
+        println!("[init] desktop: {t}");
+        Ok(())
+    })();
+    let st = d.quit();
+    r?;
+    match st {
+        Ok(st) if st.is_exited_with(0) => Ok(()),
+        other => Err(format!("the desktop ended with {other:?}")),
+    }
+}
+
 /// A desktop that is killed takes nothing with it: the console gets the screen
 /// back, and the next desktop can have it.
 pub fn killed() -> Result<(), String> {

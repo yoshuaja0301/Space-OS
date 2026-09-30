@@ -79,8 +79,8 @@ server memberi tahu mode mana dan menyerahkan satu kapabilitas yang dibutuhkan m
 
 | Aplikasi | Diberi | Isinya |
 |---|---|---|
-| Terminal | `SPAWN \| FS` | sesi `spaceshell` sendiri: `help`, `status`, `ls`, `run`, `stop`, `clear` |
-| Agent Center | `SPAWN \| FS` | sesi `spaceshell` sendiri untuk worker inferensi: status, mulai (1–4), **Stop** (S) |
+| Terminal | `SPAWN \| FS \| DUP` | sesi `spaceshell` sendiri: `help`, `status`, `ls`, `run`, `stop`, `clear` |
+| Agent Center | `SPAWN \| FS \| DUP` | sesi `spaceshell` sendiri untuk worker inferensi: model sungguhan (5) dengan tugas, rencana, progres, memori, akses, biaya dan perubahan (ADR-0021); worker uji (1–4); **Stop** (S) |
 | File manager | `FS` | menelusuri volume: atas/bawah, Enter membuka folder, Backspace naik |
 
 Karena worker milik sebuah **sesi**, bukan milik jendela yang menampilkannya — dan bukan milik

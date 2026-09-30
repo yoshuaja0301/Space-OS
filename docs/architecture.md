@@ -95,7 +95,11 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
   `SYS_WAIT` bendera `NONBLOCK`), jadi worker yang crash, tidur, atau macet tanpa
   syscall tidak bisa menahan sesi. Punya terminal yang bisa diketik (`help`,
   `status`, `ls`, `run`, `stop`, `quit`). Diberi root yang dipersempit ke
-  `SPAWN|FS|CONSOLE` (ADR-0011).
+  `SPAWN|FS|CONSOLE|DUP` (ADR-0011). Job `infer` (ADR-0021) menjalankan `bin/spaceai`
+  di atas `bin/spacecompute`-nya sendiri; worker hanya diberi channel laporan, satu
+  koneksi compute, dan akses baca berkas yang dipersempit sesi dari miliknya sendiri.
+  Worker melapor setiap token, dan Stop memintanya berhenti di antara dua operasi
+  compute sebelum sesi, setelah 1 detik, membunuhnya.
 - **`bin/spacebroker` + `bin/spaceagent`** (G01): agent lahir hanya dengan satu
   channel — `fs_open` miliknya ditolak kernel. Broker memegang satu-satunya
   kapabilitas file (`FS`), memeriksa setiap path terhadap workspace

@@ -21,7 +21,7 @@ use libspace::shell::Session;
 use libspace::spaceabi::desk::{app, msg};
 use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::input::{InputEvent, key};
-use libspace::spaceabi::shell::{Reply, job, worker_state};
+use libspace::spaceabi::shell::{Progress, Reply, job, worker_state};
 use libspace::spaceabi::syscall::DirEntry;
 use libspace::{Handle, handle, kill_reason, println, sys};
 
@@ -64,6 +64,7 @@ const _: () = {
     assert!(contrast_x100(ON_STOP, STOP) >= 450, "the Stop label is too faint to read");
     assert!(contrast_x100(ON_STOP_IDLE, STOP_IDLE) >= 450, "the idle Stop label is too faint to read");
     assert!(contrast_x100(STOP, BG) >= 300, "the Stop button does not stand out from the window");
+    assert!(contrast_x100(ACCENT, SELECT_IDLE) >= 300, "the progress bar does not stand out from its track");
 };
 
 const SHELL_QUOTA: u64 = 256;
@@ -77,10 +78,13 @@ fn start_session(cap: Handle) -> Result<(Session, Handle), String> {
         sys::handle_close(mine).ok();
         format!("cannot start the session service: {e}")
     })?;
-    let root = sys::handle_dup(cap, rights::SPAWN | rights::FS | rights::TRANSFER).map_err(|e| {
-        sys::kill(shell).ok();
-        format!("narrow the capability: {e}")
-    })?;
+    // DUP: the session narrows it once more, to read-only files, for the inference
+    // worker it starts.
+    let root =
+        sys::handle_dup(cap, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP).map_err(|e| {
+            sys::kill(shell).ok();
+            format!("narrow the capability: {e}")
+        })?;
     match Session::open(mine, root) {
         Ok(s) => Ok((s, shell)),
         Err(e) => {
@@ -102,17 +106,6 @@ fn end_session(s: &Session, shell: Handle) {
     sys::kill(shell).ok();
     sys::wait(shell).ok();
     sys::handle_close(shell).ok();
-}
-
-fn state_name(state: u32) -> &'static str {
-    match state {
-        worker_state::IDLE => "idle",
-        worker_state::RUNNING => "running",
-        worker_state::DONE => "finished",
-        worker_state::CRASHED => "crashed",
-        worker_state::STOPPED => "stopped",
-        _ => "?",
-    }
 }
 
 fn describe_worker(r: &Reply) -> String {
@@ -465,29 +458,145 @@ struct Agent {
     session: Session,
     shell: Handle,
     status: Reply,
+    progress: Progress,
     last: String,
     note: String,
+    /// The first token of this run has been announced in the log.
+    first_told: bool,
+}
+
+/// Height of one row of the Agent Center, and the width of its labels in characters.
+const ROW_H: i32 = GLYPH_H + 4;
+const LABEL_CHARS: i32 = 9;
+
+/// One labelled row of the Agent Center at `y`, which moves to the next row.
+fn row(s: &mut Surface, y: &mut i32, label: &str, text: &str, color: u32) {
+    s.text(PAD, *y, label, DIM);
+    s.text(PAD + LABEL_CHARS * glyph_w(), *y, text, color);
+    *y += ROW_H;
+}
+
+/// What a job is, what it may touch and what it costs, as the Agent Center shows it
+/// (PRD §6: plan, permissions, resources, cloud cost, preview of changes).
+struct JobFacts {
+    task: &'static str,
+    plan: &'static str,
+    access: &'static str,
+    cost: &'static str,
+    changes: &'static str,
+}
+
+fn job_facts(job: &str) -> JobFacts {
+    match job {
+        job::INFER => JobFacts {
+            task: "generate text with the local model",
+            plan: "verify the model's sha256, write 128 tokens, compare with the baseline",
+            access: "reads files; one compute connection; no network, no writing, no spawning",
+            cost: "none: the model runs here, nothing goes to a cloud",
+            changes: "none: the job only reads",
+        },
+        "" | "-" => JobFacts {
+            task: "no job yet",
+            plan: "5 runs the model; 1-4 run test workers that finish, crash, hang or sleep",
+            access: "-",
+            cost: "-",
+            changes: "-",
+        },
+        _ => JobFacts {
+            task: "a test worker",
+            plan: "put the worker into one state an inference job can reach",
+            access: "nothing: no files, no network, no spawning",
+            cost: "none",
+            changes: "none",
+        },
+    }
 }
 
 impl Agent {
+    fn job(&self) -> &str {
+        self.status.text()
+    }
+
+    fn is_infer(&self) -> bool {
+        self.job() == job::INFER
+    }
+
+    /// One line for the log and for automation: what the worker is doing, without a
+    /// count that changes with every token (the window and [`App::describe`] have those).
+    fn state_line(&self) -> String {
+        let r = &self.status;
+        let p = &self.progress;
+        if self.is_infer() {
+            match r.state {
+                worker_state::DONE if p.done > 0 => {
+                    return format!(
+                        "worker 'infer' finished: {} tokens, {} matching the baseline",
+                        p.done, p.matched
+                    );
+                }
+                worker_state::STOPPED if p.cooperative != 0 => {
+                    return format!(
+                        "worker 'infer' stopped between two steps after {} of {} tokens (Stop took {} ms)",
+                        p.done, p.total, p.stop_ms
+                    );
+                }
+                worker_state::STOPPED => {
+                    return format!("worker 'infer' was killed by Stop after {} ms", p.stop_ms);
+                }
+                _ => {}
+            }
+        }
+        describe_worker(r)
+    }
+
+    /// The state row: short, because the progress row beside it has the counts.
+    fn state_short(&self) -> String {
+        let r = &self.status;
+        let p = &self.progress;
+        match r.state {
+            worker_state::IDLE => String::from("no worker has run"),
+            worker_state::RUNNING => String::from("running"),
+            worker_state::DONE if self.is_infer() => {
+                format!("finished, {} of {} match the baseline", p.matched, p.done)
+            }
+            worker_state::DONE => format!("finished, exit code {}", r.value as i64),
+            worker_state::CRASHED => format!("crashed ({})", kill_reason::name(r.reason)),
+            worker_state::STOPPED if self.is_infer() && p.cooperative != 0 => {
+                format!("stopped between two steps, {} ms after Stop", p.stop_ms)
+            }
+            worker_state::STOPPED if self.is_infer() => format!("killed by Stop after {} ms", p.stop_ms),
+            worker_state::STOPPED => String::from("stopped"),
+            _ => String::from("unknown"),
+        }
+    }
+
     fn refresh(&mut self) -> bool {
+        let mut changed = false;
         match self.session.status() {
             Ok(r) => {
-                let text = describe_worker(&r);
-                let changed = text != self.last;
-                if changed {
-                    println!("[deskagent] {text}");
-                    self.last = text;
-                }
-                let served = r.served != self.status.served;
+                changed |= r.served != self.status.served || r.state != self.status.state;
                 self.status = r;
-                changed || served
             }
             Err(e) => {
                 self.note = format!("session: {e}");
-                true
+                return true;
             }
         }
+        if let Ok(p) = self.session.progress() {
+            changed |= p.done != self.progress.done || p.stop_ms != self.progress.stop_ms;
+            self.progress = p;
+        }
+        if self.is_infer() && self.progress.done > 0 && !self.first_told {
+            self.first_told = true;
+            println!("[deskagent] worker 'infer' wrote its first token after {} ms", self.progress.ttft_ms);
+        }
+        let text = self.state_line();
+        if text != self.last {
+            println!("[deskagent] {text}");
+            self.last = text;
+            changed = true;
+        }
+        changed
     }
 
     fn start(&mut self, j: &str) {
@@ -495,6 +604,7 @@ impl Agent {
             Ok(_) => format!("started '{j}'"),
             Err(e) => format!("cannot start '{j}': {e}"),
         };
+        self.first_told = false;
         println!("[deskagent] {}", self.note);
         self.refresh();
     }
@@ -506,10 +616,15 @@ impl Agent {
         // The answer to STOP says it happened; STATUS says what it ended.
         self.refresh();
         self.note = match stopped {
-            Ok(_) => format!("Stop: {} ({ms} ms)", self.last),
-            Err(e) => format!("Stop: {e}"),
+            Ok(_) => {
+                println!("[deskagent] Stop: {} ({ms} ms)", self.last);
+                format!("Stop answered in {ms} ms")
+            }
+            Err(e) => {
+                println!("[deskagent] Stop: {e}");
+                format!("Stop: {e}")
+            }
         };
-        println!("[deskagent] {}", self.note);
     }
 }
 
@@ -521,23 +636,70 @@ impl App for Agent {
     fn draw(&self, s: &mut Surface, _focused: bool) {
         s.fill(0, 0, s.w, s.h, BG);
         let r = &self.status;
+        let p = &self.progress;
         let color = match r.state {
             worker_state::RUNNING => GOOD,
             worker_state::CRASHED => BAD,
             worker_state::STOPPED => WARN,
             _ => FG,
         };
-        let line = GLYPH_H + 4;
-        s.text(PAD, PAD, "Inference worker", ACCENT);
-        s.text(PAD, PAD + line, &format!("state: {}", state_name(r.state)), color);
-        s.text(PAD, PAD + 2 * line, &self.last, FG);
-        s.text(PAD, PAD + 3 * line, &format!("session alive, {} commands served", r.served), DIM);
-        s.text(PAD, PAD + 4 * line, &self.note, DIM);
-        // The controls.
-        let by = PAD + 6 * line;
         let gw = glyph_w();
+        let line = ROW_H;
+        let label_w = LABEL_CHARS * gw;
+        let facts = job_facts(self.job());
+        let mut y = PAD;
+        s.text(PAD, y, "Inference worker", ACCENT);
+        y += line + 4;
+        row(s, &mut y, "task", facts.task, FG);
+        row(s, &mut y, "plan", facts.plan, DIM);
+        row(s, &mut y, "state", &self.state_short(), color);
+        // Progress: a bar, and the numbers beside it.
+        if self.is_infer() && p.total > 0 {
+            let bar_w = 16 * gw;
+            let done_w = (bar_w as u64 * p.done.min(p.total) as u64 / p.total as u64) as i32;
+            s.fill(PAD + label_w, y + 2, bar_w, GLYPH_H - 4, SELECT_IDLE);
+            s.fill(PAD + label_w, y + 2, done_w, GLYPH_H - 4, ACCENT);
+            s.text(PAD, y, "progress", DIM);
+            s.text(PAD + label_w + bar_w + gw, y, &format!("{}/{} tokens", p.done, p.total), FG);
+            y += line;
+            let gen_ms = p.elapsed_ms.saturating_sub(p.ttft_ms) as u64;
+            let per_1000s =
+                if p.done > 1 && gen_ms > 0 { (p.done as u64 - 1) * 1_000_000 / gen_ms } else { 0 };
+            row(
+                s,
+                &mut y,
+                "speed",
+                &format!(
+                    "first token {} ms, {}.{} tokens/s",
+                    p.ttft_ms,
+                    per_1000s / 1000,
+                    per_1000s % 1000 / 100
+                ),
+                FG,
+            );
+            row(
+                s,
+                &mut y,
+                "memory",
+                &format!("worker {} KiB of {} KiB", p.used_pages * 4, p.quota_pages * 4),
+                FG,
+            );
+        } else {
+            y += 3 * line;
+        }
+        row(s, &mut y, "access", facts.access, FG);
+        row(s, &mut y, "cost", facts.cost, FG);
+        row(s, &mut y, "changes", facts.changes, FG);
+        if self.is_infer() && p.text_len > 0 {
+            row(s, &mut y, "output", &format!("\"{}\"", p.text()), FG);
+        } else {
+            y += line;
+        }
+        row(s, &mut y, "session", &format!("alive, {} commands served; {}", r.served, self.note), DIM);
+        // The controls.
+        let by = s.h - PAD - GLYPH_H - 4;
         let mut x = PAD;
-        for label in ["1 ok", "2 crash", "3 hang", "4 slow"] {
+        for label in ["5 infer", "1 ok", "2 crash", "3 hang", "4 slow"] {
             let w = (label.len() as i32 + 2) * gw;
             s.frame(x, by - 4, w, GLYPH_H + 8, 1, 0x2A3A58);
             s.text(x + gw, by, label, FG);
@@ -552,6 +714,7 @@ impl App for Agent {
 
     fn key(&mut self, e: InputEvent) -> bool {
         match char::from_u32(e.ch) {
+            Some('5') => self.start(job::INFER),
             Some('1') => self.start(job::OK),
             Some('2') => self.start(job::CRASH),
             Some('3') => self.start(job::HANG),
@@ -564,8 +727,15 @@ impl App for Agent {
     }
 
     fn describe(&self) -> String {
+        // Short enough for one message (180 bytes): the speed is on the screen.
+        let p = &self.progress;
+        let tokens = if self.is_infer() {
+            format!("; {}/{} tokens, {} matching", p.done, p.total, p.matched)
+        } else {
+            String::new()
+        };
         format!(
-            "agent: {}; Stop {}; {} commands served",
+            "agent: {}{tokens}; Stop {}; {} commands served",
             self.last,
             if self.status.state == worker_state::RUNNING { "ready" } else { "has nothing to stop" },
             self.status.served
@@ -574,6 +744,11 @@ impl App for Agent {
 
     fn tick(&mut self) -> bool {
         self.refresh()
+    }
+
+    fn tick_ms(&self) -> u64 {
+        // While a worker runs, the progress is worth watching closely.
+        if self.status.state == worker_state::RUNNING { 100 } else { 250 }
     }
 
     fn close(&mut self) {
@@ -624,11 +799,13 @@ pub extern "C" fn space_main() -> i32 {
                     session,
                     shell,
                     status: Reply::default(),
+                    progress: Progress::default(),
                     last: String::new(),
-                    note: String::from("1-4 start a worker; S stops it"),
+                    note: String::from("5 runs the model, 1-4 test workers, S stops"),
+                    first_told: false,
                 };
                 a.refresh();
-                run_app(chan, a, 520, 220)
+                run_app(chan, a, 640, 330)
             }
             Err(e) => {
                 println!("[deskagent] {e}");

@@ -17,14 +17,79 @@ use alloc::vec::Vec;
 
 use libspace::compute::{Buffer, Compute};
 use libspace::spaceabi::compute::{BufferRef, Op, op};
+use libspace::spaceabi::error::Error;
 use libspace::spaceabi::math::sqrt_f32;
 use libspace::spaceabi::model::{HEADER_BYTES, Header, ModelError};
+use libspace::spaceabi::shell::{JobReport, worker};
 use libspace::{Handle, handle, println, sha256, sys};
 
 const MODEL_PATH: &str = "/spaceos/model.slm";
 const MANIFEST_PATH: &str = "/spaceos/manifest.txt";
 const BASELINE_PATH: &str = "/spaceos/baseline.txt";
 const BAD_MODELS: [&str; 3] = ["/spaceos/badmagic.slm", "/spaceos/baddims.slm", "/spaceos/trunc.slm"];
+/// The error a compute step returns when the session asked the run to stop.
+const STOPPED: &str = "stopped on request";
+
+/// Who is watching the run. Nobody, for the acceptance test, which reads the log and
+/// the exit code; or a session (`spaceshell`) that wants every token and may ask the
+/// run to stop - which it does between two compute steps, never inside one.
+struct Watch {
+    session: Option<Handle>,
+}
+
+impl Watch {
+    /// Has the session asked for a stop? Never blocks. A session that has gone away
+    /// counts as asking: nobody is left to want the text.
+    fn stop_requested(&self) -> bool {
+        let Some(ch) = self.session else { return false };
+        let mut buf = [0u8; 16];
+        loop {
+            match sys::recv(ch, &mut buf, true) {
+                Ok((n, transferred)) => {
+                    if let Some(h) = transferred {
+                        sys::handle_close(h).ok();
+                    }
+                    if &buf[..n] == worker::STOP {
+                        return true;
+                    }
+                }
+                Err(Error::WouldBlock) => return false,
+                Err(_) => return true,
+            }
+        }
+    }
+
+    /// Report progress. A full queue drops this report: the next one carries
+    /// everything this one did.
+    fn report(&self, r: &JobReport) {
+        if let Some(ch) = self.session {
+            let _ = sys::send(ch, as_bytes(r), None);
+        }
+    }
+
+    /// Report how the run ended. That one must arrive, so a full queue is waited out
+    /// for a while - the session drains it every few milliseconds.
+    fn report_final(&self, r: &JobReport) {
+        let Some(ch) = self.session else { return };
+        for _ in 0..200 {
+            match sys::send(ch, as_bytes(r), None) {
+                Err(Error::WouldBlock) => sys::sleep_ms(1),
+                _ => return,
+            }
+        }
+    }
+}
+
+fn as_bytes<T>(v: &T) -> &[u8] {
+    // SAFETY: `T` is a `repr(C)` plain-data message.
+    unsafe { core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>()) }
+}
+
+/// How a run ended when it did not fail.
+enum Ended {
+    Done,
+    Stopped,
+}
 
 /// Scratch layout, in `f32` units.
 struct Scratch {
@@ -198,6 +263,7 @@ fn load_model(root: Handle, c: &Compute) -> Result<Model, String> {
 
 struct Runtime<'a> {
     c: &'a Compute,
+    watch: &'a Watch,
     queue: u32,
     h: Header,
     w: Buffer,
@@ -216,7 +282,12 @@ impl Runtime<'_> {
         slice_of(&self.scratch, offset_floats, len_floats)
     }
 
+    /// One compute step. A stop asked for by the session is honoured here, before
+    /// the step is submitted: between two steps, never inside one.
     fn run(&self, o: Op) -> Result<u64, String> {
+        if self.watch.stop_requested() {
+            return Err(String::from(STOPPED));
+        }
         self.c.run(self.queue, o).map_err(|e| alloc::format!("op {}: {e}", o.kind))
     }
 
@@ -405,8 +476,12 @@ impl Runtime<'_> {
     }
 }
 
-fn run(root: Handle, compute_channel: Handle) -> Result<(), String> {
-    reject_bad_models(root)?;
+fn run(root: Handle, compute_channel: Handle, watch: &Watch) -> Result<Ended, String> {
+    if watch.session.is_none() {
+        // The acceptance run also proves the runtime refuses damaged models; a
+        // session only wants text, and sooner.
+        reject_bad_models(root)?;
+    }
     let c = Compute::connect(compute_channel).map_err(|e| alloc::format!("compute connect: {e}"))?;
     let (backend, abi, _limit) = c.device_query().map_err(|e| alloc::format!("device query: {e}"))?;
     println!("[ai] compute backend {backend}, ABI v{abi}");
@@ -440,7 +515,7 @@ fn run(root: Handle, compute_channel: Handle) -> Result<(), String> {
     }
     println!("[ai] baseline: {} prompt bytes, {} tokens to generate", prompt.len(), expect.len());
 
-    let rt = Runtime { c: &c, queue, h, w: model.weights, kcache, vcache, scratch, s };
+    let rt = Runtime { c: &c, watch, queue, h, w: model.weights, kcache, vcache, scratch, s };
     let total = prompt.len() + expect.len();
     if total > h.max_seq as usize {
         return Err(alloc::format!("{total} positions exceed the model's context of {}", h.max_seq));
@@ -450,13 +525,56 @@ fn run(root: Handle, compute_channel: Handle) -> Result<(), String> {
     let mut ttft = 0u64;
     let mut token = prompt[0];
     let mut produced: Vec<u32> = Vec::new();
+    let mut matched = 0u32;
+    let mut text = String::new();
+    let report = |kind: u32, produced: usize, matched: u32, ttft: u64, text: &str, why: &str| {
+        let mut r = JobReport {
+            kind,
+            done: produced as u32,
+            matched,
+            total: expect.len() as u32,
+            ttft_ms: ttft as u32,
+            elapsed_ms: (sys::ticks_ms() - start) as u32,
+            used_pages: sys::self_info().map(|i| i.used_pages as u32).unwrap_or(0),
+            ..Default::default()
+        };
+        r.set_text(if why.is_empty() { text } else { why });
+        r
+    };
+    if watch.session.is_some() {
+        println!("[ai] session: up to {} tokens; a Stop is honoured between two compute steps", expect.len());
+    }
     for pos in 0..total {
-        let best = rt.step(token, pos as u32)?;
+        let best = match rt.step(token, pos as u32) {
+            Ok(best) => best,
+            Err(e) if e == STOPPED => {
+                println!("[ai] stopped on request after {} of {} tokens", produced.len(), expect.len());
+                watch.report_final(&report(
+                    worker::report::STOPPED,
+                    produced.len(),
+                    matched,
+                    ttft,
+                    &text,
+                    "",
+                ));
+                c.shutdown().ok();
+                return Ok(Ended::Stopped);
+            }
+            Err(e) => {
+                watch.report_final(&report(worker::report::FAILED, produced.len(), matched, ttft, &text, &e));
+                return Err(e);
+            }
+        };
         if pos + 1 >= prompt.len() {
             if produced.is_empty() {
                 ttft = sys::ticks_ms() - start;
             }
+            if expect.get(produced.len()) == Some(&best) {
+                matched += 1;
+            }
             produced.push(best);
+            text.push(if (32..127).contains(&best) { best as u8 as char } else { '.' });
+            watch.report(&report(worker::report::PROGRESS, produced.len(), matched, ttft, &text, ""));
             if produced.len() == expect.len() {
                 break;
             }
@@ -469,7 +587,9 @@ fn run(root: Handle, compute_channel: Handle) -> Result<(), String> {
 
     for (i, (got, want)) in produced.iter().zip(expect.iter()).enumerate() {
         if got != want {
-            return Err(alloc::format!("token {i} is {got}, baseline says {want}"));
+            let why = alloc::format!("token {i} is {got}, baseline says {want}");
+            watch.report_final(&report(worker::report::FAILED, produced.len(), matched, ttft, &text, &why));
+            return Err(why);
         }
     }
     let info = sys::self_info().map_err(|e| alloc::format!("self_info: {e}"))?;
@@ -486,20 +606,26 @@ fn run(root: Handle, compute_channel: Handle) -> Result<(), String> {
     let preview: Vec<u8> =
         produced.iter().take(24).map(|t| if (32..127).contains(t) { *t as u8 } else { b'.' }).collect();
     println!("[ai] first tokens: {:?} ...", core::str::from_utf8(&preview).unwrap_or(""));
+    watch.report_final(&report(worker::report::DONE, produced.len(), matched, ttft, &text, ""));
     c.shutdown().ok();
-    Ok(())
+    Ok(Ended::Done)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn space_main() -> i32 {
     println!("[ai] Space OS AI runtime starting");
     // The parent hands over two capabilities: a compute connection and read access
-    // to the file system.
+    // to the file system. A session announces itself first, with no capability.
     let mut buf = [0u8; 32];
+    let mut session = None;
     let mut compute_channel = None;
     let mut root = None;
-    for _ in 0..2 {
+    for _ in 0..3 {
+        if compute_channel.is_some() && root.is_some() {
+            break;
+        }
         match sys::recv(handle::BOOTSTRAP, &mut buf, false) {
+            Ok((n, None)) if &buf[..n] == worker::SESSION => session = Some(handle::BOOTSTRAP),
             Ok((n, Some(h))) => match core::str::from_utf8(&buf[..n]).unwrap_or("") {
                 "compute" => compute_channel = Some(h),
                 "fs" => root = Some(h),
@@ -522,10 +648,14 @@ pub extern "C" fn space_main() -> i32 {
         println!("[ai] missing capabilities");
         return 2;
     };
-    match run(root, compute_channel) {
-        Ok(()) => {
+    match run(root, compute_channel, &Watch { session }) {
+        Ok(Ended::Done) => {
             println!("[ai] result=PASS");
             0
+        }
+        Ok(Ended::Stopped) => {
+            println!("[ai] result=STOPPED");
+            worker::EXIT_STOPPED
         }
         Err(e) => {
             println!("[ai] result=FAIL {e}");

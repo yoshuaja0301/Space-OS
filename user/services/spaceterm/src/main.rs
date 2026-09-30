@@ -42,8 +42,12 @@ pub extern "C" fn space_main() -> i32 {
         Err(e) => return give_up(&alloc::format!("cannot start the session service: {e}")),
     };
     // The session gets what a session needs and nothing more: start jobs, list
-    // files, read the console. It cannot shut the machine down - that stays here.
-    let root = match sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::CONSOLE | rights::TRANSFER) {
+    // files, read the console, and narrow its own capability to read-only files
+    // for the inference worker. It cannot shut the machine down - that stays here.
+    let root = match sys::handle_dup(
+        ROOT,
+        rights::SPAWN | rights::FS | rights::CONSOLE | rights::TRANSFER | rights::DUP,
+    ) {
         Ok(h) => h,
         Err(e) => {
             sys::kill(shell).ok();

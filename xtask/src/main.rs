@@ -1551,6 +1551,21 @@ const DESKTOP_SCRIPT: &[&str] = &[
     "!wait [deskagent] worker 'hang' running",
     "!key s",
     "!wait [deskagent] Stop: worker 'hang' stopped",
+    // The real worker (PRD §9, first end-to-end scenario): the model on the guest
+    // disk writes text until Stop, which it honours between two compute steps, and
+    // then the terminal still answers.
+    "!key 5",
+    "!wait [deskagent] worker 'infer' wrote its first token",
+    "!sleep 700",
+    "!key s",
+    "!wait [deskagent] worker 'infer' stopped between two steps",
+    "!sleep 600",
+    "!shot 3-inference-stopped",
+    "!key alt-tab",
+    "ls /spaceos/docs",
+    "!wait [deskterm] /spaceos/docs:",
+    "!key alt-tab",
+    "!key alt-tab",
     "!key alt-shift-right",
     "!wait [desk] resized 'Agent Center'",
     "!key alt-down",
@@ -1564,13 +1579,13 @@ const DESKTOP_SCRIPT: &[&str] = &[
     "!key meta_l-h",
     "!wait [desk] high contrast on",
     "!sleep 600",
-    "!shot 3-high-contrast",
+    "!shot 4-high-contrast",
     "!key meta_l-h",
     "!wait [desk] high contrast off",
     "!key alt-f4",
     "!wait closed: the app",
     "!sleep 600",
-    "!shot 4-after-close",
+    "!shot 5-after-close",
     "!key ctrl-alt-delete",
 ];
 
@@ -1853,6 +1868,13 @@ const SCENARIOS: &[Scenario] = &[
             // Typed into the terminal after the crash, and answered.
             "the session has served",
             "[deskagent] Stop: worker 'hang' stopped",
+            // The model wrote text, Stop ended it between two steps, and the
+            // terminal answered afterwards.
+            "[deskagent] worker 'infer' wrote its first token",
+            "[ai] stopped on request after",
+            "[shell] Stop: worker 'infer' ended between two steps",
+            "[deskagent] worker 'infer' stopped between two steps",
+            "[deskterm] /spaceos/docs:",
             "[desk] shortcut Alt+Tab",
             "[desk] resized 'Agent Center'",
             "[desk] moved 'Agent Center'",

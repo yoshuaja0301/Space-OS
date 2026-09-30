@@ -2333,9 +2333,11 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
             // The session gets exactly two powers: start jobs and list files. No
             // shutdown, no kernel stats, no debug - a crashed session cannot take the
             // machine down even if it wanted to.
-            let shell_root =
-                sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::CONSOLE | rights::TRANSFER)
-                    .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let shell_root = sys::handle_dup(
+                ROOT,
+                rights::SPAWN | rights::FS | rights::CONSOLE | rights::TRANSFER | rights::DUP,
+            )
+            .map_err(|e| alloc::format!("dup root: {e}"))?;
             let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
 
             let check_alive = |what: &str| -> Result<(), String> {
@@ -2433,6 +2435,10 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         expect_status("list without the FS right", denied.status, Error::Denied)?;
         s.run(shell_job::OK).and_then(|r| r.result()).map_err(|e| alloc::format!("run ok: {e}"))?;
         wait_for_worker(&s, worker_state::DONE, 10_000)?;
+        // Nor can it give a worker what it was not given: the inference worker needs
+        // read access, which this session can neither use nor narrow for anyone.
+        let infer = s.run(shell_job::INFER).map_err(|e| alloc::format!("run infer: {e}"))?;
+        expect_status("an inference job from a session without FS or DUP", infer.status, Error::Denied)?;
         let unknown = s.call(0xFFFF_FFFF, "").map_err(|e| alloc::format!("unknown command: {e}"))?;
         expect_status("unknown session command", unknown.status, Error::NoSys)?;
         // Overflow the console ring under a live session. The shell must say the line
@@ -2449,6 +2455,114 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         sys::handle_close(mine).ok();
         expect_exit("spaceshell", st, 0)
     });
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "U01",
+        "the model writes text in a session, Stop ends it between two compute steps, and the session answers on",
+        || {
+            // PRD §9, the first end-to-end scenario: offline, the model on the guest
+            // disk generates text, the worker is stopped, and the session lives on.
+            const SHELL_QUOTA: u64 = 192;
+            let before = sys::kstats(ROOT).map_err(|e| alloc::format!("stats: {e}"))?;
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+            // DUP so the session can narrow its own capability to read-only files for
+            // the worker: the worker gets less than the session, never more.
+            let shell_root = sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
+            let progress = |what: &str| s.progress().map_err(|e| alloc::format!("progress {what}: {e}"));
+
+            // 1. All the way: every token reported, all of them the baseline's.
+            s.run(shell_job::INFER).and_then(|r| r.result()).map_err(|e| alloc::format!("run infer: {e}"))?;
+            wait_for_worker(&s, worker_state::DONE, 120_000)?;
+            let p = progress("after the run")?;
+            if p.total == 0 || p.done != p.total || p.matched != p.total {
+                return Err(alloc::format!(
+                    "the run reported {}/{} tokens, {} matching the baseline",
+                    p.done,
+                    p.total,
+                    p.matched
+                ));
+            }
+            println!(
+                "[init] session: the model wrote {}/{} tokens, all matching the baseline, the first after {} ms",
+                p.done, p.total, p.ttft_ms
+            );
+
+            // 2. Again, and stopped part-way.
+            s.run(shell_job::INFER).and_then(|r| r.result()).map_err(|e| alloc::format!("run infer again: {e}"))?;
+            let deadline = sys::ticks_ms() + 60_000;
+            loop {
+                let p = progress("while running")?;
+                if p.done >= 8 {
+                    break;
+                }
+                if p.state != worker_state::RUNNING {
+                    return Err(alloc::format!("the worker ended in state {} before writing 8 tokens", p.state));
+                }
+                if sys::ticks_ms() > deadline {
+                    return Err(alloc::format!("only {} tokens after 60 s", p.done));
+                }
+                sys::sleep_ms(20);
+            }
+            let t0 = sys::ticks_ms();
+            let stopped = s.stop().map_err(|e| alloc::format!("stop: {e}"))?;
+            stopped.result().map_err(|e| alloc::format!("stop: {e}"))?;
+            let stop_ms = sys::ticks_ms() - t0;
+            if stopped.state != worker_state::STOPPED {
+                return Err(alloc::format!("Stop left state {}, expected stopped", stopped.state));
+            }
+            let p = progress("after Stop")?;
+            if p.cooperative == 0 {
+                return Err(alloc::format!("the worker did not stop between two steps; it was killed after {} ms", p.stop_ms));
+            }
+            if p.done == 0 || p.done >= p.total || p.matched != p.done {
+                return Err(alloc::format!(
+                    "after Stop: {}/{} tokens, {} matching the baseline",
+                    p.done,
+                    p.total,
+                    p.matched
+                ));
+            }
+            // PRD §9: a worker stops within 2 seconds on the CPU backend.
+            if stop_ms > 2000 {
+                return Err(alloc::format!("Stop took {stop_ms} ms"));
+            }
+            println!(
+                "[init] session: Stop ended the worker between two steps after {}/{} tokens, {stop_ms} ms after it was asked",
+                p.done, p.total
+            );
+
+            // 3. The session answers, and lists files.
+            s.status().and_then(|r| r.result()).map_err(|e| alloc::format!("status after Stop: {e}"))?;
+            let n = s
+                .list("/spaceos")
+                .and_then(|r| r.result())
+                .map_err(|e| alloc::format!("list after Stop: {e}"))?;
+            if n == 0 {
+                return Err(String::from("the file listing is empty after Stop"));
+            }
+            s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+            let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+            sys::handle_close(shell).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spaceshell", st, 0)?;
+            // 4. Nothing left running: the worker's compute service went with it.
+            let after = sys::kstats(ROOT).map_err(|e| alloc::format!("stats: {e}"))?;
+            if after.processes_live != before.processes_live {
+                return Err(alloc::format!(
+                    "{} processes before the session, {} after it",
+                    before.processes_live,
+                    after.processes_live
+                ));
+            }
+            Ok(())
+        },
+    );
 
     r.run("U01", "console input is a capability of its own and never blocks", || {
         // The property is that the call returns whatever is buffered and never waits
@@ -2608,6 +2722,13 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         "U01",
         "the desktop, terminal, file manager and Stop keep working while inference workers crash",
         desktest::worker_crash,
+    );
+    r.run_if(
+        display && disk,
+        "no framebuffer or no disk on this machine",
+        "U01",
+        "the model writes text in the Agent Center, Stop ends it between two steps, and the terminal answers",
+        desktest::inference,
     );
     r.run_if(
         display,

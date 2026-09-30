@@ -24,3 +24,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0018](0018-cloud-adapter.md) | Adapter cloud: satu program memegang kredensial, jaringan ke satu alamat, dan tool hanya lewat broker | Diterima |
 | [0019](0019-stability-run.md) | Uji stabilitas: seluruh suite berulang dalam satu boot, pembunuhan acak, dan memori yang harus kembali tepat | Diterima |
 | [0020](0020-desktop.md) | Desktop: layar sebagai lease, jendela sebagai memori klien, dan manajemen jendela dari keyboard | Diterima |
+| [0021](0021-inference-job-and-cooperative-stop.md) | Worker inferensi di dalam sesi: laporan per token dan Stop kooperatif | Diterima |

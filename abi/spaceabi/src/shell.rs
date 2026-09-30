@@ -26,11 +26,18 @@ pub mod cmd {
     pub const STOP: u32 = 4;
     /// Close the session; the shell exits 0.
     pub const QUIT: u32 = 5;
+    /// What the running (or last) job has done so far: answered with a [`Progress`]
+    /// instead of a [`Reply`].
+    pub const PROGRESS: u32 = 6;
 }
 
-/// Job names `cmd::RUN` accepts. They exist so a test can put the worker into each
-/// state a real inference job can reach.
+/// Job names `cmd::RUN` accepts. [`job::INFER`] is the real thing; the others exist
+/// so a test can put a worker into each state an inference job can reach.
 pub mod job {
+    /// Generate text with the model on the guest disk, through the compute service
+    /// (`bin/spaceai` in session mode). Reports every token and stops between two
+    /// compute steps when asked.
+    pub const INFER: &str = "infer";
     /// Finishes quickly and exits 0.
     pub const OK: &str = "ok";
     /// Dereferences NULL: killed by the kernel, the shell must survive it.
@@ -136,5 +143,171 @@ impl Reply {
         } else {
             Err(crate::error::Error::from_code((-self.status) as u32).unwrap_or(crate::error::Error::Invalid))
         }
+    }
+}
+
+/// Bytes of generated text a [`Progress`] carries: the tail of what the job wrote.
+pub const PROGRESS_TEXT_MAX: usize = 64;
+
+/// What an inference job has done, for an Agent Center: sent in answer to
+/// [`cmd::PROGRESS`]. Everything is zero for a job that reports nothing (the test
+/// jobs), and stays at its last value once the job has ended.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Progress {
+    pub status: i32,
+    pub state: u32,
+    /// Tokens generated so far, how many of them match the pinned baseline, and how
+    /// many the job set out to generate.
+    pub done: u32,
+    pub matched: u32,
+    pub total: u32,
+    /// Time to the first token, and time since the job started (milliseconds).
+    pub ttft_ms: u32,
+    pub elapsed_ms: u32,
+    /// Pages the worker holds, and its quota.
+    pub used_pages: u32,
+    pub quota_pages: u32,
+    /// Set when the last Stop ended the job between two compute steps, as asked;
+    /// clear when the worker had to be killed.
+    pub cooperative: u32,
+    /// Milliseconds from Stop to the worker being gone (0 until a Stop).
+    pub stop_ms: u32,
+    pub served: u32,
+    pub text_len: u32,
+    pub _pad: u32,
+    /// The tail of the generated text, printable ASCII (anything else as `.`).
+    pub text: [u8; PROGRESS_TEXT_MAX],
+}
+
+impl Default for Progress {
+    fn default() -> Self {
+        Progress {
+            status: 0,
+            state: worker_state::IDLE,
+            done: 0,
+            matched: 0,
+            total: 0,
+            ttft_ms: 0,
+            elapsed_ms: 0,
+            used_pages: 0,
+            quota_pages: 0,
+            cooperative: 0,
+            stop_ms: 0,
+            served: 0,
+            text_len: 0,
+            _pad: 0,
+            text: [0; PROGRESS_TEXT_MAX],
+        }
+    }
+}
+
+impl Progress {
+    pub fn text(&self) -> &str {
+        let n = (self.text_len as usize).min(PROGRESS_TEXT_MAX);
+        core::str::from_utf8(&self.text[..n]).unwrap_or("")
+    }
+}
+
+/// Between the shell and an inference worker, over the worker's bootstrap channel.
+///
+/// The shell announces the session before it hands over any capability
+/// ([`worker::SESSION`], no handle), so the worker knows from its first message that
+/// someone is watching. The worker then reports with [`JobReport`]s; the shell asks it
+/// to end with [`worker::STOP`], and kills it if it has not ended within
+/// [`worker::STOP_GRACE_MS`].
+pub mod worker {
+    /// First message from the shell: report progress here and accept Stop.
+    pub const SESSION: &[u8] = b"session";
+    /// From the shell: end between two compute steps, now.
+    pub const STOP: &[u8] = b"stop";
+    /// How long the shell waits for a worker asked to stop before it kills it.
+    pub const STOP_GRACE_MS: u64 = 1000;
+    /// Exit code of a worker that stopped because it was asked to.
+    pub const EXIT_STOPPED: i32 = 3;
+
+    /// [`super::JobReport::kind`] values.
+    pub mod report {
+        /// Another token is out.
+        pub const PROGRESS: u32 = 1;
+        /// All tokens are out and matched the baseline.
+        pub const DONE: u32 = 2;
+        /// Stopped between two steps on request.
+        pub const STOPPED: u32 = 3;
+        /// Gave up; `text` says why.
+        pub const FAILED: u32 = 4;
+    }
+}
+
+/// Bytes of text in a [`JobReport`].
+pub const REPORT_TEXT_MAX: usize = 48;
+
+/// One report from an inference worker to its shell.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct JobReport {
+    pub kind: u32,
+    pub done: u32,
+    pub matched: u32,
+    pub total: u32,
+    pub ttft_ms: u32,
+    pub elapsed_ms: u32,
+    pub used_pages: u32,
+    pub text_len: u32,
+    /// The latest generated text (printable ASCII), or why the job failed.
+    pub text: [u8; REPORT_TEXT_MAX],
+}
+
+impl Default for JobReport {
+    fn default() -> Self {
+        JobReport {
+            kind: 0,
+            done: 0,
+            matched: 0,
+            total: 0,
+            ttft_ms: 0,
+            elapsed_ms: 0,
+            used_pages: 0,
+            text_len: 0,
+            text: [0; REPORT_TEXT_MAX],
+        }
+    }
+}
+
+impl JobReport {
+    pub fn text(&self) -> &str {
+        let n = (self.text_len as usize).min(REPORT_TEXT_MAX);
+        core::str::from_utf8(&self.text[..n]).unwrap_or("")
+    }
+
+    /// Keep the last [`REPORT_TEXT_MAX`] bytes of `s`, which must be ASCII.
+    pub fn set_text(&mut self, s: &str) {
+        let b = s.as_bytes();
+        let tail = &b[b.len().saturating_sub(REPORT_TEXT_MAX)..];
+        self.text[..tail.len()].copy_from_slice(tail);
+        self.text_len = tail.len() as u32;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_have_no_implicit_padding() {
+        assert_eq!(core::mem::size_of::<Progress>(), 14 * 4 + PROGRESS_TEXT_MAX);
+        assert_eq!(core::mem::size_of::<JobReport>(), 8 * 4 + REPORT_TEXT_MAX);
+    }
+
+    #[test]
+    fn report_text_keeps_the_tail() {
+        let mut r = JobReport::default();
+        let mut long = [b'a'; REPORT_TEXT_MAX + 3];
+        long[REPORT_TEXT_MAX..].copy_from_slice(b"xyz");
+        r.set_text(core::str::from_utf8(&long).unwrap());
+        assert_eq!(r.text().len(), REPORT_TEXT_MAX);
+        assert!(r.text().ends_with("xyz"));
+        r.set_text("short");
+        assert_eq!(r.text(), "short");
     }
 }
