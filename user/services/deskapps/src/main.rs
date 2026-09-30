@@ -16,7 +16,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use libspace::desk::{Window, recv};
-use libspace::gfx::{GLYPH_H, Surface, glyph_w};
+use libspace::gfx::{GLYPH_H, Surface, contrast_x100, glyph_w};
 use libspace::shell::Session;
 use libspace::spaceabi::desk::{app, msg};
 use libspace::spaceabi::handle::rights;
@@ -27,12 +27,45 @@ use libspace::{Handle, handle, kill_reason, println, sys};
 
 const BG: u32 = 0x0E1522;
 const FG: u32 = 0xD8E0EC;
-const DIM: u32 = 0x7F8BA3;
+const DIM: u32 = 0x8E9BB5;
 const ACCENT: u32 = 0x4C8DFF;
 const GOOD: u32 = 0x5BD68A;
 const BAD: u32 = 0xFF6B6B;
 const WARN: u32 = 0xFFD166;
+/// The selected row in the window with the keyboard, and in one without it.
 const SELECT: u32 = 0x22314D;
+const SELECT_IDLE: u32 = 0x182235;
+/// The Stop button while there is something to stop, and while there is not.
+const STOP: u32 = BAD;
+const ON_STOP: u32 = 0x000000;
+const STOP_IDLE: u32 = 0x3A2530;
+const ON_STOP_IDLE: u32 = 0xFFFFFF;
+
+// Every text colour against everything it is drawn on, at 4.5:1 (WCAG AA) or
+// better, checked when the program is compiled. Stop above all: it is the control
+// that has to be found when something is going wrong.
+const _: () = {
+    let text_on_bg = [FG, DIM, ACCENT, GOOD, BAD, WARN];
+    let mut i = 0;
+    while i < text_on_bg.len() {
+        assert!(contrast_x100(text_on_bg[i], BG) >= 450, "app text on the background is too faint to read");
+        i += 1;
+    }
+    let text_on_select = [FG, DIM, WARN];
+    let mut i = 0;
+    while i < text_on_select.len() {
+        assert!(contrast_x100(text_on_select[i], SELECT) >= 450, "text on the selection is too faint");
+        assert!(
+            contrast_x100(text_on_select[i], SELECT_IDLE) >= 450,
+            "text on the idle selection is too faint"
+        );
+        i += 1;
+    }
+    assert!(contrast_x100(ON_STOP, STOP) >= 450, "the Stop label is too faint to read");
+    assert!(contrast_x100(ON_STOP_IDLE, STOP_IDLE) >= 450, "the idle Stop label is too faint to read");
+    assert!(contrast_x100(STOP, BG) >= 300, "the Stop button does not stand out from the window");
+};
+
 const SHELL_QUOTA: u64 = 256;
 const PAD: i32 = 10;
 
@@ -383,7 +416,7 @@ impl App for Files {
                     y - 1,
                     s.w - 2 * PAD + 8,
                     GLYPH_H + 2,
-                    if focused { SELECT } else { 0x182235 },
+                    if focused { SELECT } else { SELECT_IDLE },
                 );
             }
             if e.is_dir != 0 {
@@ -513,8 +546,8 @@ impl App for Agent {
         let stop = "S  Stop";
         let w = (stop.len() as i32 + 2) * gw;
         let running = r.state == worker_state::RUNNING;
-        s.fill(x, by - 4, w, GLYPH_H + 8, if running { BAD } else { 0x3A2530 });
-        s.text(x + gw, by, stop, 0xFFFFFF);
+        s.fill(x, by - 4, w, GLYPH_H + 8, if running { STOP } else { STOP_IDLE });
+        s.text(x + gw, by, stop, if running { ON_STOP } else { ON_STOP_IDLE });
     }
 
     fn key(&mut self, e: InputEvent) -> bool {

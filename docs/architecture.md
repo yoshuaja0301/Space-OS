@@ -1,6 +1,6 @@
-# Arsitektur yang diimplementasikan (tahap 1–5, jaringan dan TLS tahap 3, dan sebagian 5A)
+# Arsitektur yang diimplementasikan (tahap 1–5, jaringan, TLS dan layar tahap 3, dan layanan tahap 5A)
 
-Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, TLS, compute, sesi, broker, indeks, paket), **Runtime AI** untuk model referensi, dan adapter cloud pertama (diuji terhadap penyedia tiruan). Lapisan aplikasi belum ada.
+Peta ke lapisan PRD §2: repo ini mengisi baris **Kernel (Space Kernel dan HAL)**, **Layanan OS** (storage, jaringan, TLS, compute, sesi, broker, indeks, paket), **Runtime AI** untuk model referensi, adapter cloud pertama (diuji terhadap penyedia tiruan), dan desktop pertama: server tampilan, pengelola jendela dari keyboard, terminal, file manager dan Agent Center (ADR-0020). SDK dan aplikasi pihak ketiga belum ada.
 
 ```
 UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──► bin/init (user/init) ──► program uji (user/tests/*)
@@ -19,7 +19,7 @@ UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──�
 | Rentang | Isi |
 |---|---|
 | `0x0000_0000_0040_0000` | kode/data program user (ELF) |
-| `0x0000_0010_0000_0000…` | region `mem_map` (bump, dengan celah guard) |
+| `0x0000_0010_0000_0000…` | region `mem_map` dan pemetaan memory object: first-fit, rentang yang dilepas dipakai lagi beserta page table-nya, halaman penjaga di antara pemetaan (ADR-0019) |
 | `0x0000_7FFF_EFFF_0000 – 0x7FFF_F000_0000` | stack user 64 KiB (NX) |
 | `0xFFFF_8000_0000_0000` | linear map memori fisik (`PHYS_OFFSET`), NX |
 | `0xFFFF_9000_0000_0000` | heap kernel |
@@ -121,6 +121,22 @@ klien ──Ask/Event──► bin/spacecloud ──sesi (api.cloud.test:443)─
                           └──READ──► bin/spacebroker (scope /spaceos/ws, audit)
 ```
 
+- **`bin/spacedesk` + `bin/deskapps`** (U01, ADR-0020): server tampilan. Memegang layar lewat
+  lease kernel, menyusun jendela dari memori milik klien yang dipetakannya **read-only**, dan
+  mengelola fokus, posisi, ukuran, minimize, empat workspace dan penutupan dari keyboard. Setiap
+  aplikasi adalah proses `bin/deskapps` sendiri dengan satu kapabilitas: terminal dan Agent Center
+  masing-masing sesi `spaceshell` sendiri (`SPAWN|FS`), file manager hanya `FS`. Server yang
+  dijalankan proses lain menerima operatornya lewat channel bootstrap (`OP_*`): jalankan aplikasi,
+  tekan tombol, baca keadaan jendela, dan minta jendela menjelaskan isinya dengan kata-kata — API
+  otomasi yang dipakai uji U01.
+
+```
+keyboard ─IRQ1─► kernel (decoder) ─SYS_INPUT_READ─► bin/spacedesk ──KEY──► aplikasi yang fokus
+                                                       │  ▲ CREATE/PRESENT (handle memori jendela, dibaca saja)
+framebuffer ◄─lease (SYS_DISPLAY_OPEN, hak DISPLAY)────┘  └── bin/deskapps: terminal | files | agent
+                                                                    └─ sesi spaceshell ─► worker
+```
+
 ## Masukan konsol
 
 Keyboard PS/2 (IRQ 1, scan code set 1) dan UART kedua COM2 (IRQ 3) mengisi satu
@@ -135,8 +151,27 @@ terbuang), lalu hitungannya dinolkan — jadi setiap episode kehilangan terlihat
 bukan hanya yang pertama, dan sesi bisa membuang baris yang setengah jadi alih-alih
 menjalankan perintah yang tidak pernah diketik.
 
+Dekoder yang sama juga menghasilkan **event** tombol untuk desktop (`SYS_INPUT_READ`, hak
+`CONSOLE` yang sama, ring 128 event): tombol mana, ditekan atau dilepas, dengan Shift/Ctrl/Alt/Super
+yang sedang ditahan, termasuk tombol extended. Tekanan dengan Ctrl, Alt atau Super tidak mengetik
+byte apa pun — pintasan tidak pernah bocor menjadi teks. Event yang hilang karena ring penuh
+dilaporkan (`kind::LOST`) sebelum event yang selamat.
+
 `init=` pada command line kernel memilih proses user pertama: `bin/init` untuk
-acceptance run, `init=bin/spaceterm` untuk sesi interaktif dari image yang sama.
+acceptance run, `init=bin/spaceterm` untuk sesi interaktif, `init=bin/spacedesk` untuk desktop —
+semuanya dari image yang sama. Command line itu sendiri bisa dibaca lewat `SYS_CMDLINE` (hak root
+`STATS`); `init` memakainya untuk `stress=` (ADR-0019).
+
+## Layar (ADR-0020)
+
+Kernel menggambar konsol teks di framebuffer GOP sampai ada yang meminta layar.
+`SYS_DISPLAY_OPEN` (hak root `DISPLAY`) menyerahkan halaman-halaman framebuffer sebagai objek memori
+(`MemoryKind::Display`: memori perangkat, tidak pernah masuk alokator frame) kepada **satu**
+pemegang; lease kedua → `Busy`. `SYS_DISPLAY_INFO` memberi ukuran, stride, format (BGRX/RGBX) dan
+offset piksel (0,0). Selama objek itu atau pemetaan mana pun darinya hidup, konsol kernel hanya
+menulis ke serial; saat yang terakhir hilang (server keluar, crash, atau dibunuh) kernel
+membersihkan layar dan mengambilnya kembali. Panic kernel selalu mengambil layar lebih dulu, jadi
+yang terlihat adalah pesan panic, bukan desktop yang membeku.
 
 ## Objek kernel
 
@@ -144,9 +179,9 @@ acceptance run, `init=bin/spaceterm` untuk sesi interaktif dari image yang sama.
 - **Thread**: satu per proses (MVP); kernel stack sendiri; context switch menyimpan register callee-saved (`switch_to`); masuk ring 3 lewat `iretq`; syscall lewat `syscall/sysret`.
 - **Channel/Endpoint**: dua sisi, antrean pesan terbatas, wait queue penerima, penutupan sisi membangunkan peer.
 - **File**: berkas terbuka pada volume FAT32 (hak `READ`).
-- **Memory**: frame bersama yang dapat dipetakan beberapa proses (hak `READ|WRITE|MAP`).
+- **Memory**: frame bersama yang dapat dipetakan beberapa proses (hak `READ|WRITE|MAP`), atau halaman framebuffer yang di-lease (`MemoryKind::Display`), yang kembali ke konsol, bukan ke alokator frame.
 - **Nic**: lease atas kartu jaringan (hak `READ` menerima, `WRITE` mengirim); hanya ada satu, dan lepas saat handle terakhirnya ditutup.
-- **Root**: capability istimewa `init` (spawn dari initrd, statistik, shutdown, fault injection, akses berkas). Setiap layanan menerima turunan yang **sudah dipersempit**: `spaceshell` hanya `SPAWN|FS`, `spacebroker`/`spacelink`/`spacepkg` hanya `FS`, `spaceagent` tidak menerima root sama sekali.
+- **Root**: capability istimewa `init` (spawn dari initrd, statistik dan command line, shutdown, fault injection, akses berkas, konsol, kartu jaringan, layar), dengan satu hak per kemampuan. Setiap layanan menerima turunan yang **sudah dipersempit**: `spaceshell` hanya `SPAWN|FS`, `spacebroker`/`spacelink`/`spacepkg` hanya `FS`, `spaceagent` tidak menerima root sama sekali.
 
 ## Scheduler
 

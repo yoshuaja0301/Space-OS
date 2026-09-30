@@ -6,7 +6,8 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 
 | Skenario | cmdline | Harapan |
 |---|---|---|
-| `acceptance` | — | marker `[kernel] selftest: heap ok`, `[init] Space OS init running`, `[init] ALL TESTS PASSED`; exit 33 |
+| `acceptance` | `init=bin/init` | marker `[kernel] selftest: heap ok`, `[init] Space OS init running`, `[init] ALL TESTS PASSED`; exit 33. `init=` bawaan diucapkan agar uji K02 bisa membaca command line kernel kembali dan memeriksa programnya |
+| `stress` | `stress=2` | versi pendek uji stabilitas (ADR-0019): seluruh suite **dua kali dalam satu boot**, putaran chaos dengan pembunuhan acak setelah setiap putaran (termasuk `spacenet` di tengah transfer, lalu `network back`), dan memori setelah putaran 2 **sama persis** dengan setelah putaran 1 (`[stress] pass 2: ok`, tidak ada `LEAK`); exit 33 |
 | `panic-diagnosis` | `selftest=panic` | `!!! KERNEL PANIC !!!`, pesan, `backtrace (frame pointers):`, `spacekernel: halted after panic`; exit 127 |
 | `kernel-fault-diagnosis` | `selftest=kfault` | `!!! CPU EXCEPTION IN KERNEL MODE: page fault !!!`, `cr2=0xfffff000dead0000`, lalu panic; exit 127 |
 | `kernel-stack-overflow-diagnosis` | `selftest=stack` | `!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!` (guard page kernel stack), lalu panic; exit 127 |
@@ -15,6 +16,7 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `init-missing-diagnosis` | `init=bin/not_a_program` | `init=` yang salah ketik harus menyebut program yang benar-benar gagal: `cannot start "bin/not_a_program" from initrd: not found`, lalu panic; exit 127 |
 | `terminal` | `init=bin/spaceterm` | image yang **sama**, di-boot ke sesi interaktif dan dikendalikan dari **keyboard**: harness menekan tombol lewat monitor QEMU (`sendkey`), jadi jalurnya scan code → IRQ 1 → decoder kernel. Mesin ini tidak punya COM2 sama sekali (log wajib memuat `no COM2 UART`), jadi tiap ketikan pasti datang dari keyboard. Diketik `help`, `status`, `ls /spaceos`, `run hang`, `status`, `stop`, `status`, `quit`; exit 33 |
 | `terminal-serial` | `init=bin/spaceterm` | sesi yang sama lewat **konsol serial**: COM2 sebagai pty, harness menulis byte ke sana (IRQ 3). Log wajib memuat `keyboard (IRQ1) and COM2 serial (IRQ3)`. Perintah dan harapan sama dengan `terminal` |
+| `desktop` | `init=bin/spacedesk` | image yang sama di-boot ke **desktop** (ADR-0020) dan dikendalikan dari keyboard lewat monitor QEMU: Super+Enter membuka terminal dan `ls /spaceos` diketik; Super+E membuka file manager dan panah menelusurinya; Super+A membuka Agent Center, `2` menjalankan worker yang crash (`crashed (page fault)`), Alt+Tab ke terminal dan `status` diketik **setelah** crash harus dijawab; `3` menjalankan worker yang macet dan `s` (Stop) harus menghentikannya; lalu ubah ukuran, pindah, minimize, workspace 2 dan kembali, kontras tinggi, Alt+F4, dan Ctrl+Alt+Delete mematikan mesin. Log wajib memuat `display: leased to pid 1 'bin/spacedesk'` dan setiap langkah itu; screenshot di `build/logs/desktop-*.png`; exit 33 |
 
 ## Matriks kompatibilitas `cargo xtask compat` (ADR-0010)
 
@@ -68,6 +70,7 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | proses loop tanpa syscall tidak membuat init kelaparan; `kill` → `SIGNAL` | `bin/spin` |
 | K03 | kuota 100 halaman: `mem_map` ditolak tepat pada batas, halaman nol, dilepas dan dapat dipakai lagi | `bin/quota` |
 | K03 | 50 siklus spawn/IPC/exit → frame bebas dan heap kernel identik | `bin/worker` |
+| K03 | 50 siklus map/unmap 2 MiB (`mem_map` dan memory object) → frame bebas identik: rentang alamat yang dilepas dipakai lagi beserta page table-nya (tanpa perbaikan ADR-0019: `frames 2090101 -> 2090001`, 100 frame dalam 50 siklus) | `bin/init` |
 | K03 | 20 siklus "kill saat blocking di `recv`" → peer melihat `PeerClosed`, frame bebas dan heap kernel identik | `bin/ipc_echo` |
 | K03 | 20 siklus kill saat `sleep(1 jam)`, 20 siklus kill saat blocking `recv` dengan peer tetap terbuka, 20 siklus kill saat `wait` pada proses yang terus berjalan → frame bebas dan heap kernel identik (tanpa perbaikan: ~180 frame dan ~12 KiB heap bocor per 20 siklus) | `bin/blocker` |
 | K02 | tabel handle penuh → `spawn` ditolak `TooManyHandles` dan tidak ada proses yatim | `bin/hello` |
@@ -76,6 +79,7 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | set cacat ditolak: kosong → `Invalid`, `WAIT_MAX + 1` → `Invalid`, handle tertutup → `BadHandle`, handle root dan channel tanpa `RECV` → `Denied`, pointer kernel → `Fault` | `bin/init` |
 | K03 | 20 siklus kill saat `wait_any` pada dua antrean tanpa batas waktu, dan 20 siklus dengan batas waktu satu jam → frame bebas dan heap kernel identik, entri timer dilepas saat itu juga | `bin/blocker` |
 | K02 | jam dinding (`SYS_CLOCK_REALTIME`, RTC CMOS) jatuh di antara 2024 dan 2100, dan `sleep(50 ms)` memajukannya 50–1000 ms | `bin/init` |
+| K02 | `SYS_CMDLINE`: command line kernel terbaca utuh; buffer 1 byte mendapat awalnya dan tetap tahu panjang aslinya; alamat kernel → `Fault`; handle root tanpa `STATS` → `Denied`; program yang disebut `init=` adalah yang berjalan | `bin/init` |
 | K02 | `SYS_RANDOM`: 257 byte → `Invalid`, alamat kernel → `Fault`, 0 byte → `Ok(0)`, 16 byte → `Ok(16)` bila ada sumber entropi dan `NotFound` bila tidak (tidak pernah cadangan yang lemah) | `bin/init` |
 | K02 | 16 tarikan × 256 byte dari virtio-rng/RDRAND: tidak ada yang identik, chi-square byte ≤ 400 (255 derajat kebebasan), jumlah bit 1 dalam ±600 dari setengah; dilewati tanpa sumber entropi | `bin/init` |
 | A01 | tiga model rusak (`badmagic`, `baddims`, `trunc`) ditolak dengan alasan, tanpa crash | `bin/spaceai` |
@@ -108,6 +112,17 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | U01 | `console_read` tanpa hak `CONSOLE` → `Denied`, ke memori kernel → `Fault`, dan tidak pernah memblokir | `bin/init` |
 | U01 | satu tombol ditekan oleh controller sendiri (`debug_op::PS2_INJECT`, perintah 8042 0xD2): byte itu harus melewati IRQ 1, pengurasan controller, decoder, ring, lalu sampai ke `console_read` sebagai `a` | `bin/init` |
 | U01 | ring masukan diluapkan dengan sengaja (`debug_op::CONSOLE_FLOOD`, 264 byte ke ring 256 byte): pembacaan berikutnya → `DataLoss` **sebelum** byte apa pun, laporan itu tidak memakan byte, dan byte yang selamat masih berupa potongan pola yang berurutan | `bin/init` |
+| U01 | desktop mengambil layar: ukurannya bukan 0×0, lease kedua → `Busy`, handle root tanpa `DISPLAY` → `Denied`; desktop keluar dengan kode 0 dan layar bisa di-lease lagi | `bin/spacedesk`, `bin/init` |
+| U01 | jendela dari keyboard (lewat API operator, penangan yang sama dengan tombol sungguhan): dua jendela, fokus di yang terbaru; Alt+Tab memindah fokus; Alt+→ menggeser 32 px dan Alt+Shift+↓ menambah tinggi 32 px (aplikasi menggambar ulang di buffer baru); Super+M meminimize dan fokus pindah; Ctrl+Alt+→ ke workspace kosong dan Ctrl+Alt+← kembali; jendela yang di-minimize kembali saat dipilih; Alt+F4 menutup file manager dan jendelanya hilang | `bin/spacedesk`, `bin/deskapps` |
+| U01 | **inti U01 di desktop**: terminal, file manager dan Agent Center terbuka; worker dibuat crash dari Agent Center (`crashed (page fault)`); terminal menjawab `status` yang diketik setelahnya; file manager masih menelusuri volume; worker yang macet dihentikan Stop dalam ≤ 2 detik (PRD §9); tiga jendela masih ada dan desktop terus menampilkan frame baru | `bin/spacedesk`, `bin/deskapps`, `bin/spaceshell`, `bin/uiworker` |
+| U01 | desktop yang **dibunuh** dengan jendela terbuka: aplikasinya pergi sendiri, layar kembali ke konsol, dan desktop baru bisa mulai | `bin/spacedesk`, `bin/init` |
+
+Gigi uji desktop (ADR-0020), masing-masing dijalankan sendiri: lease yang tidak eksklusif →
+`a second lease on the screen was granted`; kernel yang tidak mengambil layar kembali → keempat uji
+desktop gagal di `hello: resource busy` (lease yang diambil `init` untuk memeriksa layar tidak
+pernah kembali); Stop yang tidak melakukan apa pun → `window 3 never said "'hang' stopped"`;
+tombol yang dikirim ke jendela pertama, bukan ke yang fokus → `window 3 never said "crashed (page
+fault)"; last: "agent: no worker has run; …"`.
 
 Gigi uji tulis terbukti: dengan `virtio_blk::write_sectors` diubah menjadi no-op yang
 melaporkan sukses, uji byte-demi-byte gagal dengan `open: not found` — berkas yang
@@ -276,6 +291,15 @@ instruksi. Unit-unit itu dimatikan kernel, jadi instruksi seperti itu di kernel 
 dan di program berarti program mati. Pengecualiannya tepat dua instruksi yang disengaja di
 `bin/fault` (`fld1`, `pxor`); pemeriksa terbukti menemukan keduanya.
 
+## Gerbang build: kontras warna desktop
+
+`spacedesk` dan `deskapps` memeriksa palet mereka saat dikompilasi (`gfx::contrast_x100`, rumus
+WCAG): setiap warna teks terhadap setiap latar tempat ia digambar — 4,5:1 di tema biasa, 7:1 di
+kontras tinggi — dan bingkai fokus serta tombol Stop 3:1 terhadap sekitarnya. Warna yang gagal
+menghentikan build dengan nama pasangannya, misalnya `CONTRAST: on_accent on accent is too faint to
+read` (warna lama: putih di atas kuning, 1,43:1) atau `the Stop label is too faint to read` (putih di
+atas merah, 2,78:1).
+
 ## Jaringan lab dan pemeriksaan kabel
 
 Kartu setiap mesin tersambung ke jaringan QEMU user-mode dengan `restrict=on`: guest
@@ -303,11 +327,46 @@ yang dibuat sendiri, misalnya dengan `SPACEOS_PCAP=<file> cargo xtask run`.
 `cargo xtask unit` (juga bagian `cargo xtask ci`) menjalankan uji unit `spaceabi` —
 tata letak pesan jaringan tanpa padding implisit, pencocokan allowlist, codec DNS
 (kueri, jawaban, rantai CNAME, pointer kompresi yang bermusuhan) — dan `xtask`
-sendiri, termasuk server DNS lab.
+sendiri, termasuk server DNS lab, analisis pcap (port yang dipakai ulang adalah koneksi
+baru, dan koneksi kedua yang mengabaikan FIN tetap tertangkap) dan pembaca baris putaran stress.
 
 ## Selftest kernel (sebelum user-space)
 
-`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang; dekoder scan code diberi urutan sungguhan (tombol biasa, shift, **dua** shift ditekan lalu satu dilepas, tombol panah, tombol panah dengan shift palsu, keypad Enter dan `/`, backspace) dan hasilnya dicocokkan byte demi byte.
+`kernel/src/selftest.rs`: heap alokasi/bebas tanpa selisih; 64 frame berbeda dan kembali penuh; map/write/translate/unmap halaman kernel; address space user map/cek-akses/tolak-overlap/unmap/drop tanpa selisih frame, pemetaan anonim dipisah halaman penjaga dan rentang yang dilepas diberikan lagi; pemetaan memory object bersama menahan frame selama masih terpetakan dan mengembalikannya tepat saat pemetaan terakhir hilang; dekoder scan code diberi urutan sungguhan (tombol biasa, shift, **dua** shift ditekan lalu satu dilepas, tombol panah, tombol panah dengan shift palsu, keypad Enter dan `/`, backspace) dan hasilnya dicocokkan byte demi byte.
+
+## Uji stabilitas `cargo xtask stress` (ADR-0019)
+
+`cargo xtask stress --minutes 480` mem-boot mesin lab satu kali dengan `stress=480m`. `init`
+menjalankan seluruh suite penerimaan berulang-ulang selama waktu itu; setelah setiap putaran:
+
+- **putaran chaos**: `bin/churn` dalam empat mode (dua penulis berkas, pemeta memori/memory object,
+  pengoper channel dan handle, pemanggil spawn) plus transfer echo lewat `spacenet`, dibiarkan
+  bekerja 100–1600 ms, lalu dibunuh dalam urutan acak dengan jeda acak 0–40 ms. Setiap korban harus
+  mati karena dibunuh; koneksi yang layanannya mati harus melaporkannya; lease jaringan harus bisa
+  diambil lagi dan `spacenet` baru harus melayani (`network back`);
+- **pemantauan memori**: frame bebas, heap kernel, proses, thread, heap `init` dan handle `init`
+  harus **sama persis** dengan setelah putaran 1 (menunggu hingga 2 detik untuk proses yang masih
+  keluar). Setiap putaran berakhir dengan satu baris angka, termasuk frame bebas terendah dan heap
+  kernel tertinggi sejak boot.
+
+Harness berjalan dari salinannya sendiri (`build/stress/xtask`) dengan otoritas lab, disk data dan
+variabel firmware sendiri, sehingga `cargo xtask test` boleh dijalankan di sebelahnya. Ia membaca log
+secara bertahap, mencetak baris `[stress]` dengan cap waktu, mencatat deskriptor dan memori QEMU
+serta layanan lab yang hidup setiap 60 detik, lalu menulis ke `build/stress/`:
+
+| Berkas | Isi |
+|---|---|
+| `stress.log`, `stress.lab.log`, `stress.pcap` | log serial lengkap, log layanan lab, rekaman jaringan |
+| `summary.txt` | catatan guest sendiri, putaran, memori setelah setiap putaran dan terendah/tertinggi selama run, TCP, lab, host, putusan |
+| `memory.csv` | satu baris per putaran: lulus/total, detik, dan kesembilan angka memori |
+
+Run gagal bila: kode keluar bukan 33, guest tidak menulis `STRESS PASSED`, log memuat `KERNEL PANIC`,
+`[init] FAIL`, `LEAK` atau `[churn]`, layanan lab menulis salah satu baris terlarang (kredensial
+bocor, percobaan keempat, aliran yang tidak dihentikan, ask yang seharusnya ditolak sampai ke
+penyedia), angka memori putaran mana pun berbeda dari putaran 1, atau guest berjalan kurang dari
+waktu yang diminta. FIN peer yang tidak pernah dijawab **dilaporkan tetapi tidak menggagalkan**:
+koneksi milik `spacenet` yang dibunuh memang berakhir begitu; sopan-santun TCP dinilai ketat di
+setiap skenario lain.
 
 ## Soak K01
 

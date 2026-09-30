@@ -20,7 +20,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use libspace::gfx::{GLYPH_H, Surface, glyph_w};
+use libspace::gfx::{GLYPH_H, Surface, contrast_x100, glyph_w};
 use libspace::spaceabi::boot::fb_format;
 use libspace::spaceabi::desk::{self, Msg, WORKSPACES, app, msg, window_flags};
 use libspace::spaceabi::error::Error;
@@ -59,6 +59,9 @@ struct Palette {
     bar: u32,
     bar_text: u32,
     accent: u32,
+    /// Text on something filled with `accent`: the current workspace, the dock tile
+    /// of the window with the keyboard.
+    on_accent: u32,
     border: u32,
     title_focus: u32,
     title: u32,
@@ -78,6 +81,7 @@ const NORMAL: Palette = Palette {
     bar: 0x0A0F1A,
     bar_text: 0xD8E0EC,
     accent: 0x4C8DFF,
+    on_accent: 0x06101F,
     border: 0x2A3A58,
     title_focus: 0x22314D,
     title: 0x161F31,
@@ -86,7 +90,7 @@ const NORMAL: Palette = Palette {
     dock: 0x121A2A,
     tile: 0x1F2B42,
     tile_text: 0xD8E0EC,
-    dim_text: 0x6F7C96,
+    dim_text: 0x8E9BB5,
     shadow: 0x03060C,
 };
 
@@ -98,6 +102,7 @@ const CONTRAST: Palette = Palette {
     bar: 0x000000,
     bar_text: 0xFFFFFF,
     accent: 0xFFD400,
+    on_accent: 0x000000,
     border: 0xFFFFFF,
     title_focus: 0x000000,
     title: 0x000000,
@@ -108,6 +113,35 @@ const CONTRAST: Palette = Palette {
     tile_text: 0xFFFFFF,
     dim_text: 0xBBBBBB,
     shadow: 0x000000,
+};
+
+/// Hold a palette to a contrast floor for each pair of colours drawn together.
+macro_rules! readable {
+    ($p:ident, $min:expr, $($fg:ident on $bg:ident),+ $(,)?) => {
+        $(assert!(
+            contrast_x100($p.$fg, $p.$bg) >= $min,
+            concat!(stringify!($p), ": ", stringify!($fg), " on ", stringify!($bg), " is too faint to read")
+        );)+
+    };
+}
+
+// Every text colour against everything it is drawn on -- 4.5:1 (WCAG AA) in the
+// normal theme, 7:1 (AAA) in high contrast -- and the focus frame at 3:1 against
+// what surrounds it. Checked when the desktop is compiled: a colour change that
+// makes something unreadable does not build.
+const _: () = {
+    readable!(
+        NORMAL, 450,
+        dim_text on bg_top, dim_text on bg_bottom, title_text_focus on title_focus, title_text on title,
+        bar_text on bar, on_accent on accent, tile_text on tile, dim_text on tile, dim_text on dock,
+    );
+    readable!(
+        CONTRAST, 700,
+        dim_text on bg_top, dim_text on bg_bottom, title_text_focus on title_focus, title_text on title,
+        bar_text on bar, on_accent on accent, tile_text on tile, dim_text on tile, dim_text on dock,
+    );
+    readable!(NORMAL, 300, accent on bg_top, accent on bg_bottom, accent on title_focus, accent on dock);
+    readable!(CONTRAST, 300, accent on bg_top, accent on bg_bottom, accent on title_focus, accent on dock);
 };
 
 /// The screen: the framebuffer, and the buffer frames are composed in.
@@ -1064,7 +1098,7 @@ impl Desk {
                 bx + (24 - gw) / 2,
                 (TOP_BAR - GLYPH_H) / 2,
                 core::str::from_utf8(&label).unwrap_or("?"),
-                pal.bar_text,
+                if n as u32 == workspace { pal.on_accent } else { pal.bar_text },
             );
         }
         if let Some(c) = &clock {
@@ -1078,15 +1112,20 @@ impl Desk {
         let mut tx = 12;
         for w in windows.iter().filter(|w| w.workspace == workspace) {
             let focused = focus == Some(w.id);
-            let label: String = w.title.chars().take(18).collect();
+            // Minimized says so in words as well as in a dimmer colour: a state shown
+            // only by colour is lost on anyone who cannot tell the colours apart.
+            let mut label: String = if w.minimized { String::from("_ ") } else { String::new() };
+            label.extend(w.title.chars().take(18));
             let tw = (label.len() as i32 + 2) * gw;
             s.fill(tx, dy + 8, tw, DOCK_H - 16, if focused { pal.accent } else { pal.tile });
-            s.text(
-                tx + gw,
-                dy + (DOCK_H - GLYPH_H) / 2,
-                &label,
-                if w.minimized { pal.dim_text } else { pal.tile_text },
-            );
+            let color = if focused {
+                pal.on_accent
+            } else if w.minimized {
+                pal.dim_text
+            } else {
+                pal.tile_text
+            };
+            s.text(tx + gw, dy + (DOCK_H - GLYPH_H) / 2, &label, color);
             tx += tw + 8;
         }
         let hint = "Super+Enter terminal  Super+E files  Super+A agent  Alt+Tab switch";

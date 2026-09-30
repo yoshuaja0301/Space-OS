@@ -14,10 +14,13 @@
 | `cargo xtask run [--gui] [--serial-input] [--cmdline "selftest=panic"]` | boot image di QEMU, log serial di stdio (`Ctrl-A X` untuk keluar). Tanpa `--gui` atau `--serial-input` tamu **tidak punya jalur masukan** sama sekali |
 | `cargo xtask run --gui --cmdline "init=bin/spaceterm"` | boot ke sesi interaktif lewat keyboard jendela QEMU: ketik `help`, `status`, `ls /spaceos`, `run ok`, `stop`, `quit` |
 | `cargo xtask run --serial-input --cmdline "init=bin/spaceterm"` | sesi yang sama tanpa jendela: QEMU mencetak path pty COM2, ketik ke sana (`screen <pty>`) |
-| `cargo xtask test` | sembilan skenario boot + pemeriksaan log/exit code, log di `build/logs/` |
-| `cargo xtask compat` | sembilan konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
+| `cargo xtask run --gui --cmdline "init=bin/spacedesk"` | boot ke **desktop** (ADR-0020): Super+Enter (atau Alt+F1) terminal, Super+E file manager, Super+A Agent Center, Alt+Tab pindah jendela, Ctrl+Alt+Delete mematikan mesin. Di jendela QEMU, Super sering ditangkap sistem host; pakai Alt+F1/F2/F3 |
+| `cargo xtask test [--only <nama>]` | sebelas skenario boot + pemeriksaan log/exit code dan rekaman jaringan, log di `build/logs/` |
+| `cargo xtask compat` | sepuluh konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
+| `cargo xtask stress --minutes 480` | uji stabilitas (ADR-0019): satu boot, seluruh suite berulang selama 8 jam dengan pembunuhan acak dan pemeriksaan memori; hasil di `build/stress/` |
+| `cargo xtask unit` | uji unit host (`spaceabi`, `xtask`) |
 | `cargo xtask soak --boots 100` | 100 cold boot berturut-turut skenario acceptance (K01) |
-| `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy + `test` + `compat` |
+| `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy + `unit` + `test` + `compat` |
 
 Proses user pertama dipilih `init=` pada cmdline kernel (`bin/init` bila tidak disebut).
 Tambahkan `--debug` untuk profil dev. Build pertama ≈ 1 menit; build inkremental beberapa detik.
@@ -31,9 +34,10 @@ EFI/BOOT/BOOTX64.EFI          spaceboot
 EFI/SPACEOS/spacekernel.elf   kernel (stripped)
 EFI/SPACEOS/initrd.tar        bin/init dan program uji (bin/hello, bin/fault, bin/abi_negative,
                               bin/ipc_echo, bin/quota, bin/spin, bin/worker, bin/blocker,
-                              bin/uiworker) serta layanan (bin/spacecompute, bin/spaceai,
-                              bin/spaceshell, bin/spaceterm, bin/spacebroker, bin/spaceagent,
-                              bin/spacelink, bin/spacepkg)
+                              bin/uiworker, bin/tlsprobe, bin/churn) serta layanan
+                              (bin/spacecompute, bin/spaceai, bin/spaceshell, bin/spaceterm,
+                              bin/spacebroker, bin/spaceagent, bin/spacelink, bin/spacepkg,
+                              bin/spacenet, bin/spacecloud, bin/spacedesk, bin/deskapps)
 EFI/SPACEOS/spaceos.cfg       cmdline=...
 ```
 

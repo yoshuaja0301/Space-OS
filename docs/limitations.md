@@ -49,13 +49,31 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 - `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
 - Loop sesi memakai polling 2 ms. Waktu ADR-0011 ditulis belum ada multi-wait; sekarang ada (`SYS_WAIT_ANY`, ADR-0016), tetapi `spaceshell` belum dipindahkan ke sana.
-- Masukan konsol datang dari keyboard PS/2 (scan code set 1, tata letak US, hanya tombol yang dibutuhkan baris perintah) dan COM2. Tombol extended (`0xE0`) diabaikan kecuali Enter dan `/` pada keypad — termasuk shift palsu yang menyertai tombol panah, yang kalau didekode akan membuat keyboard tersangkut huruf besar.
+- Masukan datang dari keyboard PS/2 (scan code set 1, tata letak US) dan COM2. Setiap tombol menjadi *event* untuk desktop (`SYS_INPUT_READ`), tetapi aliran **byte** untuk terminal hanya berisi karakter cetak, Enter, Backspace, Tab dan Esc (plus Enter dan `/` keypad): panah, F1–F12, Home/End tidak mengetik apa pun, dan tekanan dengan Ctrl/Alt/Super juga tidak — jadi tidak ada Ctrl+C sebagai byte `0x03`. Caps Lock, Num Lock dan lampu keyboard tidak ditangani. Shift palsu yang menyertai tombol panah dibuang; kalau didekode, keyboard akan tersangkut huruf besar.
 - Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
-- Belum ada window manager, GUI, font selain 8x16 bawaan, atau grafik selain teks di framebuffer. "Desktop" berarti konsol teks.
-- Ring buffer masukan 256 byte; yang tertua dibuang saat penuh dan kejadian itu dicetak sekali.
 - Ring masukan konsol berisi 256 byte dan membuang yang paling tua saat penuh. Kehilangan itu tidak didiamkan: pembacaan berikutnya mendapat `DataLoss` sebelum byte yang selamat, sekali per episode, dan `spaceshell` membuang baris yang sedang diketik. Yang tidak ada adalah kendali aliran — tidak ada cara memberi tahu pengirim agar berhenti, jadi tempelan yang lebih cepat dari pembacanya tetap kehilangan byte, hanya saja dengan suara. Satu interupsi COM2 juga hanya mengambil 4096 byte; lebih dari itu menjeda interupsinya sampai pembacaan konsol berikutnya, jadi masukan tertunda, bukan hilang selamanya.
 - Masukan konsol adalah **satu antrean global**, bukan milik satu proses: pembacaan bersifat merusak, jadi dua proses yang sama-sama memegang hak `CONSOLE` akan saling memakan ketikan. Modelnya adalah satu sesi memiliki konsol; belum ada pemilik konsol yang ditegakkan kernel.
 - `SYS_FS_LIST` mengembalikan maksimum 64 entri per panggilan dan tidak punya kursor; direktori yang lebih besar terpotong tanpa cara melanjutkan. Entri `.` dan `..` ikut dikembalikan apa adanya.
+
+## Desktop (ADR-0020)
+
+- **Hanya keyboard.** Belum ada mouse atau pointer apa pun (PS/2 mouse, virtio-input, USB HID); jendela dipindah dan diubah
+  ukurannya dengan pintasan, 32 px per langkah.
+- **Hanya framebuffer UEFI (GOP)** yang ditinggalkan firmware, pada resolusi pilihan firmware (1280×800 di QEMU). Belum ada
+  virtio-gpu, ganti mode, atau lebih dari satu layar. Mesin tanpa GOP tidak bisa menjalankan desktop (`display_open` →
+  `NotFound`); uji desktop dilewati dengan alasan, dan sesi teks lewat serial tetap ada.
+- Software rendering yang menyusun ulang **seluruh** layar setiap ada perubahan (tanpa damage region, tanpa vsync — tearing
+  mungkin terlihat).
+- Satu huruf: Noto Sans Mono bitmap 16 px, **Latin dasar saja**; karakter lain tampil sebagai `?`. Tanpa scaling.
+- Kontras tinggi (Super+H) hanya untuk bingkai, top bar dan dock; isi aplikasi tetap di tema biasa. Kontras yang diperiksa saat build hanya untuk pasangan warna yang didaftarkan di kode; teks yang digambar klien di atas gambar (belum ada) tidak bisa diperiksa dengan cara itu.
+- Aplikasinya sempit: terminal adalah sesi `spaceshell` dengan perintahnya (`help`, `status`, `ls`, `run`, `stop`, `clear`);
+  file manager hanya **menelusuri** (belum membuka, menyalin atau menghapus); Agent Center menjalankan worker uji
+  `bin/uiworker` (selesai, crash, macet, lambat) — belum menjalankan `spaceai` atau `spaceagent` dari desktop.
+- Belum ada Command Center (pencarian SpaceLink), pengaturan model, notifikasi, login atau layar kunci; satu pengguna.
+- Paling banyak 12 jendela (4 yang sedang dimulai); setiap klien dilayani paling banyak 16 pesan per putaran; judul dan
+  deskripsi jendela paling panjang 180 byte.
+- Ctrl+Alt+Delete hanya mematikan mesin bila desktop adalah sesinya (`init=bin/spacedesk`); desktop yang dijalankan proses
+  lain menyerahkan keputusan itu kepada operatornya.
 
 ## Agent dan Tool Broker
 
@@ -84,7 +102,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Kompatibilitas
 
-- Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- Matriks `cargo xtask compat` (ADR-0010) mencakup sepuluh konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
 - **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 
@@ -117,7 +135,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Belum ada (tahap berikutnya)
 
-- VirtIO input/display di luar keyboard PS/2, COM2 dan konsol teks (sisa tahap 3).
+- VirtIO input dan virtio-gpu, mouse (sisa tahap 3): masukan hanya keyboard PS/2 dan COM2, layar hanya framebuffer UEFI.
 - Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud terhadap penyedia sungguhan (5A).
 - GPU, ARM64 (6–7).
 

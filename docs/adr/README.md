@@ -22,3 +22,5 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0016](0016-network-stack.md) | Jaringan: kernel memindahkan frame, TCP/IP di user space, tujuan sebagai kapabilitas | Diterima |
 | [0017](0017-tls.md) | TLS: pustaka yang di-port, kunci dari sumber entropi kernel, kepercayaan hanya dari yang diberikan | Diterima |
 | [0018](0018-cloud-adapter.md) | Adapter cloud: satu program memegang kredensial, jaringan ke satu alamat, dan tool hanya lewat broker | Diterima |
+| [0019](0019-stability-run.md) | Uji stabilitas: seluruh suite berulang dalam satu boot, pembunuhan acak, dan memori yang harus kembali tepat | Diterima |
+| [0020](0020-desktop.md) | Desktop: layar sebagai lease, jendela sebagai memori klien, dan manajemen jendela dari keyboard | Diterima |
