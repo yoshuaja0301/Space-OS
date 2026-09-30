@@ -2,18 +2,18 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 336640 bytes, initrd 3898368 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 328 KiB at phys 0x7d552000, entry 0xffffffff80100aac
+spaceboot: kernel 332544 bytes, initrd 3920384 bytes, config 73 bytes
+spaceboot: kernel 3 segments, 324 KiB at phys 0x7d551000, entry 0xffffffff80100050
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 38 memory regions, initrd 3898368 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 36 memory regions, initrd 3920384 bytes, cmdline 14 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] cpu: x87/SSE/AVX off for user space (no per-thread FPU state); RDRAND absent
-[kernel] frames: 2094361 usable (8181 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
-[kernel] paging: kernel PML4 at 0x1000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
+[kernel] frames: 2094356 usable (8181 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
 [kernel] mmio window: 1024 MiB at 0xffffb00000000000
@@ -21,7 +21,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "selftest=panic"
-[kernel] initrd: 3898368 bytes, 28 files
+[kernel] initrd: 3920384 bytes, 29 files
 [kernel]   bin/init (500696 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
@@ -29,6 +29,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/ipc_echo (21064 bytes)
 [kernel]   bin/quota (25160 bytes)
 [kernel]   bin/spin (21064 bytes)
+[kernel]   bin/pingpong (21064 bytes)
 [kernel]   bin/worker (29296 bytes)
 [kernel]   bin/blocker (25176 bytes)
 [kernel]   bin/spacecompute (49912 bytes)
@@ -63,15 +64,16 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1790751971 s since the Unix epoch (UTC)
+[kernel] rtc: 1790774922 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 
 !!! KERNEL PANIC !!!
 at kernel/src/selftest.rs:164:26
 message: deliberate kernel panic (cmdline selftest=panic)
-current: idle
+current: idle on cpu 0
 backtrace (frame pointers):
-  #00 0xffffffff8012ee1c
-  #01 0xffffffff80103357
-  #02 0xffffffff80104916
+  #00 0xffffffff8012901c
+  #01 0xffffffff80119690
+  #02 0xffffffff801013fb
+  #03 0xffffffff80106d03
 spacekernel: halted after panic (uptime 0 ms)

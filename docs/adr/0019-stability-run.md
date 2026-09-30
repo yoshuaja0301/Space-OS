@@ -150,6 +150,15 @@ berlangsung berjam-jam sementara pengembangan jalan terus:
   acknowledged by the guest: 10.0.2.15:55846 <- 10.0.2.101:7`, FIN datang 30,8 detik setelah
   segmen terakhir guest), yang baru lulus dan menyebut koneksi itu; rekaman bug TIME-WAIT (24
   koneksi, ADR-0016) tetap gagal utuh.
+- *Antrean yang tumbuh di beberapa CPU.* Run bukti pertama setelah SMP (ADR-0024) gagal di
+  skenario `stress` pendek: `pass 2: LEAK against pass 1: kernel heap bytes +32`. Tidak ada objek
+  yang hilang: +32 byte adalah tepat satu langkah antrean pointer yang tumbuh dari 4 ke 8 slot, dan
+  run queue penjadwal tumbuh pada saat pertama kali lebih dari empat thread siap bersamaan — di satu
+  CPU itu selalu terjadi di putaran pertama, di empat CPU bisa di putaran mana pun. Uji benar
+  menolaknya: heap yang tidak kembali tetap heap yang tidak kembali. Kini run queue dan daftar
+  sleeper diberi ruang untuk 256 thread saat boot (ADR-0024 keputusan 10), jadi ukuran heap tidak
+  lagi bergantung pada kapan puncak konkurensi terjadi; empat run `stress` berturut-turut dan run
+  bukti sesudahnya lulus tanpa kebocoran.
 - *`SYS_CMDLINE`.* `init` perlu membaca `stress=`. Command line kernel kini bisa dibaca lewat handle
   root dengan hak `STATS` (cara kernel dikonfigurasi bukan urusan program yang tidak diberi hak
   itu). K02 menuntut isinya utuh, buffer pendek mendapat awalnya dan tetap tahu panjang aslinya,
@@ -197,7 +206,8 @@ did not come back`) — tidak dilemahkan secara terpisah.
 - Kernel memakai ulang alamat user yang dilepas. Pointer basi di program user kini bisa mengenai
   pemetaan baru, bukan fault — seperti di sistem lain; halaman penjaga tetap memisahkan pemetaan
   yang hidup.
-- Batas yang jujur: satu CPU (ADR-0006) — stress ini tidak menguji konkurensi antar-CPU; QEMU/TCG,
+- Batas yang jujur: sampai ADR-0024 stress ini berjalan di satu CPU; sejak itu di empat, jadi
+  konkurensi antar-CPU ikut diuji (skenario `stress` pendek di setiap run uji); QEMU/TCG,
   bukan perangkat fisik; perangkat keras yang *mengembalikan error* (disk yang gagal membaca) belum
   disuntikkan; tekanan memori sampai habis tidak diuji di sini (K03 menguji kuota, bukan kehabisan
   RAM mesin).

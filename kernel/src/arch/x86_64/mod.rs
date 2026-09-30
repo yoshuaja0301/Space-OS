@@ -1,12 +1,16 @@
+pub mod acpi;
+pub mod apic;
 pub mod context;
 pub mod cpu;
 pub mod gdt;
 pub mod idt;
+pub mod percpu;
 pub mod pic;
 pub mod pit;
 pub mod ps2;
 pub mod rtc;
 pub mod serial;
+pub mod smp;
 pub mod syscall;
 pub mod trap;
 

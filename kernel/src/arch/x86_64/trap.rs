@@ -4,7 +4,9 @@
 //!   terlarang mematikan proses uji, bukan kernel").
 //! * A fault raised in ring 0 is a kernel bug: dump the frame and panic.
 //! * IRQ 0 (PIT) drives the scheduler tick and the network device poll, IRQ 1 and
-//!   IRQ 3 feed console input; other IRQs are acknowledged and ignored.
+//!   IRQ 3 feed console input; other IRQs are acknowledged and ignored. All of them
+//!   arrive on the boot CPU only.
+//! * The local APIC brings the other CPUs' timer ticks and "there is work" IPIs.
 
 use spaceabi::syscall::{ExitStatus, kill_reason};
 
@@ -126,11 +128,25 @@ pub fn dump_frame(f: &TrapFrame, cr2: u64) {
     }
 }
 
+const VEC_RESCHEDULE: u64 = super::apic::VEC_RESCHEDULE as u64;
+const VEC_AP_TIMER: u64 = super::apic::VEC_TIMER as u64;
+const VEC_SPURIOUS: u64 = super::apic::VEC_SPURIOUS as u64;
+
 #[unsafe(no_mangle)]
 extern "C" fn x86_64_trap_handler(frame: &mut TrapFrame) {
     match frame.vector {
         0..=31 => handle_exception(frame),
         IRQ_BASE..=47 => handle_irq(frame),
+        VEC_AP_TIMER => {
+            super::apic::eoi();
+            sched::timer_tick();
+        }
+        VEC_RESCHEDULE => {
+            super::apic::eoi();
+            sched::reschedule_ipi();
+        }
+        // A spurious local APIC interrupt is not acknowledged.
+        VEC_SPURIOUS => {}
         v => println!("[kernel] unexpected vector {v}, ignored"),
     }
     if frame.is_user() {
@@ -145,6 +161,11 @@ fn handle_exception(frame: &mut TrapFrame) {
         // NMI is a platform event (SERR, watchdog, ...), never the fault of the code
         // it interrupted. It runs on its own IST stack; log it and resume.
         2 => {
+            // Another CPU panicked and is stopping the rest: stop here, touching
+            // nothing (this CPU may hold any lock at all).
+            if crate::panic::in_progress() {
+                super::halt_forever();
+            }
             let n = NMI_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
             if n <= 8 {
                 println!("[kernel] NMI #{n} at rip={:#x} (cs={:#x}); ignored", frame.rip, frame.cs);

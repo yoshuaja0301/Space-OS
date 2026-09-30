@@ -18,4 +18,4 @@ PRD §2 mengusulkan microkernel berorientasi capability dengan Rust sebagai baha
 
 - Tidak ada ketergantungan pada nightly → build reproduktif dan CI sederhana.
 - Semua kode `unsafe` harus memberi alasan (`#![deny(unsafe_op_in_unsafe_fn)]`); clippy `-D warnings` pada semua target.
-- Kernel pra-SMP: lihat ADR-0006.
+- SMP: ADR-0024 (sebelumnya satu CPU, ADR-0006).

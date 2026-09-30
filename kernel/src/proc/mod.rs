@@ -35,7 +35,12 @@ pub struct Process {
     pub cr3: PhysFrame,
     pub handles: SpinLock<HandleTable>,
     pub quota_pages: usize,
+    /// How the process ended, published once nothing of it is left but this
+    /// structure: `wait` returning means its memory, handles and kernel stack are
+    /// already back.
     pub status: SpinLock<Option<ExitStatus>>,
+    /// How it ended, decided by its exit and published by whoever reaps its thread.
+    final_status: SpinLock<Option<ExitStatus>>,
     pub exit_waiters: WaitQueue,
     pub pending_kill: SpinLock<Option<ExitStatus>>,
     pub thread: SpinLock<Option<Weak<Thread>>>,
@@ -123,6 +128,7 @@ pub fn spawn(name: &str, quota_pages: usize, bootstrap: Option<HandleEntry>) -> 
         handles: SpinLock::new(table),
         quota_pages,
         status: SpinLock::new(None),
+        final_status: SpinLock::new(None),
         exit_waiters: WaitQueue::new(),
         pending_kill: SpinLock::new(None),
         thread: SpinLock::new(None),
@@ -176,13 +182,25 @@ fn release_current(status: ExitStatus) {
     }
     // Leave the dying address space before tearing it down.
     crate::mm::paging::activate_kernel();
-    *proc.status.lock() = Some(status);
-    proc.exit_waiters.wake_all();
     // Closing handles may close channel endpoints and wake peers.
     proc.handles.lock().clear();
     proc.space.lock().teardown();
     PROCESSES.lock().remove(&proc.pid);
     *proc.thread.lock() = None;
+    // Published by the reaper of this thread (`reaped`), once its kernel stack is
+    // freed too: with several CPUs the parent can run the moment it is woken, and
+    // it must find the child gone, not going.
+    *proc.final_status.lock() = Some(status);
+}
+
+/// The thread of `proc` has been reaped: nothing of the process is left but this
+/// structure, so its exit can be told.
+pub fn reaped(proc: &Arc<Process>) {
+    let status = proc.final_status.lock().take();
+    if let Some(status) = status {
+        *proc.status.lock() = Some(status);
+        proc.exit_waiters.wake_all();
+    }
 }
 
 /// Terminate the current process. Never returns.
@@ -195,10 +213,13 @@ pub fn exit_current(status: ExitStatus) -> ! {
 /// Ask another process to die. It is terminated the next time it would run user code
 /// (or immediately if blocked in the kernel).
 pub fn kill(target: &Arc<Process>, status: ExitStatus) -> Result<(), Error> {
-    if target.status.lock().is_some() {
+    if target.status.lock().is_some() || target.final_status.lock().is_some() {
         return Err(Error::Exited);
     }
     *target.pending_kill.lock() = Some(status);
+    // Published before the target's state is read below: a target that is not yet
+    // blocked sees the flag when it tries to (`sched::block`).
+    core::sync::atomic::fence(Ordering::SeqCst);
     // A self-kill needs no wake-up: the caller is running and dies on syscall return.
     let is_self = current_process().is_some_and(|p| Arc::ptr_eq(&p, target));
     if !is_self {

@@ -5,13 +5,16 @@
 //! `syscall_dispatch`. The dispatcher may enable interrupts (and be preempted or
 //! block); the epilogue re-disables them before `sysretq`.
 //!
-//! Single-CPU simplification: the kernel stack pointer lives in a global that the
-//! scheduler updates on every context switch (SMP would use `swapgs` + per-CPU data).
+//! The kernel stack comes from this CPU's [`PerCpu`](super::percpu::PerCpu), found
+//! through `GS`: `swapgs` in, two moves, `swapgs` back out, before anything else
+//! runs. Nothing else in the kernel uses `GS`, so no other path has to know which
+//! base is loaded -- the NMI and debug traps that can land inside this window run on
+//! their own stacks and do not look.
 
 use core::arch::global_asm;
 
 use x86_64::VirtAddr;
-use x86_64::registers::model_specific::{Efer, EferFlags, LStar, SFMask, Star};
+use x86_64::registers::model_specific::{Efer, EferFlags, GsBase, KernelGsBase, LStar, SFMask, Star};
 use x86_64::registers::rflags::RFlags;
 
 /// Saved user state on syscall entry (lowest address first).
@@ -30,18 +33,15 @@ pub struct SyscallFrame {
     pub user_rsp: u64,
 }
 
-#[unsafe(no_mangle)]
-pub static mut SYSCALL_KERNEL_RSP: u64 = 0;
-#[unsafe(no_mangle)]
-pub static mut SYSCALL_USER_RSP_SCRATCH: u64 = 0;
-
 global_asm!(
     ".section .text",
     ".global syscall_entry",
     "syscall_entry:",
-    "    mov [rip + SYSCALL_USER_RSP_SCRATCH], rsp",
-    "    mov rsp, [rip + SYSCALL_KERNEL_RSP]",
-    "    push [rip + SYSCALL_USER_RSP_SCRATCH]",
+    "    swapgs",
+    "    mov qword ptr gs:[8], rsp",
+    "    mov rsp, qword ptr gs:[0]",
+    "    push qword ptr gs:[8]",
+    "    swapgs",
     "    push r11",
     "    push rcx",
     "    push rax",
@@ -73,23 +73,31 @@ unsafe extern "C" {
     fn syscall_entry();
 }
 
-pub fn init() {
+/// Program `syscall` on the calling CPU, which is CPU `cpu`: the MSRs are per CPU.
+pub fn init_cpu(cpu: usize) {
     let sel = super::gdt::selectors();
-    // SAFETY: MSR programming for the syscall instruction, done once at boot.
+    // SAFETY: MSR programming for the syscall instruction on this CPU. `GS` holds 0
+    // (loaded by `gdt`), and its base is set to 0 after that; the kernel's base
+    // waits in `KERNEL_GS_BASE` for `syscall_entry`.
     unsafe {
         Efer::write(Efer::read() | EferFlags::SYSTEM_CALL_EXTENSIONS);
         Star::write(sel.user_code, sel.user_data, sel.kernel_code, sel.kernel_data)
             .expect("GDT layout must satisfy STAR constraints");
         LStar::write(VirtAddr::new(syscall_entry as *const () as usize as u64));
         SFMask::write(RFlags::INTERRUPT_FLAG | RFlags::TRAP_FLAG | RFlags::DIRECTION_FLAG);
+        GsBase::write(VirtAddr::new(0));
+        KernelGsBase::write(VirtAddr::new(super::percpu::block(cpu) as u64));
     }
+}
+
+pub fn init() {
+    init_cpu(0);
     println!("[kernel] syscall/sysret enabled (ABI v{})", spaceabi::ABI_VERSION);
 }
 
-/// Kernel stack used by the next `syscall` from user mode.
+/// Kernel stack used by the next `syscall` from user mode on this CPU.
 pub fn set_kernel_stack(top: u64) {
-    // SAFETY: single CPU; the value is only read by `syscall_entry`.
-    unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(SYSCALL_KERNEL_RSP), top) };
+    super::percpu::set_syscall_stack(top);
 }
 
 #[unsafe(no_mangle)]

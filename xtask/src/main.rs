@@ -35,6 +35,7 @@ const USER_PROGRAMS: &[&str] = &[
     "ipc_echo",
     "quota",
     "spin",
+    "pingpong",
     "worker",
     "blocker",
     "spacecompute",

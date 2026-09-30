@@ -20,7 +20,9 @@ fn cpuid_ecx(leaf: u32) -> u32 {
     core::arch::x86_64::__cpuid(leaf).ecx
 }
 
-pub fn init() {
+/// The unit off on the calling CPU. Control registers are per CPU, so every CPU
+/// does this for itself before it runs anything of user space.
+pub fn fpu_off() {
     // SAFETY: nothing in the kernel uses the x87/SSE/AVX state these bits govern.
     unsafe {
         Cr0::update(|f| {
@@ -29,6 +31,10 @@ pub fn init() {
         });
         Cr4::update(|f| f.remove(Cr4Flags::OSFXSR | Cr4Flags::OSXMMEXCPT_ENABLE | Cr4Flags::OSXSAVE));
     }
+}
+
+pub fn init() {
+    fpu_off();
     let rdrand = cpuid_ecx(1) & (1 << 30) != 0;
     RDRAND.store(rdrand, Ordering::Relaxed);
     println!(

@@ -13,7 +13,7 @@ Profil dipatok di `xtask/src/main.rs::qemu_args` dan dipakai oleh `build`, `run`
 | Parameter | Nilai |
 |---|---|
 | Mesin | `q35`, `accel=tcg` (tanpa KVM agar identik di CI dan laptop) |
-| CPU | `qemu64`, `-smp 4` (kernel MVP hanya memakai BSP) |
+| CPU | `qemu64`, `-smp 4` (keempatnya menjalankan thread sejak ADR-0024) |
 | RAM | `8G` |
 | Firmware | OVMF `OVMF_CODE_4M.fd` + salinan `OVMF_VARS_4M.fd` (Ubuntu 24.04, paket `ovmf` 2024.02) |
 | Disk | image ESP 64 MiB (MBR + partisi FAT32) lewat AHCI q35 |

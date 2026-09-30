@@ -1,6 +1,8 @@
 # ADR-0006: PIC/PIT dan satu CPU untuk MVP kernel
 
-Status: Diterima (sementara) — 2026-09-15
+Status: Diterima (sementara) — 2026-09-15. **Bagian "satu CPU" digantikan ADR-0024** (2026-09-30):
+semua CPU menjalankan thread; ketiga penyederhanaan di bawah sudah diganti. PIC dan PIT tetap
+seperti di sini, di CPU boot.
 
 ## Konteks
 

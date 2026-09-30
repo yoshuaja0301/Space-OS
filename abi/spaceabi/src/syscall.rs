@@ -318,6 +318,9 @@ pub struct KernelStats {
     pub frames_free_min: u64,
     /// The most kernel-heap bytes in use at once since boot.
     pub heap_used_peak: u64,
+    /// CPUs the kernel schedules threads on: 1 when the machine has one, or when
+    /// the others could not be started (the boot log says why).
+    pub cpus_online: u64,
 }
 
 /// Flags for `SYS_WAIT`.

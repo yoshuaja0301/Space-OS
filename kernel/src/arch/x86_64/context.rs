@@ -54,8 +54,8 @@ pub unsafe fn prepare_initial_stack(stack_top: u64, entry: extern "C" fn() -> !)
 /// Drop to ring 3 with a clean register file.
 ///
 /// # Safety
-/// `rip`/`rsp` must be mapped user addresses in the active address space; the TSS
-/// and `SYSCALL_KERNEL_RSP` must already point at this thread's kernel stack.
+/// `rip`/`rsp` must be mapped user addresses in the active address space; this
+/// CPU's TSS and syscall stack must already point at this thread's kernel stack.
 pub unsafe fn enter_user(rip: u64, rsp: u64) -> ! {
     let sel = super::gdt::selectors();
     let user_cs = sel.user_code.0 as u64;

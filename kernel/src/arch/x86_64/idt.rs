@@ -56,7 +56,7 @@ static IDT: StaticCell<Idt> = StaticCell::new(Idt([Entry::missing(); 256]));
 
 pub fn init() {
     let cs = super::gdt::selectors().kernel_code.0;
-    // SAFETY: early boot, single CPU; ISR_TABLE is a static array from isr.s.
+    // SAFETY: early boot, only the boot CPU runs; ISR_TABLE is a static array from isr.s.
     unsafe {
         let idt = IDT.get_mut();
         for (v, entry) in idt.0.iter_mut().enumerate() {
@@ -72,8 +72,14 @@ pub fn init() {
             let dpl = if v == 3 { 3 } else { 0 };
             *entry = Entry::new(ISR_TABLE[v], cs, ist, dpl);
         }
-        let ptr = Pointer { limit: (core::mem::size_of::<Idt>() - 1) as u16, base: IDT.get() as u64 };
-        core::arch::asm!("lidt [{}]", in(reg) &ptr, options(nostack, readonly, preserves_flags));
     }
+    load();
     println!("[kernel] idt loaded (256 vectors)");
+}
+
+/// Load the table on the calling CPU; every CPU shares it.
+pub fn load() {
+    let ptr = Pointer { limit: (core::mem::size_of::<Idt>() - 1) as u16, base: IDT.get() as u64 };
+    // SAFETY: the table is complete ('static, filled by `init` before any CPU loads it).
+    unsafe { core::arch::asm!("lidt [{}]", in(reg) &ptr, options(nostack, readonly, preserves_flags)) };
 }

@@ -9,7 +9,7 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0003](0003-qemu-lab-profile.md) | Profil laboratorium QEMU yang dipatok | Diterima |
 | [0004](0004-syscall-capability-abi-v0.md) | ABI syscall dan model capability versi 0 | Diterima |
 | [0005](0005-executable-format-and-initrd.md) | Format executable (ELF64 statis) dan initrd (ustar) | Diterima |
-| [0006](0006-interrupts-timer-single-cpu.md) | PIC/PIT dan satu CPU untuk MVP kernel | Diterima (sementara) |
+| [0006](0006-interrupts-timer-single-cpu.md) | PIC/PIT dan satu CPU untuk MVP kernel | Diterima; bagian satu CPU digantikan 0024 |
 | [0007](0007-storage-stack-and-file-abi.md) | Tempat driver, VirtIO block, FAT32 read-only, ABI file | Diterima |
 | [0008](0008-compute-abi-v0.md) | Objek memori bersama dan Space Compute ABI v0 | Diterima |
 | [0009](0009-spacelm-model-and-inference.md) | Format model SpaceLM v0, runtime inferensi, baseline dipatok | Diterima |
@@ -27,3 +27,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0021](0021-inference-job-and-cooperative-stop.md) | Worker inferensi di dalam sesi: laporan per token dan Stop kooperatif | Diterima |
 | [0022](0022-command-center.md) | Command Center: pencarian SpaceLink di desktop, dengan asal setiap hasil | Diterima |
 | [0023](0023-spacelink-update.md) | SpaceLink: satu berkas yang berubah diindeks ulang sendirian, tanpa full rescan | Diterima |
+| [0024](0024-smp.md) | SMP: setiap CPU menjalankan thread — satu run queue, `on_cpu`, tanpa TLB shootdown | Diterima |

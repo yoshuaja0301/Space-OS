@@ -114,13 +114,11 @@ pub fn translate_current(va: u64) -> Option<u64> {
     }
 }
 
-/// Switch CR3 to `frame` unless it is already active.
-pub fn activate_frame(frame: PhysFrame) {
-    let (cur, _) = Cr3::read();
-    if cur != frame {
-        // SAFETY: only fully formed PML4s (kernel or process) are ever passed here.
-        unsafe { Cr3::write(frame, Cr3Flags::empty()) };
-    }
+/// Load `frame` into CR3, even when it is already there: the scheduler relies on
+/// every switch flushing what this CPU cached of other address spaces (ADR-0024).
+pub fn load_cr3(frame: PhysFrame) {
+    // SAFETY: only fully formed PML4s (kernel or process) are ever passed here.
+    unsafe { Cr3::write(frame, Cr3Flags::empty()) };
 }
 
 pub fn activate_kernel() {

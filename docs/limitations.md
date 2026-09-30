@@ -4,8 +4,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Kernel
 
-- **Satu CPU** (ADR-0006): AP tidak dibangunkan; `SYSCALL_KERNEL_RSP` global; spinlock = interrupt off.
-- **Satu thread per proses**; tidak ada `thread_create`.
+- **SMP tanpa IOAPIC** (ADR-0024): semua CPU yang tercantum *enabled* di MADT menjalankan thread (paling banyak 64), tetapi IRQ perangkat hanya sampai ke CPU boot lewat PIC; virtio dipoll oleh tick PIT. Satu run queue global tanpa afinitas atau penyeimbangan per-CPU. CPU yang tidak menjawab start-up IPI dibiarkan parkir dan dilaporkan.
+- **Satu thread per proses**; tidak ada `thread_create`. Penjadwal SMP bersandar pada ini untuk hidup tanpa TLB shootdown (ADR-0024): thread ganda berarti shootdown lebih dulu.
 - **Pesan IPC ≤ 256 byte + 1 handle**; data besar memakai memory object (`VMO_CREATE`/`VMO_MAP`, tahap 4). Belum ada `VMO_UNMAP` khusus: pemetaan dilepas lewat `mem_unmap` dengan alamat dan panjang yang sama.
 - **Memory object tidak dapat diperbesar, dipotong, atau dipetakan sebagian**; satu objek dipetakan utuh pada alamat yang dipilih kernel.
 - `recv`/`wait` sendiri tidak punya timeout; yang punya adalah `SYS_WAIT_ANY` (maksimum 32 handle: channel, proses, lease jaringan), setelah itu `recv` non-blocking. `send` tidak pernah memblokir (antrean 64 → `WouldBlock`), dan belum ada cara **menunggu antrean peer punya ruang** — pengirim yang menemukan antrean penuh harus mencoba lagi (`spacenet` mundur 2 → 64 ms).
@@ -106,8 +106,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Kompatibilitas
 
-- Matriks `cargo xtask compat` (ADR-0010) mencakup sepuluh konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
-- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
+- Matriks `cargo xtask compat` (ADR-0010) mencakup sepuluh konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 
 ## Jaringan

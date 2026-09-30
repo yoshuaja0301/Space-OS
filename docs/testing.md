@@ -68,8 +68,9 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | IPC echo 3 pesan + transfer handle + `PeerClosed` mengakhiri layanan | `bin/ipc_echo` |
 | K02 | `sleep(50 ms)` memajukan `ticks` | — |
 | K02 | proses loop tanpa syscall tidak membuat init kelaparan; `kill` → `SIGNAL` | `bin/spin` |
+| K02 | **dua proses berjalan pada saat yang sama di CPU berbeda** (ADR-0024): ping-pong 200 giliran lewat satu word memori bersama **tanpa syscall** di kedua sisi harus selesai ≤ 1 detik — di satu CPU setiap giliran menunggu preemption, minimal 2 detik; mesin satu CPU melewati uji ini dengan alasan | `bin/pingpong` |
 | K03 | kuota 100 halaman: `mem_map` ditolak tepat pada batas, halaman nol, dilepas dan dapat dipakai lagi | `bin/quota` |
-| K03 | 50 siklus spawn/IPC/exit → frame bebas dan heap kernel identik | `bin/worker` |
+| K03 | 50 siklus spawn/IPC/exit → frame bebas dan heap kernel identik. Semua uji kebocoran mengukur saat mesin tenang: angka "sebelum" setelah dua bacaan berturut-turut sama, angka "sesudah" dibaca ulang sampai kembali ke "sebelum" atau 500 ms lewat — dengan beberapa CPU, anak yang baru dituai bisa masih mengembalikan halaman terakhirnya di CPU lain, sedangkan memori yang benar-benar bocor tetap hilang berapa pun lamanya | `bin/worker` |
 | K03 | 50 siklus map/unmap 2 MiB (`mem_map` dan memory object) → frame bebas identik: rentang alamat yang dilepas dipakai lagi beserta page table-nya (tanpa perbaikan ADR-0019: `frames 2090101 -> 2090001`, 100 frame dalam 50 siklus) | `bin/init` |
 | K03 | 20 siklus "kill saat blocking di `recv`" → peer melihat `PeerClosed`, frame bebas dan heap kernel identik | `bin/ipc_echo` |
 | K03 | 20 siklus kill saat `sleep(1 jam)`, 20 siklus kill saat blocking `recv` dengan peer tetap terbuka, 20 siklus kill saat `wait` pada proses yang terus berjalan → frame bebas dan heap kernel identik (tanpa perbaikan: ~180 frame dan ~12 KiB heap bocor per 20 siklus) | `bin/blocker` |

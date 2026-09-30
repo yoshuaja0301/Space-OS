@@ -412,15 +412,17 @@ fn sys_wait_any(ptr: u64, count: u64, timeout_ms: u64) -> Result<usize, Error> {
     let deadline = if timeout_ms == WAIT_FOREVER { None } else { Some(sched::deadline_after_ms(timeout_ms)) };
     crate::sync::without_interrupts(|| {
         loop {
-            // Interrupts stay off from this check until the thread is blocked, so a
-            // wake-up cannot slip in between "nothing is ready" and going to sleep.
             if let Some(i) = items.iter().position(Waitable::ready) {
                 return Ok(i);
             }
             if timeout_ms == 0 || deadline.is_some_and(|d| sched::now_ticks() >= d) {
                 return Err(Error::TimedOut);
             }
+            // Blocked first, then registered, then one more look. Another CPU can make
+            // an item ready at any moment: before the registration, the second look
+            // sees it; after, the wake-up finds this thread registered and blocked.
             let cur = sched::current();
+            cur.set_state(sched::ThreadState::Blocked);
             let mut registered = 0;
             let mut failure = None;
             for w in &items {
@@ -436,9 +438,12 @@ fn sys_wait_any(ptr: u64, count: u64, timeout_ms: u64) -> Result<usize, Error> {
             {
                 failure = Some(e);
             }
-            if failure.is_none() {
-                cur.set_state(sched::ThreadState::Blocked);
-                sched::schedule();
+            if failure.is_none() && !items.iter().any(Waitable::ready) {
+                sched::block();
+            } else {
+                // Not going to sleep after all (a wake-up may have made it `Ready`
+                // meanwhile, which is just as good).
+                cur.set_state(sched::ThreadState::Running);
             }
             // Whatever woke us, leave every queue and the timer list: a stale entry
             // would keep this thread (and its process) referenced after it moved on.
@@ -952,6 +957,7 @@ pub fn kernel_stats() -> KernelStats {
         volume_sectors: fs::volume_sectors(),
         frames_free_min: frame::free_min() as u64,
         heap_used_peak: heap::peak() as u64,
+        cpus_online: u64::from(sched::online_cpus()),
     }
 }
 

@@ -101,7 +101,37 @@ pub fn init(bi: &BootInfo) {
         (kinds[mem_kind::ACPI_RECLAIMABLE as usize] + kinds[mem_kind::ACPI_NVS as usize]) >> 20,
         kinds[mem_kind::MMIO as usize] >> 20,
     );
-    *ALLOC.lock() = Some(Bitmap { bits, nframes, usable, free, free_min: free, hint: 0 });
+    let mut b = Bitmap { bits, nframes, usable, free, free_min: free, hint: 0 };
+    // The frames for starting the other CPUs, taken before anything else can: the
+    // allocator hands out low frames first, and the heap alone would use them up.
+    let mut low = LOW.lock();
+    let mut taken = 0;
+    for f in 1..LOW_LIMIT_FRAME.min(nframes) {
+        if taken == LOW_FRAMES {
+            break;
+        }
+        let mask = 1u64 << (f % 64);
+        if b.bits[f / 64] & mask == 0 {
+            b.bits[f / 64] |= mask;
+            b.free -= 1;
+            low[taken] = Some(PhysFrame::containing_address(PhysAddr::new(f as u64 * PAGE_SIZE)));
+            taken += 1;
+        }
+    }
+    drop(low);
+    b.free_min = b.free;
+    *ALLOC.lock() = Some(b);
+}
+
+/// Frames kept below 1 MiB for starting application processors: a start-up IPI can
+/// only name a page there.
+pub const LOW_FRAMES: usize = 5;
+const LOW_LIMIT_FRAME: usize = (0x10_0000 / PAGE_SIZE) as usize;
+static LOW: SpinLock<[Option<PhysFrame>; LOW_FRAMES]> = SpinLock::new([None; LOW_FRAMES]);
+
+/// One of the frames kept below 1 MiB, if the memory map had any to keep.
+pub fn take_low() -> Option<PhysFrame> {
+    LOW.lock().iter_mut().find_map(Option::take)
 }
 
 pub fn alloc() -> Option<PhysFrame> {

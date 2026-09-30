@@ -197,11 +197,11 @@ fn no_leak_over(n: u32, label: &str, mut cycle: impl FnMut() -> Result<(), Strin
     for _ in 0..3 {
         cycle()?; // warm up
     }
-    let before = stats()?;
+    let before = settled_stats()?;
     for i in 0..n {
         cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
     }
-    let after = stats()?;
+    let after = stats_back_to(&before)?;
     println!(
         "[init] {label}: frames free {} -> {}, heap used {} -> {}, live processes {}",
         before.frames_free, after.frames_free, before.heap_used, after.heap_used, after.processes_live
@@ -590,6 +590,46 @@ fn stats() -> Result<KernelStats, String> {
     sys::kstats(ROOT).map_err(|e| alloc::format!("kstats: {e}"))
 }
 
+/// How long memory may take to come back after the last cycle of a leak test.
+const SETTLE_MS: u64 = 500;
+const SETTLE_STEP_MS: u64 = 2;
+
+fn same_memory(a: &KernelStats, b: &KernelStats) -> bool {
+    a.frames_free == b.frames_free && a.heap_used == b.heap_used
+}
+
+/// The kernel's figures once the machine is still. With several CPUs, a process
+/// that was just reaped can still be handing its last page or heap block back on
+/// another CPU when its parent looks, and a service can have a message in flight:
+/// readings are taken until two in a row agree.
+fn settled_stats() -> Result<KernelStats, String> {
+    let mut last = stats()?;
+    let deadline = sys::ticks_ms() + SETTLE_MS;
+    loop {
+        sys::sleep_ms(SETTLE_STEP_MS);
+        let now = stats()?;
+        if (same_memory(&now, &last) && now.processes_live == last.processes_live)
+            || sys::ticks_ms() >= deadline
+        {
+            return Ok(now);
+        }
+        last = now;
+    }
+}
+
+/// Figures that must come back to `before`: read until they do, for up to
+/// [`SETTLE_MS`]. Waiting cannot hide a leak -- leaked memory stays gone.
+fn stats_back_to(before: &KernelStats) -> Result<KernelStats, String> {
+    let deadline = sys::ticks_ms() + SETTLE_MS;
+    loop {
+        let now = stats()?;
+        if same_memory(&now, before) || sys::ticks_ms() >= deadline {
+            return Ok(now);
+        }
+        sys::sleep_ms(SETTLE_STEP_MS);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn space_main() -> i32 {
     let me = sys::self_info().unwrap_or_default();
@@ -868,6 +908,72 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         }
     });
 
+    let cpus = stats().map(|s| s.cpus_online).unwrap_or(1);
+    r.run_if(
+        cpus > 1,
+        "one CPU on this machine",
+        "K02",
+        "two processes run at the same time on different CPUs",
+        || {
+            // A ping-pong through one shared word, with no system call on either
+            // side: each turn is only this quick when the two run at once. On one
+            // CPU every turn waits out a quantum, 200 turns at least two seconds.
+            const ROUNDS: u32 = 200;
+            const LIMIT_MS: u64 = 1000;
+            let object = sys::vmo_create(4096).map_err(|e| alloc::format!("vmo_create: {e}"))?;
+            let ptr = match sys::vmo_map(object, false) {
+                Ok(p) => p,
+                Err(e) => {
+                    sys::handle_close(object).ok();
+                    return Err(alloc::format!("vmo_map: {e}"));
+                }
+            };
+            // SAFETY: a fresh page mapped read-write; the child only touches this word
+            // atomically.
+            let word = unsafe { &*(ptr as *const core::sync::atomic::AtomicU32) };
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let p = sys::spawn(ROOT, "bin/pingpong", CHILD_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn: {e}"))?;
+            // The object moves to the child with the message; the mapping here keeps it.
+            sys::send(mine, &ROUNDS.to_le_bytes(), Some(object)).map_err(|e| alloc::format!("send: {e}"))?;
+            let t0 = sys::ticks_ms();
+            let mut stuck = None;
+            'turns: for i in 0..ROUNDS {
+                word.store(2 * i + 1, core::sync::atomic::Ordering::Release);
+                let mut spins = 0u32;
+                while word.load(core::sync::atomic::Ordering::Acquire) != 2 * i + 2 {
+                    spins = spins.wrapping_add(1);
+                    if spins.is_multiple_of(4096) && sys::ticks_ms() - t0 > 10 * LIMIT_MS {
+                        stuck = Some(i);
+                        break 'turns;
+                    }
+                    core::hint::spin_loop();
+                }
+            }
+            let ms = sys::ticks_ms() - t0;
+            if stuck.is_some() {
+                sys::kill(p).ok();
+            }
+            let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"));
+            sys::handle_close(p).ok();
+            sys::handle_close(mine).ok();
+            sys::mem_unmap(ptr, 4096).ok();
+            if let Some(i) = stuck {
+                return Err(alloc::format!("turn {i} never came back"));
+            }
+            expect_exit("pingpong", st?, 0)?;
+            println!(
+                "[init] smp: {cpus} CPUs; {ROUNDS} turns through shared memory, no system call, in {ms} ms"
+            );
+            if ms > LIMIT_MS {
+                return Err(alloc::format!(
+                    "{ROUNDS} turns took {ms} ms: the two sides took turns on one CPU, not ran at once"
+                ));
+            }
+            Ok(())
+        },
+    );
+
     r.run("K03", "memory quota is enforced and reusable", || {
         expect_exit("quota", spawn_and_wait("bin/quota", 100, None)?, 0)
     });
@@ -894,11 +1000,11 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         for _ in 0..5 {
             cycle()?; // warm up allocator caches
         }
-        let before = stats()?;
+        let before = settled_stats()?;
         for i in 0..CYCLES {
             cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
         }
-        let after = stats()?;
+        let after = stats_back_to(&before)?;
         println!(
             "[init] frames free before={} after={} ; heap used before={} after={} ; switches={}",
             before.frames_free, after.frames_free, before.heap_used, after.heap_used, after.context_switches
@@ -925,11 +1031,11 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         for _ in 0..3 {
             kill_blocked_cycle()?;
         }
-        let before = stats()?;
+        let before = settled_stats()?;
         for i in 0..20 {
             kill_blocked_cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
         }
-        let after = stats()?;
+        let after = stats_back_to(&before)?;
         println!(
             "[init] frames free before={} after={} ; heap used before={} after={}",
             before.frames_free, after.frames_free, before.heap_used, after.heap_used
@@ -2236,7 +2342,7 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
     });
 
     r.run("C01", "compute service teardown returns every frame it allocated", || {
-        let before = stats()?;
+        let before = settled_stats()?;
         for i in 0..3 {
             let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
             let svc = sys::spawn(ROOT, "bin/spacecompute", COMPUTE_QUOTA, Some(theirs))
@@ -2273,7 +2379,7 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
             sys::handle_close(mine).ok();
             expect_exit("spacecompute", st, 0)?;
         }
-        let after = stats()?;
+        let after = stats_back_to(&before)?;
         println!(
             "[init] compute cycles: frames free {} -> {}, heap used {} -> {}",
             before.frames_free, after.frames_free, before.heap_used, after.heap_used
