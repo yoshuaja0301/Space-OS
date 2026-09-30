@@ -1,0 +1,653 @@
+//! Preemptive round-robin scheduler for every CPU (ADR-0024).
+//!
+//! One run queue serves all CPUs; each CPU has its own idle thread, its own current
+//! thread and its own quantum. The boot CPU's PIT keeps the time (ticks, sleepers);
+//! the other CPUs' local APIC timers only end quanta.
+//!
+//! Invariants:
+//! * `schedule()` is entered and left with interrupts disabled;
+//! * a thread that blocks registers itself somewhere (wait queue, sleepers) and sets
+//!   its state to `Blocked` *before* calling `schedule()`, with interrupts disabled,
+//!   so a wake-up cannot be lost;
+//! * a thread is in the run queue only while no CPU is on its stack (`on_cpu` is
+//!   false). The CPU that switches away from a thread puts it back once the switch
+//!   is complete (`finish_switch`); a wake-up that finds the thread still on a CPU
+//!   only marks it `Ready`, and that CPU queues it. So two CPUs never run on one
+//!   stack, and no CPU ever waits for another to leave one;
+//! * the thread that runs right after a switch reaps the previous thread if it died
+//!   (`finish_switch`), so a dead thread's kernel stack is freed by someone else;
+//! * a CPU loads the page tables of the thread it switches to every time, and the
+//!   kernel's own when it goes idle. With one thread per process, that keeps every
+//!   CPU's TLB free of mappings another CPU has removed (ADR-0024).
+
+use alloc::collections::VecDeque;
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+
+use spaceabi::error::Error;
+
+use crate::arch;
+use crate::arch::context;
+use crate::arch::percpu::{self, MAX_CPUS};
+use crate::mm::kstack::KernelStack;
+use crate::proc::Process;
+use crate::sync::SpinLock;
+
+pub const TICK_HZ: u32 = 1000;
+/// The boot CPU's quantum, in PIT ticks.
+const QUANTUM_TICKS: u32 = 10;
+/// An application processor's quantum, in its own (100 Hz) ticks: the same 10 ms.
+const AP_QUANTUM_TICKS: u32 = 1;
+/// Room made at boot in the run queue and the sleepers list, which grow only past
+/// this many threads at once. Grown later, they would lift the kernel heap for good
+/// at whatever moment the most threads first happened to wait at once -- on several
+/// CPUs, any moment -- and a heap that never comes back to where it was reads as a
+/// leak in the stability run (ADR-0019).
+const QUEUE_ROOM: usize = 256;
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadState {
+    Ready = 0,
+    Running = 1,
+    Blocked = 2,
+    Dead = 3,
+}
+
+pub struct Thread {
+    #[allow(dead_code)]
+    pub tid: u64,
+    pub process: Option<Arc<Process>>,
+    _kstack: Option<KernelStack>,
+    pub kstack_top: u64,
+    saved_rsp: UnsafeCell<u64>,
+    state: AtomicU8,
+    /// A CPU is on this thread's stack: running it, or switching away from it.
+    /// Changed only under the scheduler lock.
+    on_cpu: AtomicBool,
+    pub user_entry: (u64, u64),
+}
+
+// SAFETY: `saved_rsp` is written by the CPU switching away from the thread and read
+// by the one switching to it; `on_cpu` (under the scheduler lock) orders the two.
+unsafe impl Sync for Thread {}
+unsafe impl Send for Thread {}
+
+static NEXT_TID: AtomicU64 = AtomicU64::new(1);
+
+impl Thread {
+    pub fn new_user(process: Arc<Process>, rip: u64, rsp: u64) -> Result<Arc<Thread>, Error> {
+        let ks = KernelStack::new()?;
+        let top = ks.top;
+        // SAFETY: `top` is the top of a freshly mapped kernel stack.
+        let rsp0 = unsafe { context::prepare_initial_stack(top, user_thread_trampoline) };
+        Ok(Arc::new(Thread {
+            tid: NEXT_TID.fetch_add(1, Ordering::Relaxed),
+            process: Some(process),
+            _kstack: Some(ks),
+            kstack_top: top,
+            saved_rsp: UnsafeCell::new(rsp0),
+            state: AtomicU8::new(ThreadState::Ready as u8),
+            on_cpu: AtomicBool::new(false),
+            user_entry: (rip, rsp),
+        }))
+    }
+
+    /// The idle thread of a CPU: the context that is already running there.
+    fn idle(stack_top: u64) -> Arc<Thread> {
+        Arc::new(Thread {
+            tid: 0,
+            process: None,
+            _kstack: None,
+            kstack_top: stack_top,
+            saved_rsp: UnsafeCell::new(0),
+            state: AtomicU8::new(ThreadState::Running as u8),
+            on_cpu: AtomicBool::new(true),
+            user_entry: (0, 0),
+        })
+    }
+
+    pub fn state(&self) -> ThreadState {
+        match self.state.load(Ordering::Relaxed) {
+            0 => ThreadState::Ready,
+            1 => ThreadState::Running,
+            2 => ThreadState::Blocked,
+            _ => ThreadState::Dead,
+        }
+    }
+
+    pub fn set_state(&self, s: ThreadState) {
+        self.state.store(s as u8, Ordering::Relaxed);
+    }
+
+    pub fn name(&self) -> String {
+        match &self.process {
+            Some(p) => alloc::format!("pid {} '{}'", p.pid, p.name),
+            None => String::from("idle"),
+        }
+    }
+}
+
+/// What one CPU keeps to itself. Only that CPU touches its slot, and only with
+/// interrupts disabled.
+struct CpuSlot {
+    current: UnsafeCell<Option<Arc<Thread>>>,
+    idle: UnsafeCell<Option<Arc<Thread>>>,
+    /// The thread this CPU switched away from, until `finish_switch` has dealt with it.
+    prev: UnsafeCell<Option<Arc<Thread>>>,
+    quantum_left: UnsafeCell<u32>,
+}
+
+// SAFETY: see the type's documentation.
+unsafe impl Sync for CpuSlot {}
+
+impl CpuSlot {
+    const fn new() -> Self {
+        CpuSlot {
+            current: UnsafeCell::new(None),
+            idle: UnsafeCell::new(None),
+            prev: UnsafeCell::new(None),
+            quantum_left: UnsafeCell::new(QUANTUM_TICKS),
+        }
+    }
+}
+
+static CPUS: [CpuSlot; MAX_CPUS] = [const { CpuSlot::new() }; MAX_CPUS];
+
+/// This CPU's slot. Callers keep interrupts disabled while they use it.
+fn slot() -> &'static CpuSlot {
+    &CPUS[percpu::index()]
+}
+
+struct Scheduler {
+    run_queue: VecDeque<Arc<Thread>>,
+    sleepers: Vec<(u64, Arc<Thread>)>,
+    switches: u64,
+    live_threads: u64,
+}
+
+static SCHED: SpinLock<Scheduler> = SpinLock::new(Scheduler {
+    run_queue: VecDeque::new(),
+    sleepers: Vec::new(),
+    switches: 0,
+    live_threads: 0,
+});
+
+/// PIT ticks since boot, counted by the boot CPU.
+static TICKS: AtomicU64 = AtomicU64::new(0);
+/// Bit `i` set while CPU `i` runs its idle thread (changed under the scheduler lock).
+static IDLE_CPUS: AtomicU64 = AtomicU64::new(0);
+/// Bit `i` set once CPU `i` schedules.
+static ONLINE_CPUS: AtomicU64 = AtomicU64::new(0);
+
+fn quantum_for(cpu: usize) -> u32 {
+    if cpu == 0 { QUANTUM_TICKS } else { AP_QUANTUM_TICKS }
+}
+
+/// Make the context running on this CPU its idle thread. `stack_top` is the top of
+/// the guarded kernel stack it runs on.
+fn adopt_idle(stack_top: u64) {
+    let cpu = percpu::index();
+    let idle = Thread::idle(stack_top);
+    crate::sync::without_interrupts(|| {
+        let s = slot();
+        // SAFETY: this CPU's slot, interrupts disabled.
+        unsafe {
+            *s.current.get() = Some(idle.clone());
+            *s.idle.get() = Some(idle);
+            *s.quantum_left.get() = quantum_for(cpu);
+        }
+        let _g = SCHED.lock();
+        IDLE_CPUS.fetch_or(1 << cpu, Ordering::Relaxed);
+        ONLINE_CPUS.fetch_or(1 << cpu, Ordering::Relaxed);
+    });
+}
+
+/// Turn the boot context into the boot CPU's idle thread.
+pub fn init(idle_stack_top: u64) {
+    {
+        let mut s = SCHED.lock();
+        // Without the room they grow on demand, as they always could.
+        let _ = s.run_queue.try_reserve(QUEUE_ROOM);
+        let _ = s.sleepers.try_reserve(QUEUE_ROOM);
+    }
+    adopt_idle(idle_stack_top);
+    println!("[kernel] scheduler: {} Hz tick, {} ms quantum", TICK_HZ, QUANTUM_TICKS * 1000 / TICK_HZ);
+}
+
+/// An application processor joins: its starting context becomes its idle thread.
+pub fn init_ap(idle_stack_top: u64) {
+    adopt_idle(idle_stack_top);
+}
+
+/// CPUs that schedule.
+pub fn online_cpus() -> u32 {
+    ONLINE_CPUS.load(Ordering::Relaxed).count_ones()
+}
+
+/// Tell one idle CPU other than this one that the run queue has work.
+fn kick_idle_cpu() {
+    let me = percpu::index();
+    let idle = IDLE_CPUS.load(Ordering::Relaxed) & !(1u64 << me);
+    if idle != 0 {
+        arch::smp::kick(idle.trailing_zeros() as usize);
+    }
+}
+
+pub fn add(thread: Arc<Thread>) {
+    {
+        let mut s = SCHED.lock();
+        thread.set_state(ThreadState::Ready);
+        s.run_queue.push_back(thread);
+        s.live_threads += 1;
+    }
+    kick_idle_cpu();
+}
+
+pub fn current() -> Arc<Thread> {
+    // SAFETY: this CPU's slot, read with interrupts disabled.
+    crate::sync::without_interrupts(|| unsafe { (*slot().current.get()).clone() })
+        .expect("scheduler not initialised")
+}
+
+/// Name of the current thread (panic path: takes no lock).
+pub fn try_current_name() -> Option<String> {
+    // SAFETY: this CPU's slot; the panic path runs with interrupts disabled.
+    let cur = unsafe { (*slot().current.get()).clone() };
+    cur.map(|t| t.name())
+}
+
+pub fn uptime_ms() -> u64 {
+    TICKS.load(Ordering::Relaxed) * 1000 / TICK_HZ as u64
+}
+
+/// `(live threads, context switches)`.
+pub fn stats() -> (u64, u64) {
+    let s = SCHED.lock();
+    (s.live_threads, s.switches)
+}
+
+/// Pick the next runnable thread and switch to it. Interrupts must be disabled.
+pub fn schedule() {
+    debug_assert!(!arch::interrupts_enabled(), "schedule() with interrupts enabled");
+    let cpu = percpu::index();
+    let me = slot();
+    let prev_slot: *mut u64;
+    let next_rsp: u64;
+    let next_top: u64;
+    let next_cr3;
+    {
+        // SAFETY: this CPU's slot, interrupts disabled.
+        let prev = unsafe { (*me.current.get()).clone() }.expect("no current thread");
+        let idle = unsafe { (*me.idle.get()).clone() }.expect("no idle thread");
+        let prev_is_idle = Arc::ptr_eq(&prev, &idle);
+        let mut s = SCHED.lock();
+        let prev_state = prev.state();
+        let prev_runnable = matches!(prev_state, ThreadState::Running | ThreadState::Ready);
+        let next = match s.run_queue.pop_front() {
+            Some(t) => t,
+            None if prev_runnable => {
+                // Nothing else to run: keep going (a thread woken while it was about
+                // to block is simply running again).
+                prev.set_state(ThreadState::Running);
+                return;
+            }
+            None => idle.clone(),
+        };
+        if prev_runnable && !prev_is_idle {
+            // Queued again by `finish_switch`, once this CPU is off its stack.
+            prev.set_state(ThreadState::Ready);
+        }
+        next.set_state(ThreadState::Running);
+        next.on_cpu.store(true, Ordering::Relaxed);
+        if Arc::ptr_eq(&next, &idle) {
+            IDLE_CPUS.fetch_or(1 << cpu, Ordering::Relaxed);
+        } else {
+            IDLE_CPUS.fetch_and(!(1 << cpu), Ordering::Relaxed);
+        }
+        s.switches += 1;
+        drop(s);
+        prev_slot = prev.saved_rsp.get();
+        // SAFETY: `next` came off the run queue, so no CPU is on its stack and its
+        // saved `rsp` was written before it was queued.
+        next_rsp = unsafe { *next.saved_rsp.get() };
+        next_top = next.kstack_top;
+        next_cr3 = next.process.as_ref().map(|p| p.cr3);
+        // SAFETY: this CPU's slot, interrupts disabled.
+        unsafe {
+            *me.quantum_left.get() = quantum_for(cpu);
+            *me.prev.get() = Some(prev);
+            *me.current.get() = Some(next);
+        }
+        // `idle` is dropped here; the slot keeps every thread involved alive, so no
+        // reference dies on a stack that is about to be abandoned.
+    }
+    match next_cr3 {
+        Some(cr3) => crate::mm::paging::load_cr3(cr3),
+        None => crate::mm::paging::activate_kernel(),
+    }
+    if next_top != 0 {
+        arch::gdt::set_kernel_stack(next_top);
+        arch::syscall::set_kernel_stack(next_top);
+    }
+    // SAFETY: both stacks were prepared by this module; interrupts are disabled.
+    unsafe { context::switch_to(prev_slot, next_rsp) };
+    finish_switch();
+}
+
+/// Deal with the thread this CPU just switched away from: queue it again if it is
+/// still runnable, reap it if it died.
+pub fn finish_switch() {
+    // SAFETY: this CPU's slot, interrupts disabled (right after a switch).
+    let Some(prev) = (unsafe { (*slot().prev.get()).take() }) else { return };
+    let mut queued = false;
+    let left = {
+        let mut s = SCHED.lock();
+        prev.on_cpu.store(false, Ordering::Relaxed);
+        match prev.state() {
+            // Preempted, or woken while this CPU was leaving it. An idle thread is
+            // never `Ready`, so it never ends up here.
+            ThreadState::Ready => {
+                s.run_queue.push_back(prev);
+                queued = true;
+                None
+            }
+            // Dropped outside the lock: this may be the last reference, and freeing
+            // a kernel stack takes other locks.
+            _ => Some(prev),
+        }
+    };
+    if let Some(t) = left {
+        // A dead thread's process may have its exit to tell; the stack goes first
+        // (this is its last reference), then the news.
+        let proc = if t.state() == ThreadState::Dead { t.process.clone() } else { None };
+        drop(t);
+        if let Some(p) = proc {
+            crate::proc::reaped(&p);
+        }
+    }
+    if queued {
+        kick_idle_cpu();
+    }
+}
+
+extern "C" fn user_thread_trampoline() -> ! {
+    finish_switch();
+    let (rip, rsp) = {
+        let t = current();
+        t.user_entry
+    };
+    // SAFETY: the entry point and stack were set up by `proc::spawn` in the address
+    // space that `schedule()` just activated.
+    unsafe { context::enter_user(rip, rsp) }
+}
+
+/// Mark the current thread dead and switch away for good.
+pub fn exit_current_thread() -> ! {
+    arch::disable_interrupts();
+    {
+        let cur = current();
+        let mut s = SCHED.lock();
+        cur.set_state(ThreadState::Dead);
+        s.live_threads -= 1;
+    }
+    schedule();
+    unreachable!("dead thread was scheduled again");
+}
+
+pub fn yield_now() {
+    crate::sync::without_interrupts(schedule);
+}
+
+/// Sleep: the caller has registered the current thread wherever its wake-up comes
+/// from and set it `Blocked`. Unless a kill is already pending -- a kill that came
+/// while the thread was still running found nothing to wake, and this is where it
+/// is noticed instead of never. Interrupts must be disabled.
+pub fn block() {
+    // The state store above must be visible before the kill flag is read, and the
+    // killer publishes its flag before it reads the state (`proc::kill`): one of the
+    // two always sees the other.
+    core::sync::atomic::fence(Ordering::SeqCst);
+    if crate::proc::has_pending_kill() {
+        current().set_state(ThreadState::Running);
+        return;
+    }
+    schedule();
+}
+
+/// Make a blocked thread runnable (no-op for any other state). Under the scheduler
+/// lock; the caller says whether an idle CPU should be told.
+fn make_ready(s: &mut Scheduler, t: &Arc<Thread>) -> bool {
+    if t.state() != ThreadState::Blocked {
+        return false;
+    }
+    t.set_state(ThreadState::Ready);
+    if t.on_cpu.load(Ordering::Relaxed) {
+        // Still on the CPU it was blocking on: that CPU queues it (or keeps running it).
+        return false;
+    }
+    s.run_queue.push_back(t.clone());
+    true
+}
+
+/// Wake a blocked thread (no-op for any other state).
+pub fn wake(t: &Arc<Thread>) {
+    let queued = {
+        let mut s = SCHED.lock();
+        // A woken thread is no longer a sleeper: dropping the entry here releases the
+        // reference immediately instead of at `wake_at` (which a long sleep puts far
+        // in the future, keeping a killed thread's kernel stack and process alive).
+        s.sleepers.retain(|(_, st)| !Arc::ptr_eq(st, t));
+        make_ready(&mut s, t)
+    };
+    if queued {
+        kick_idle_cpu();
+    }
+}
+
+fn deadline_from(now: u64, ms: u64) -> u64 {
+    now.saturating_add(ms.saturating_mul(TICK_HZ as u64).div_ceil(1000).max(1))
+}
+
+pub fn sleep_ms(ms: u64) -> Result<(), Error> {
+    crate::sync::without_interrupts(|| {
+        let cur = current();
+        {
+            let mut s = SCHED.lock();
+            // Bookkeeping must not be able to exhaust the heap on a blocking path.
+            if s.sleepers.try_reserve(1).is_err() {
+                return Err(Error::NoMemory);
+            }
+            let wake_at = deadline_from(TICKS.load(Ordering::Relaxed), ms);
+            cur.set_state(ThreadState::Blocked);
+            s.sleepers.push((wake_at, cur.clone()));
+        }
+        block();
+        // Woken normally (timer) or by a kill: make sure no sleeper entry survives.
+        SCHED.lock().sleepers.retain(|(_, st)| !Arc::ptr_eq(st, &cur));
+        Ok(())
+    })
+}
+
+/// Tick at which a wait of `ms` milliseconds from now ends (at least one tick away).
+pub fn deadline_after_ms(ms: u64) -> u64 {
+    deadline_from(TICKS.load(Ordering::Relaxed), ms)
+}
+
+/// Ticks since boot.
+pub fn now_ticks() -> u64 {
+    TICKS.load(Ordering::Relaxed)
+}
+
+/// Arrange for `t` to be woken at tick `deadline` without blocking it (the caller
+/// blocks it and schedules). Interrupts must be disabled.
+pub fn add_sleeper(deadline: u64, t: &Arc<Thread>) -> Result<(), Error> {
+    let mut s = SCHED.lock();
+    if s.sleepers.try_reserve(1).is_err() {
+        return Err(Error::NoMemory);
+    }
+    s.sleepers.push((deadline, t.clone()));
+    Ok(())
+}
+
+/// Drop any timed wake-up registered for `t`.
+pub fn remove_sleeper(t: &Arc<Thread>) {
+    let gone: Vec<(u64, Arc<Thread>)> = {
+        let mut s = SCHED.lock();
+        let mut gone = Vec::new();
+        let mut i = 0;
+        while i < s.sleepers.len() {
+            if Arc::ptr_eq(&s.sleepers[i].1, t) {
+                let e = s.sleepers.swap_remove(i);
+                // A failed reservation just means the entry is dropped under the lock.
+                if gone.try_reserve(1).is_ok() {
+                    gone.push(e);
+                }
+            } else {
+                i += 1;
+            }
+        }
+        gone
+    };
+    drop(gone);
+}
+
+/// Called from a timer interrupt with interrupts disabled: the PIT on the boot CPU,
+/// the local APIC timer on the others.
+pub fn timer_tick() {
+    let cpu = percpu::index();
+    let mut woke = false;
+    let mut expired_refs: Vec<Arc<Thread>> = Vec::new();
+    let need_resched = {
+        let mut s = SCHED.lock();
+        if cpu == 0 {
+            let now = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+            let mut i = 0;
+            while i < s.sleepers.len() {
+                if s.sleepers[i].0 <= now {
+                    let (_, t) = s.sleepers.swap_remove(i);
+                    woke |= make_ready(&mut s, &t);
+                    if expired_refs.try_reserve(1).is_ok() {
+                        expired_refs.push(t);
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        let me = slot();
+        // SAFETY: this CPU's slot, interrupts disabled.
+        let (cur_is_idle, quantum_left) = unsafe {
+            let q = &mut *me.quantum_left.get();
+            *q = q.saturating_sub(1);
+            let idle = match (&*me.current.get(), &*me.idle.get()) {
+                (Some(c), Some(i)) => Arc::ptr_eq(c, i),
+                _ => true,
+            };
+            (idle, *q)
+        };
+        !s.run_queue.is_empty() && (cur_is_idle || quantum_left == 0)
+    };
+    drop(expired_refs);
+    if woke {
+        kick_idle_cpu();
+    }
+    if need_resched {
+        schedule();
+    }
+}
+
+/// Another CPU queued work and this one was idle.
+pub fn reschedule_ipi() {
+    // SAFETY: this CPU's slot, interrupts disabled (interrupt handler).
+    let idle = unsafe {
+        let me = slot();
+        match (&*me.current.get(), &*me.idle.get()) {
+            (Some(c), Some(i)) => Arc::ptr_eq(c, i),
+            _ => false,
+        }
+    };
+    if idle {
+        schedule();
+    }
+}
+
+pub fn idle_loop() -> ! {
+    loop {
+        // Whatever became runnable while this CPU was on its way here is taken now;
+        // after that, only an interrupt (tick or reschedule IPI) brings work.
+        arch::disable_interrupts();
+        schedule();
+        x86_64::instructions::interrupts::enable_and_hlt();
+    }
+}
+
+/// A list of threads waiting for an event.
+pub struct WaitQueue {
+    waiters: SpinLock<VecDeque<Arc<Thread>>>,
+}
+
+impl WaitQueue {
+    pub const fn new() -> Self {
+        WaitQueue { waiters: SpinLock::new(VecDeque::new()) }
+    }
+
+    /// Block the current thread on this queue. Must be called with interrupts
+    /// disabled; `release` runs after the thread is registered (drop your lock there)
+    /// and is always called, including on the error path.
+    ///
+    /// On return the caller is no longer referenced by this queue: a thread woken by
+    /// `wake_all` was already drained, and one woken by a kill removes itself here.
+    /// Without that, killing a thread blocked on a queue whose event never happens
+    /// (a `wait` on a process that keeps running) would pin its kernel stack and its
+    /// address space forever.
+    pub fn sleep_after(&self, release: impl FnOnce()) -> Result<(), Error> {
+        let cur = current();
+        {
+            let mut w = self.waiters.lock();
+            if w.try_reserve(1).is_err() {
+                drop(w);
+                release();
+                return Err(Error::NoMemory);
+            }
+            cur.set_state(ThreadState::Blocked);
+            w.push_back(cur.clone());
+        }
+        release();
+        block();
+        self.unregister(&cur);
+        Ok(())
+    }
+
+    /// Add `t` to this queue without blocking it: for a thread about to wait on
+    /// several queues at once (`SYS_WAIT_ANY`). The caller blocks and schedules, and
+    /// must [`unregister`](Self::unregister) from every queue once it runs again.
+    pub fn register(&self, t: &Arc<Thread>) -> Result<(), Error> {
+        let mut w = self.waiters.lock();
+        if w.try_reserve(1).is_err() {
+            return Err(Error::NoMemory);
+        }
+        w.push_back(t.clone());
+        Ok(())
+    }
+
+    pub fn unregister(&self, t: &Arc<Thread>) {
+        self.waiters.lock().retain(|x| !Arc::ptr_eq(x, t));
+    }
+
+    pub fn wake_all(&self) {
+        let list: Vec<Arc<Thread>> = self.waiters.lock().drain(..).collect();
+        for t in list {
+            wake(&t);
+        }
+    }
+}
+
+impl Default for WaitQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}

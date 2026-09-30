@@ -1,0 +1,16 @@
+[package]
+name = "pingpong"
+description = "Test: one side of a ping-pong through shared memory, no system call in the loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "pingpong"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

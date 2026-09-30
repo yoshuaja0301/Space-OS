@@ -1,0 +1,17 @@
+[package]
+name = "spacenet"
+description = "Network service: DHCP, DNS and TCP over the device lease, with per-session destination allowlists"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spacenet"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true
+smoltcp.workspace = true

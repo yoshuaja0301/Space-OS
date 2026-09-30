@@ -1,0 +1,16 @@
+[package]
+name = "churn"
+description = "Test: a workload that never ends on its own (disk, memory, IPC or spawning), for the stability run to kill at a random moment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "churn"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

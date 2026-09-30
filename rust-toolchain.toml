@@ -1,0 +1,6 @@
+# Pinned toolchain (ADR-0001). rustup installs the listed targets automatically.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy", "rust-src", "llvm-tools"]
+targets = ["x86_64-unknown-none", "x86_64-unknown-uefi"]
+profile = "minimal"

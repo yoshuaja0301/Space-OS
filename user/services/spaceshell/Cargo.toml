@@ -1,0 +1,16 @@
+[package]
+name = "spaceshell"
+description = "Supervising session service: owns the console session and the worker lifetime (U01)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spaceshell"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true
