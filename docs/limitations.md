@@ -59,7 +59,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Agent dan Tool Broker
 
-- Tambalan agent mendarat di **overlay dalam memori** (4 berkas, 8 KiB per berkas) karena volume ter-mount read-only; tidak bertahan melewati reboot.
+- Broker menyimpan buffer tambalan dalam memori (4 berkas, 8 KiB per berkas), lalu menulisnya ke volume data di dalam workspace. Kegagalan tulis dikembalikan ke pemanggil. Uji membaca ulang hasilnya setelah broker keluar; ketahanan terhadap kehilangan daya belum dijamin karena FAT32 tidak berjurnal.
 - "Menguji" berarti satu check bawaan (`verify`) yang membandingkan hasil dengan berkas harapan. Belum ada runner uji umum — menjalankan proses atas nama agent berarti memberi broker hak `SPAWN`, dan itu belum dilakukan.
 - Satu agent per broker; broker melayani agent sampai selesai sebelum menjawab operator lagi.
 - Audit log dibatasi 64 entri dan hanya ada di memori: panggilan setelah itu tetap dilayani dan dihitung, tetapi tidak dicatat, dan seluruh log hilang saat broker keluar.
@@ -69,7 +69,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 - Peringkat **leksikal**: jumlah kemunculan istilah kueri per chunk, seri dipecah oleh posisi. Tidak ada embedding, TF-IDF, stemming, atau tokenizer.
 - Batas keras: 16 dokumen, 128 chunk, 8 KiB per dokumen, 192 byte per chunk, 8 entri per bundle.
-- Indeks **dan** daftar revokasi hanya ada di memori layanan; keduanya hilang saat layanan keluar. Revokasi yang bertahan melewati reboot memerlukan penyimpanan yang bisa ditulis.
+- Indeks hanya ada di memori dan dibangun ulang lewat permintaan `INDEX` eksplisit. Daftar revokasi disimpan di `/spaceos/var/revoked.txt`, dengan digest commit di `revoked.txn`, lalu dimuat saat operator menempel (ADR-0016). Store tidak terbaca, rusak, atau transaksinya belum selesai menutup retrieval sampai operator memperbaikinya. Kegagalan simpan dikembalikan sebagai error; larangan dalam proses tetap berlaku, dan `FORGET` yang gagal tidak menghapusnya. Marker bukan jurnal atau backup: kerusakan metadata filesystem akibat kehilangan daya belum ditangani.
 - Kueri memindai seluruh chunk secara linear; belum ada indeks terbalik.
 - Satu hasil per panggilan (dengan `total`), jadi menelusuri N hasil butuh N round trip; teks per balasan dipotong 128 byte (batas pesan IPC).
 - Repo SpaceLink dari PRD §10 tidak tersedia di lingkungan ini; yang diimplementasikan adalah kontrak L01–L03, bukan mesin retrieval SpaceLink yang dimaksud PRD.
@@ -77,7 +77,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Paket
 
 - Autentikasi memakai **HMAC-SHA256**, bukan tanda tangan kunci publik, dan **kunci rilis ada di dalam image**. Siapa pun yang bisa membaca image bisa membuat paket yang sah; yang diberikan adalah integritas terhadap pihak tanpa kunci, bukan distribusi tepercaya (ADR-0014).
-- Store paket ada di **memori**; instalasi tidak bertahan melewati reboot.
+- Riwayat store paket ditulis ke `/spaceos/var/pkgstore.dat` setelah install/rollback dan dimuat saat operator menempel; uji membuktikan muat ulang oleh proses kedua. Kegagalan penyimpanan hanya dilaporkan lewat peringatan, sehingga keberhasilan operasi di memori belum menjamin durabilitas. Belum ada transaksi atomik atau jurnal.
 - Riwayat rollback dibatasi 4 versi; yang tertua dibuang saat penuh.
 - Payload maksimum 64 KiB dan paket tidak punya struktur internal (bukan arsip): "memasang" berarti menyimpan payload terverifikasi, bukan membongkar berkas.
 - Tidak ada dependensi antar paket, batas versi minimum, hook pra/pasca instalasi, atau rotasi kunci.
@@ -85,8 +85,19 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Kompatibilitas
 
 - Matriks `cargo xtask compat` (ADR-0010) mencakup sembilan konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU, 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, tanpa disk, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
-- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), dan filesystem selain FAT32 read-only.
+- **Di luar cakupan**: perangkat keras fisik, SMP (AP tidak dibangunkan apa pun `-smp`), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk (AHCI/NVMe), dan filesystem selain FAT32 dengan operasi baca/create/tulis yang terbatas.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
+
+## Startup, jaringan dan instalasi
+
+- Menu startup grafis memakai GOP UEFI; kernel tetap konsol teks. Tanpa GOP tersedia menu teks.
+- Pemeriksaan jaringan membaca protokol firmware dan menjalankan DHCP terbatas.
+  Belum ada driver jaringan/Wi-Fi kernel, pemindaian SSID, autentikasi WPA, TCP/IP
+  atau TLS; koneksi firmware tidak bertahan setelah `ExitBootServices`.
+- Installer hanya menyalin empat berkas boot ke ESP GPT yang sudah ada dan writable.
+  Sumber serta berkas boot Space OS/fallback yang sudah ada ditolak. Tidak ada
+  pembuatan partisi, format, instalasi volume data, atau entri boot NVRAM.
+  Kegagalan dapat meninggalkan berkas baru yang belum lengkap. Belum diuji di PC fisik.
 
 ## Belum ada (tahap berikutnya)
 

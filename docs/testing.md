@@ -1,6 +1,8 @@
 # Pengujian
 
-Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya menjalankan QEMU dan membaca log serial serta kode keluar. Tidak ada uji yang bergantung pada Linux di dalam guest.
+Skenario kernel dan user-space berjalan **di dalam guest Space OS**. Pengujian startup
+menjalankan bootloader UEFI; host memeriksa log, tangkapan layar dan isi image sintetis.
+Tidak ada uji yang bergantung pada Linux di dalam guest.
 
 ## Skenario `cargo xtask test`
 
@@ -145,6 +147,10 @@ Gigi uji ini terbukti: dengan pemeriksaan scope naif (`path.starts_with(SCOPE)`)
 | L01 | korpus `/spaceos/docs` (4 dokumen) diindeks jadi 7 chunk; kueri `channel` menempatkan `IPC.TXT` di puncak; **setiap** hasil diverifikasi provenance-nya — init membaca ulang rentang byte yang disebut layanan dan menghitung SHA-256-nya sendiri; hasil terurut menurun menurut skor; kueri melewati hasil terakhir → `NotFound` | `bin/spacelink` |
 | L02 | `SECRET.TXT` dicabut: kueri `embargo` (kata yang hanya ada di dokumen itu) → `NotFound`; kueri umum `channel`/`quota` tidak lagi memuatnya; bundle tidak memuatnya; **indeks ulang tidak menghidupkannya kembali** dan statistik menunjukkan 3 dokumen hidup, 1 dicabut | `bin/spacelink` |
 | L02 | revokasi hidup lebih lama daripada prosesnya: layanan pertama mencabut lalu di-`QUIT`, layanan **kedua** mengindeks korpus dari nol tanpa diberi tahu apa pun, dan dokumen itu tetap hilang | `bin/init`, `bin/spacelink` |
+| L02 | store berisi UTF-8 rusak, newline hilang, path relatif, atau ukuran berlebih → attach gagal dan seluruh retrieval ditolak | `user/init/src/link_security.rs` |
+| L02 | reattach tanpa hak baca membuang bundle lama; setelah perbaikan store, attach berhasil dan dokumen yang dicabut tetap tidak muncul | `user/init/src/link_security.rs` |
+| L02 | simpan revokasi dan `FORGET` tanpa hak tulis mengembalikan `Denied`; indeks ulang dan reattach tidak menghilangkan larangan dalam proses | `user/init/src/link_security.rs` |
+| L02 | keadaan disk sesudah truncation dengan marker kosong atau digest lama → proses baru menolak akses (`DataLoss`); snapshot yang diperbaiki dapat dimuat kembali | `user/init/src/link_security.rs` |
 | L03 | bundle untuk `channel quota` dengan anggaran 400 byte: muat anggaran, setiap entri diverifikasi provenance-nya, jumlah panjang entri sama dengan byte yang dilaporkan, dan digest bundle = SHA-256 atas rangkaian digest entri (dihitung ulang oleh init); kueri yang sama menghasilkan bundle identik; anggaran 1 byte → bundle kosong tanpa error; setelah revokasi digest berubah | `bin/spacelink` |
 
 Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehingga
@@ -173,6 +179,27 @@ salah satunya.
 ## Soak K01
 
 `cargo xtask soak --boots 100` menjalankan 100 cold boot skenario acceptance, berhenti pada kegagalan pertama, dan menulis `build/logs/soak/summary.txt` + log per boot. Hasil sesi ini ada di `docs/evidence/soak-summary.txt`.
+
+## Startup grafis, jaringan firmware dan installer
+
+`cargo xtask boot-test` mengoperasikan menu melalui keyboard QEMU, membuka informasi
+hardware, menjalankan terminal normal/pemulihan dengan `help`, `status`, `quit`,
+dan memastikan CPU tanpa NX/SYSCALL serta RAM terlalu kecil ditolak sebelum kernel.
+Menu juga diuji pada GOP 640×480 dan tanpa GOP, termasuk navigasi halaman laporan.
+
+`cargo xtask setup-test` memakai NIC e1000 dengan jaringan pengguna QEMU dan ESP GPT
+sintetis. Uji menuntut DHCP ACK dengan alamat `10.0.2.15`, link terputus, tanpa NIC,
+pengecualian partisi sumber, pembatalan tanpa perubahan disk, salinan empat berkas,
+dan penolakan penimpaan. Isi berkas sumber/tujuan dibandingkan byte demi byte;
+tabel partisi dan sentinel Microsoft harus tetap sama. Tidak ada disk host dipasang.
+ESP hasil salinan kemudian di-boot sendiri tanpa partisi sumber maupun disk data;
+terminal pemulihan harus menyelesaikan `help`, `status`, `quit`.
+Log dan PNG memakai nama unik `build/logs/boot/setup-<waktu>-*`.
+
+Jalankan kedua perintah bergantian dengan pengujian QEMU lain. DHCP firmware
+bukan uji Wi-Fi native, koneksi internet, atau sertifikasi perangkat fisik.
+`cargo xtask ci` menjalankan format, lint, `test` dan `compat`; `boot-test` serta
+`setup-test` dijalankan terpisah.
 
 ## Bukti
 

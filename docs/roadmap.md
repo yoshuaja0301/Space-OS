@@ -9,9 +9,26 @@
 | 5 Inferensi native | Model kecil, tokenizer, generation, benchmark offline | **selesai untuk model referensi**: format SpaceLM v0, validasi + checksum, runtime `spaceai`, 128 token offline cocok dengan baseline; model terlatih berlisensi belum |
 | 5A Developer Preview | SpaceLink, Tool Broker, agent, desktop, adapter | **sebagian**: `spaceshell` + `spaceterm` (sesi yang bertahan melewati worker crash dan bisa diketik orang, U01), `spacebroker` + `spaceagent` (scope workspace dan audit, G01), `spacelink` (indeks, revokasi, context bundle, L01–L03). `spacepkg` (paket terautentikasi dan rollback, P01). Adapter cloud (I01) terhalang jaringan dan TLS |
 | 6 GPU terpilih | Studi kelayakan, driver | **studi selesai, driver belum**: `docs/gpu-feasibility.md` memetakan apa yang sudah siap (Compute ABI v0 tidak menyebut backend), tiga kapabilitas perangkat yang belum ada untuk driver user-space, dan mengapa tanpa IOMMU driver DMA tetap tepercaya. Driver tidak ditulis: tidak ada perangkat keras untuk memverifikasinya (H01) |
-| 7 Hardware Preview | Installer, recovery, matriks hardware, ARM64 | **sebagian**: matriks konfigurasi mesin virtual (`cargo xtask compat`, ADR-0010) berjalan di CI; perangkat keras fisik, installer, recovery dan ARM64 belum |
+| 7 Hardware Preview | Installer, recovery, matriks hardware, ARM64 | **sebagian**: matriks QEMU, menu boot grafis, pemulihan tanpa disk, dan installer berkas boot ke EFI GPT yang sudah tersedia. Jaringan firmware dapat diperiksa sebelum boot. Driver Wi-Fi/jaringan kernel, installer volume data penuh, perangkat keras fisik dan ARM64 belum |
 
 ## Backlog berikutnya (urutan PRD "Urutan backlog pertama" sudah selesai sampai "syscall/IPC serta negative tests")
+
+### Prioritas Developer Preview setelah pemeriksaan PRD
+
+- **L02 — penguatan revokasi**: ADR-0016 menutup akses saat store rusak/tidak terbaca,
+  mengembalikan error simpan, membatalkan cache saat reattach, dan mendeteksi transaksi
+  store yang belum selesai. Bukti negatif dijalankan oleh `user/init/src/link_security.rs`.
+- **L01 — belum lengkap**: indeks awal sudah ada; berikutnya event perubahan,
+  versi sumber, rename/delete, serta journal/checkpoint dan rekonsiliasi setelah restart.
+- **L03 — belum lengkap**: provenance dan anggaran byte sudah ada; berikutnya
+  anggaran tokenizer model, versi/expiry bundle, dan redaksi sesuai tujuan penerima.
+- **U01/I01/P01**: desktop grafis native, fondasi jaringan/TLS untuk adapter,
+  dan autentikasi paket dengan kunci publik tetap pekerjaan tersendiri. Hasil uji
+  kontrak yang sekarang tidak berarti seluruh Developer Preview sudah selesai.
+
+Butir storage/compute/inferensi di daftar awal berikut mencatat urutan pembangunan;
+implementasi MVP-nya sudah tersedia sebagaimana tabel status di atas. Pemindahan
+driver storage ke user-space belum dilakukan.
 
 1. **Storage (D01)**: driver VirtIO block (PCI modern, virtqueue split) sebagai *user-space server* dengan akses MMIO/IRQ lewat capability baru; VFS minimal read-only (FAT dari ESP) → baca file model + verifikasi hash SHA-256 → uji reboot.
 2. **Compute ABI v0 (C01)**: objek `MemoryObject` yang dapat di-map dua proses (buffer), layanan `spacecompute` user-space dengan `device_query/buffer_create/buffer_map/queue_create/submit/wait/cancel/release`, contract test versi/invalid handle/batas/unsupported/timeout/cancel.
