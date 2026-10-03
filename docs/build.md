@@ -6,6 +6,41 @@
 - QEMU ≥ 8.2 (`qemu-system-x86`) dan firmware OVMF. Ubuntu/Debian: `sudo apt install qemu-system-x86 ovmf`. Lokasi OVMF dicari otomatis; timpa dengan `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS`.
 - Tidak perlu `mtools`, `mkfs.fat`, atau `nasm`: image FAT dibuat murni oleh `xtask` (crate `fatfs`), stub interrupt dirakit oleh `rustc`.
 
+## Windows dengan WSL 2
+
+Harness `xtask` memakai Unix socket dan PTY Linux untuk mengetik ke guest; jalankan
+melalui distro Linux WSL 2, bukan Cargo native Windows. Distro harus sudah memiliki
+Rust via rustup, GCC, QEMU dan OVMF seperti prasyarat di atas.
+
+Dari PowerShell **7.3 atau lebih baru**, launcher berikut menjalankan Cargo langsung
+pada checkout ini, termasuk jika path-nya mengandung spasi:
+
+```powershell
+pwsh -File .\scripts\dev-wsl.ps1 build
+pwsh -File .\scripts\dev-wsl.ps1 test
+pwsh -File .\scripts\dev-wsl.ps1 ci
+pwsh -File .\scripts\dev-wsl.ps1 boot-test
+pwsh -File .\scripts\dev-wsl.ps1 setup-test
+pwsh -File .\scripts\dev-wsl.ps1 run --cmdline "init=bin/spaceterm" --gui
+```
+
+Default launcher memakai distro `SpaceOS-D01`, `CARGO_HOME=/opt/spaceos/cargo` dan
+`RUSTUP_HOME=/opt/spaceos/rustup`. Untuk instalasi rustup biasa pada distro lain,
+sesuaikan ketiganya dengan lokasi milik pengguna Linux Anda:
+
+```powershell
+pwsh -File .\scripts\dev-wsl.ps1 -Distribution Ubuntu-24.04 `
+  -CargoHome /home/nama/.cargo -RustupHome /home/nama/.rustup test
+```
+
+Launcher tidak memasang dependensi atau mengubah distro default WSL, dan meneruskan
+kode keluar Cargo. GUI membutuhkan display WSLg yang berfungsi. Untuk
+`--serial-input`, buka PTY COM2 yang dicetak QEMU dari terminal pada distro yang sama.
+Jalankan `run`, `test`, `compat`, dan `soak` **bergantian** dalam satu checkout:
+harness memakai nama disk dan salinan OVMF VARS yang sama. Socket monitor dibuat
+di direktori sementara Linux karena filesystem Windows yang di-mount WSL tidak
+mendukung Unix socket; jangan arahkan `TMPDIR` ke drive Windows.
+
 ## Perintah
 
 | Perintah | Hasil |
@@ -16,6 +51,8 @@
 | `cargo xtask run --serial-input --cmdline "init=bin/spaceterm"` | sesi yang sama tanpa jendela: QEMU mencetak path pty COM2, ketik ke sana (`screen <pty>`) |
 | `cargo xtask test` | sembilan skenario boot + pemeriksaan log/exit code, log di `build/logs/` |
 | `cargo xtask compat` | sembilan konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
+| `cargo xtask boot-test` | menu startup, hardware, terminal normal/pemulihan dan penolakan CPU/RAM; tangkapan layar di `build/logs/boot/` |
+| `cargo xtask setup-test` | DHCP firmware, tanpa NIC/link, pembatalan dan salinan boot ke ESP GPT sintetis; verifikasi byte dan perlindungan berkas Microsoft |
 | `cargo xtask soak --boots 100` | 100 cold boot berturut-turut skenario acceptance (K01) |
 | `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy + `test` + `compat` |
 

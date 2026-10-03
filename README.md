@@ -34,11 +34,16 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 
 ## Mulai cepat
 
+Windows: gunakan WSL 2 dan launcher PowerShell pada [panduan build](docs/build.md#windows-dengan-wsl-2).
+
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
 cargo xtask test                           # build semua target, buat image, 9 skenario boot di QEMU
 cargo xtask compat                         # image yang sama di 9 konfigurasi mesin (ADR-0010)
+cargo xtask boot-test                      # menu grafis, terminal dan penolakan hardware
+cargo xtask setup-test                     # DHCP firmware dan installer pada ESP sintetis
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
+cargo xtask run --gui --boot-menu           # menu startup, informasi hardware, dan recovery
 cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU
 cargo xtask run --serial-input --cmdline "init=bin/spaceterm"  # sama, tanpa jendela: ketik ke pty COM2 yang dicetak QEMU
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
@@ -73,6 +78,7 @@ spacekernel 0.1.0: Space OS kernel booting
 - [docs/requirements.md](docs/requirements.md) — traceability K01…H02 dengan status planned/experimental/verified.
 - [docs/testing.md](docs/testing.md) dan [docs/evidence/](docs/evidence/) — skenario uji, marker, kode keluar, log bukti.
 - [docs/build.md](docs/build.md) — prasyarat dan perintah.
+- [docs/hardware.md](docs/hardware.md) — dukungan perangkat, menu boot/recovery, dan batas instalasi fisik.
 - [docs/limitations.md](docs/limitations.md) — batas yang diketahui.
 - [docs/roadmap.md](docs/roadmap.md) — tahap PRD vs kondisi repo, backlog berikutnya.
 - [docs/gpu-feasibility.md](docs/gpu-feasibility.md) — studi kelayakan akselerator (tahap 6): apa yang sudah siap, apa yang menghalangi, dan kenapa drivernya belum ditulis.
