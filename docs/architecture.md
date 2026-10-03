@@ -11,7 +11,7 @@ UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──�
 
 1. OVMF memuat `\EFI\BOOT\BOOTX64.EFI` (= `spaceboot`) dari ESP.
 2. `spaceboot` membaca `spacekernel.elf`, `initrd.tar`, `spaceos.cfg`; memuat segmen kernel; menyalin initrd/cmdline ke memori bertipe KERNEL; membaca GOP dan RSDP; membangun page table (kernel higher-half, linear map RAM, identity sementara); keluar dari boot services; menormalkan memory map; mengaktifkan NXE/WP; melompat ke `_start` dengan `rdi = &BootInfo`.
-3. `spacekernel::kmain`: serial (dengan probe keberadaan UART) → GDT/TSS (IST untuk double fault, NMI, `#DB`, machine check) → IDT (256 stub asm; hanya `int3` berDPL 3) → memori (bitmap frame, PML4 kernel baru, heap 16 MiB, slot kernel stack berguard) → pindah dari stack bootloader ke slot kernel stack berguard → framebuffer → cmdline → initrd → PIC/PIT → MSR syscall → scheduler → selftest kernel → spawn `bin/init` → idle loop.
+3. `spacekernel::kmain`: serial (dengan probe keberadaan UART) → framebuffer → GDT/TSS (IST untuk double fault, NMI, `#DB`, machine check) → IDT (256 stub asm; hanya `int3` berDPL 3) → memori (bitmap frame, PML4 kernel baru, heap 16 MiB, slot kernel stack berguard) → pindah dari stack bootloader ke slot kernel stack berguard → cmdline → initrd → PIC/PIT → MSR syscall → scheduler → selftest kernel → spawn `bin/init` → idle loop.
 4. `init` (user, ring 3) memegang handle Root dan menjalankan/menguji program lain.
 
 ## Layout memori virtual

@@ -67,6 +67,7 @@ extern "C" fn kmain(boot_info: *const BootInfo) -> ! {
     if !bi.is_valid() {
         panic!("invalid BootInfo (magic {:#x}, version {})", bi.magic, bi.version);
     }
+    fb::init(bi);
     println!(
         "[kernel] boot info ok: {} memory regions, initrd {} bytes, cmdline {} bytes, rsdp {:#x}",
         bi.memory_map_entries, bi.initrd.len, bi.cmdline.len, bi.rsdp
@@ -108,7 +109,6 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     let top = (rsp + mm::kstack::SLOT_SIZE - 1) & !(mm::kstack::SLOT_SIZE - 1);
     println!("[kernel] boot context moved to a guarded kernel stack (top {top:#x})");
 
-    fb::init(bi);
     cmdline::init(bi);
     initrd::init(bi);
     dev::init();

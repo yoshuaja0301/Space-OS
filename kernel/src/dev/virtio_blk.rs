@@ -219,7 +219,13 @@ fn probe() -> Result<Option<u64>, Error> {
 
     // Reset, then announce the driver.
     mmio_write::<u8>(common + CC_DEVICE_STATUS, 0);
+    let mut reset_polls = 0u64;
     while mmio_read::<u8>(common + CC_DEVICE_STATUS) != 0 {
+        reset_polls += 1;
+        if reset_polls >= POLL_LIMIT {
+            println!("[kernel] virtio-blk: reset timed out before queue setup; device ignored");
+            return Err(Error::WouldBlock);
+        }
         core::hint::spin_loop();
     }
     mmio_write::<u8>(common + CC_DEVICE_STATUS, STATUS_ACKNOWLEDGE);

@@ -140,18 +140,15 @@ impl Fb {
 
 pub fn init(bi: &BootInfo) {
     let f = &bi.framebuffer;
-    if f.present == 0 || f.bytes_per_pixel != 4 || f.format == fb_format::OTHER {
+    if !f.is_usable() {
         println!("[kernel] framebuffer: none usable; serial console only");
         return;
     }
     let glyph_w = get_raster_width(FontWeight::Regular, RasterHeight::Size16);
-    // Never address beyond what the firmware reported (and the bootloader mapped):
-    // the drawable width is bounded by the stride and the rows by `size`.
     let stride = f.stride as usize;
-    let width = (f.width as usize).min(stride);
-    let rows_in_buffer = if stride == 0 { 0 } else { (f.size as usize / 4) / stride };
-    let height = (f.height as usize).min(rows_in_buffer);
-    if width == 0 || height < FONT_H || stride == 0 {
+    let width = f.width as usize;
+    let height = f.height as usize;
+    if glyph_w == 0 || width < glyph_w || height < FONT_H {
         println!(
             "[kernel] framebuffer: geometry unusable ({}x{}, stride {}, {} bytes)",
             f.width, f.height, f.stride, f.size

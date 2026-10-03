@@ -461,6 +461,7 @@ dependencies = [
 name = "spaceboot"
 version = "0.1.0"
 dependencies = [
+ "noto-sans-mono-bitmap",
  "spaceabi",
  "uefi",
  "x86_64",

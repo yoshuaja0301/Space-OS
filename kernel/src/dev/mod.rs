@@ -9,6 +9,10 @@ pub mod pci;
 pub mod virtio_blk;
 
 pub fn init() {
+    if crate::cmdline::get("storage") == Some("off") {
+        println!("[kernel] recovery: storage probing disabled; disks are not mounted");
+        return;
+    }
     pci::init();
     virtio_blk::init();
 }

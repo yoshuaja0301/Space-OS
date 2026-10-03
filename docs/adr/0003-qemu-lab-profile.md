@@ -21,7 +21,7 @@ Profil dipatok di `xtask/src/main.rs::qemu_args` dan dipakai oleh `build`, `run`
 | Keluar | `isa-debug-exit` iobase `0xf4`: kernel menulis `0x10` sukses, `0x11` gagal, `0x3f` panic → status proses QEMU 33/35/127 |
 | Lain | `-no-reboot` (triple fault = keluar, bukan boot ulang) |
 
-QEMU yang diuji: 8.2.2 (Ubuntu 24.04). VirtIO block/network/display belum diaktifkan (tahap 3).
+QEMU yang diuji: 8.2.2 (Ubuntu 24.04). VirtIO block modern sudah digunakan untuk disk data FAT32; VirtIO network/display belum diaktifkan.
 
 ## Konsekuensi
 

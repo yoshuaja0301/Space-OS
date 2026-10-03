@@ -14,3 +14,4 @@ bench = false
 spaceabi.workspace = true
 uefi.workspace = true
 x86_64.workspace = true
+noto-sans-mono-bitmap.workspace = true

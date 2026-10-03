@@ -10,7 +10,10 @@
 //! Environment: `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS` override firmware discovery,
 //! `SPACEOS_QEMU` overrides the QEMU binary.
 
+mod boot_guest;
+mod boot_qa;
 mod reference;
+mod setup_qa;
 
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -767,6 +770,9 @@ fn run_qemu_capture_typing(
     type_lines: &[&str],
     ready_marker: &str,
 ) -> Result<QemuRun, String> {
+    let artifact_log = log_path;
+    let active_log = std::env::temp_dir().join(format!("spaceos-capture-{}.log", std::process::id()));
+    let log_path = active_log.as_path();
     let (code, vars) = find_firmware()?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
@@ -775,7 +781,9 @@ fn run_qemu_capture_typing(
     }
     // The monitor is how the harness reaches the keyboard and finds the pty; it is
     // only added for a scenario that types.
-    let monitor = (typing != Typing::None).then(|| root().join("build/monitor.sock"));
+    // Windows-mounted checkouts in WSL cannot host Unix sockets.
+    let monitor = (typing != Typing::None)
+        .then(|| std::env::temp_dir().join(format!("spaceos-monitor-{}.sock", std::process::id())));
     if let Some(path) = &monitor {
         fs::remove_file(path).ok();
     }
@@ -843,6 +851,9 @@ fn run_qemu_capture_typing(
         Some(Ok(r)) => r,
         Some(Err(_)) => Err("the console typist thread panicked".to_string()),
     };
+    if let Some(path) = &monitor {
+        fs::remove_file(path).ok();
+    }
     let mut stderr = String::new();
     if let Some(mut e) = child.stderr.take() {
         e.read_to_string(&mut stderr).ok();
@@ -858,6 +869,8 @@ fn run_qemu_capture_typing(
         log.push_str(&format!("\n[harness] console input failed: {e}\n"));
         fs::write(log_path, &log).ok();
     }
+    fs::write(artifact_log, &log).map_err(|e| format!("preserve guest log: {e}"))?;
+    let _ = fs::remove_file(log_path);
     Ok(QemuRun { log, exit_code, elapsed: start.elapsed(), timed_out, input_error })
 }
 
@@ -1561,7 +1574,7 @@ fn cmd_clippy() -> Result<(), String> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|clippy|fmt|fmt-check|ci> [--debug]"
+        "usage: cargo xtask <build|run [--gui] [--boot-menu] [--cmdline S]|test|boot-test|setup-test|compat|soak [--boots N]|clippy|fmt|fmt-check|ci> [--debug]"
     );
     std::process::exit(2)
 }
@@ -1572,20 +1585,29 @@ fn main() {
     let cmd = args.first().map(String::as_str).unwrap_or("");
     let res = match cmd {
         "build" | "image" => build(release)
-            .and_then(|b| make_image(&b, "", &root().join("build/esp.img")))
+            .and_then(|b| make_image(&b, "bootmenu=on", &root().join("build/esp.img")))
             .and_then(|()| make_data_disk(&root().join("build/data.img"))),
         "run" => {
             let gui = args.iter().any(|a| a == "--gui");
             let serial_input = args.iter().any(|a| a == "--serial-input");
-            let cmdline = args
+            let mut cmdline = args
                 .iter()
                 .position(|a| a == "--cmdline")
                 .and_then(|i| args.get(i + 1))
                 .cloned()
                 .unwrap_or_default();
+            if args.iter().any(|a| a == "--boot-menu") {
+                if !gui {
+                    eprintln!("--boot-menu requires --gui for firmware keyboard input");
+                    std::process::exit(2);
+                }
+                cmdline = format!("bootmenu=on {cmdline}");
+            }
             cmd_run(gui, serial_input, &cmdline, release)
         }
         "test" => cmd_test(release),
+        "boot-test" => boot_qa::run(release),
+        "setup-test" => setup_qa::run(release),
         "compat" => cmd_compat(release),
         "soak" => {
             let boots = args

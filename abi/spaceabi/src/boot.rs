@@ -69,7 +69,7 @@ pub mod fb_format {
     pub const RGBX: u32 = 0;
     /// 32 bits per pixel, byte order B, G, R, X.
     pub const BGRX: u32 = 1;
-    /// Some other layout; the kernel only clears such framebuffers.
+    /// Unsupported layout; the kernel leaves such framebuffers untouched.
     pub const OTHER: u32 = 2;
 }
 
@@ -88,6 +88,31 @@ pub struct FramebufferInfo {
     pub bytes_per_pixel: u32,
     pub phys_addr: u64,
     pub size: u64,
+}
+
+impl FramebufferInfo {
+    /// Validate the pixel layout and extent before addressing a linear framebuffer.
+    pub const fn is_usable(&self) -> bool {
+        if self.present == 0
+            || !matches!(self.format, fb_format::RGBX | fb_format::BGRX)
+            || self.bytes_per_pixel != 4
+            || self.width == 0
+            || self.height == 0
+            || self.stride < self.width
+            || self.phys_addr == 0
+            || !self.phys_addr.is_multiple_of(4)
+        {
+            return false;
+        }
+        let row_bytes = self.stride as u64 * 4;
+        let Some(required_bytes) = row_bytes.checked_mul(self.height as u64) else {
+            return false;
+        };
+        let Some(phys_end) = self.phys_addr.checked_add(self.size) else {
+            return false;
+        };
+        required_bytes <= self.size && PHYS_OFFSET.checked_add(phys_end).is_some()
+    }
 }
 
 /// A byte range in physical memory described by (address, length).
@@ -134,5 +159,59 @@ pub struct BootInfo {
 impl BootInfo {
     pub fn is_valid(&self) -> bool {
         self.magic == BOOT_INFO_MAGIC && self.version == BOOT_INFO_VERSION
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FramebufferInfo, fb_format};
+
+    const MODE: FramebufferInfo = FramebufferInfo {
+        present: 1,
+        format: fb_format::RGBX,
+        width: 800,
+        height: 600,
+        stride: 832,
+        bytes_per_pixel: 4,
+        phys_addr: 0xE000_0000,
+        size: 832 * 600 * 4,
+    };
+
+    #[test]
+    fn framebuffer_is_usable_when_supported_modes_include_scanline_padding() {
+        // Given: both supported pixel orders with a padded scanline.
+        for format in [fb_format::RGBX, fb_format::BGRX] {
+            let mode = FramebufferInfo { format, ..MODE };
+            // When: the firmware metadata is checked.
+            let usable = mode.is_usable();
+            // Then: all reported rows fit inside the framebuffer.
+            assert!(usable);
+        }
+    }
+
+    #[test]
+    fn framebuffer_is_rejected_when_metadata_cannot_back_safe_pixel_access() {
+        // Given: invalid presence, format, geometry, alignment, or buffer extent.
+        let modes = [
+            FramebufferInfo { present: 0, ..MODE },
+            FramebufferInfo { format: fb_format::OTHER, ..MODE },
+            FramebufferInfo { format: u32::MAX, ..MODE },
+            FramebufferInfo { bytes_per_pixel: 3, ..MODE },
+            FramebufferInfo { width: 0, ..MODE },
+            FramebufferInfo { height: 0, ..MODE },
+            FramebufferInfo { stride: 0, ..MODE },
+            FramebufferInfo { stride: MODE.width - 1, ..MODE },
+            FramebufferInfo { phys_addr: 0, ..MODE },
+            FramebufferInfo { phys_addr: MODE.phys_addr + 1, ..MODE },
+            FramebufferInfo { size: MODE.size - 1, ..MODE },
+            FramebufferInfo { phys_addr: u64::MAX - 3, ..MODE },
+            FramebufferInfo { stride: u32::MAX, height: u32::MAX, size: u64::MAX, ..MODE },
+        ];
+        for mode in modes {
+            // When: malformed firmware metadata is checked.
+            let usable = mode.is_usable();
+            // Then: it is rejected before pointer arithmetic or rendering.
+            assert!(!usable, "accepted invalid framebuffer: {mode:?}");
+        }
     }
 }

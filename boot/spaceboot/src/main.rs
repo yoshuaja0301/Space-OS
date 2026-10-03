@@ -17,6 +17,15 @@
 
 extern crate alloc;
 
+mod boot_pages;
+mod install;
+mod menu;
+mod menu_view;
+mod network;
+mod policy;
+mod preflight;
+mod ui;
+
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::mem;
@@ -51,13 +60,20 @@ const MEMMAP_PAGES: usize = 16;
 
 #[uefi::entry]
 fn main() -> Status {
-    uefi::helpers::init().expect("uefi helpers");
+    if uefi::helpers::init().is_err() {
+        return Status::DEVICE_ERROR;
+    }
+    if let Err(error) = boot::set_watchdog_timer(0, 0x1_0000, None)
+        && error.status() != Status::UNSUPPORTED
+    {
+        return error.status();
+    }
     println!("spaceboot {}: Space OS UEFI bootloader", env!("CARGO_PKG_VERSION"));
     match run() {
         Ok(()) => Status::SUCCESS,
         Err(msg) => {
             println!("spaceboot: FATAL: {msg}");
-            boot::stall(5_000_000);
+            menu::error(msg);
             Status::LOAD_ERROR
         }
     }
@@ -168,6 +184,14 @@ fn framebuffer_info() -> FramebufferInfo {
     let Ok(mut gop) = boot::open_protocol_exclusive::<GraphicsOutput>(handle) else {
         return FramebufferInfo::default();
     };
+    if !matches!(gop.current_mode_info().pixel_format(), PixelFormat::Rgb | PixelFormat::Bgr) {
+        let alternative = gop
+            .modes()
+            .find(|mode| matches!(mode.info().pixel_format(), PixelFormat::Rgb | PixelFormat::Bgr));
+        if let Some(mode) = alternative {
+            let _ = gop.set_mode(&mode);
+        }
+    }
     let mode = gop.current_mode_info();
     let (width, height) = mode.resolution();
     let format = match mode.pixel_format() {
@@ -178,7 +202,7 @@ fn framebuffer_info() -> FramebufferInfo {
         PixelFormat::Bitmask => fb_format::OTHER,
     };
     let mut fb = gop.frame_buffer();
-    FramebufferInfo {
+    let info = FramebufferInfo {
         present: 1,
         format,
         width: width as u32,
@@ -187,7 +211,8 @@ fn framebuffer_info() -> FramebufferInfo {
         bytes_per_pixel: 4,
         phys_addr: fb.as_mut_ptr() as u64,
         size: fb.size() as u64,
-    }
+    };
+    if info.is_usable() { info } else { FramebufferInfo::default() }
 }
 
 /// Memory types that are RAM (as opposed to MMIO or firmware-reserved holes).
@@ -232,6 +257,11 @@ fn region_kind(ty: MemoryType) -> u32 {
 }
 
 fn run() -> Result<(), &'static str> {
+    let report = preflight::inspect()?;
+    println!(
+        "spaceboot: preflight CPU NX/SYSCALL ok; {} MiB available; {} memory regions; {} firmware block handles; GOP {}; ACPI {}",
+        report.memory_mib, report.regions, report.block_handles, report.graphics, report.acpi
+    );
     // ---- 0. environment checks ---------------------------------------------
     // The page tables built below are 4-level. If the firmware runs with 5-level
     // paging (LA57) the CPU would walk our PML4 as a PML5 and triple-fault right
@@ -245,20 +275,40 @@ fn run() -> Result<(), &'static str> {
         boot::get_image_file_system(boot::image_handle()).map_err(|_| "cannot open the boot volume")?;
     let mut fs = uefi::fs::FileSystem::new(fs_proto);
     let kernel_data = fs.read(KERNEL_PATH).map_err(|_| "spacekernel.elf not found on ESP")?;
-    let initrd_data = fs.read(INITRD_PATH).unwrap_or_default();
+    let initrd_data =
+        fs.read(INITRD_PATH).map_err(|_| "initrd.tar is missing or unreadable on the boot volume.")?;
+    if initrd_data.is_empty() {
+        return Err("initrd.tar is empty. Replace the boot image.");
+    }
     let cfg_data = fs.read(CONFIG_PATH).unwrap_or_default();
+    let configured_line = core::str::from_utf8(parse_cmdline(&cfg_data))
+        .map_err(|_| "spaceos.cfg contains an invalid command line.")?;
+    let interactive = policy::option(configured_line, "bootmenu") == Some("on");
+    let windows =
+        interactive && fs.try_exists(cstr16!("\\EFI\\Microsoft\\Boot\\bootmgfw.efi")).unwrap_or(false);
+    drop(fs);
+    let mut menu_line = None;
+    if interactive {
+        match menu::choose(&report, windows)? {
+            menu::Choice::Continue => menu_line = Some(policy::startup_line(configured_line, false)?),
+            menu::Choice::Recovery => menu_line = Some(policy::startup_line(configured_line, true)?),
+            menu::Choice::Firmware => return Ok(()),
+        }
+    }
+    let selected_line = menu_line.as_deref().unwrap_or(configured_line);
+    println!("spaceboot: selected {selected_line}");
     println!(
         "spaceboot: kernel {} bytes, initrd {} bytes, config {} bytes",
         kernel_data.len(),
         initrd_data.len(),
         cfg_data.len()
     );
-    drop(fs);
 
     // ---- 2. place kernel-owned data ---------------------------------------
     let kernel = load_kernel(&kernel_data)?;
     let initrd = stash(&initrd_data)?;
-    let cmdline = stash(parse_cmdline(&cfg_data))?;
+    let cmdline = stash(selected_line.as_bytes())?;
+    drop(menu_line);
     let stack_phys = alloc_kernel_pages(BOOT_STACK_SIZE / PAGE as usize)?;
     let bootinfo_phys = alloc_kernel_pages(1)?;
     let memmap_phys = alloc_kernel_pages(MEMMAP_PAGES)?;
@@ -276,6 +326,10 @@ fn run() -> Result<(), &'static str> {
     // would be an aliased memory type — undefined per the SDM, and enough for a
     // speculative read through the linear map to touch a device register.
     let prelim = boot::memory_map(MemoryType::LOADER_DATA).map_err(|_| "memory_map failed")?;
+    let max_regions = MEMMAP_PAGES * PAGE as usize / mem::size_of::<MemRegion>();
+    if prelim.entries().len() + 64 >= max_regions {
+        return Err("Firmware memory map is too large for this build.");
+    }
     let mut phys_map_end = 0u64;
     for d in prelim.entries() {
         if is_ram(d.ty) {
@@ -344,7 +398,6 @@ fn run() -> Result<(), &'static str> {
     // need is in MT_KERNEL memory we allocated above.
     let mm = unsafe { boot::exit_boot_services(Some(MT_KERNEL)) };
 
-    let max_regions = MEMMAP_PAGES * PAGE as usize / mem::size_of::<MemRegion>();
     // SAFETY: memmap_phys is MEMMAP_PAGES zeroed pages, identity-mapped.
     let regions: &mut [MemRegion] =
         unsafe { core::slice::from_raw_parts_mut(memmap_phys as *mut MemRegion, max_regions) };
