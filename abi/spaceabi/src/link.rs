@@ -28,6 +28,7 @@ pub const MAX_BUNDLE: usize = 8;
 /// Where revocations are kept, one path per line, so that revoking a document
 /// outlives the process that revoked it.
 pub const REVOKED_PATH: &str = "/spaceos/var/revoked.txt";
+pub const REVOKED_COMMIT_PATH: &str = "/spaceos/var/revoked.txn";
 
 pub mod req {
     /// Negotiate the version; from the operator it carries the file capability.

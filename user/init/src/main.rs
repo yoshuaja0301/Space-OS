@@ -8,6 +8,8 @@
 
 extern crate alloc;
 
+mod link_security;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -375,7 +377,15 @@ fn as_link_bytes(r: &LinkRequest) -> &[u8] {
 }
 
 fn link_call(ch: Handle, r: &LinkRequest) -> Result<LinkReply, String> {
-    sys::send(ch, as_link_bytes(r), None).map_err(|e| alloc::format!("send: {e}"))?;
+    link_call_transferring(ch, r, None)
+}
+
+fn link_call_transferring(
+    ch: Handle,
+    r: &LinkRequest,
+    transferred: Option<Handle>,
+) -> Result<LinkReply, String> {
+    sys::send(ch, as_link_bytes(r), transferred).map_err(|e| alloc::format!("send: {e}"))?;
     let mut buf = [0u8; core::mem::size_of::<LinkReply>()];
     let (n, transferred) = sys::recv(ch, &mut buf, false).map_err(|e| alloc::format!("recv: {e}"))?;
     if let Some(h) = transferred {
@@ -2253,6 +2263,8 @@ pub extern "C" fn space_main() -> i32 {
             link_stop(link2, svc2)
         },
     );
+
+    link_security::run(&mut r, disk);
 
     r.run_if(
         disk,

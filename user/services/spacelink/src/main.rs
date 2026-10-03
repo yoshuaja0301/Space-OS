@@ -19,14 +19,15 @@
 
 extern crate alloc;
 
+mod revocations;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use libspace::sha256;
 use libspace::spaceabi::error::Error;
 use libspace::spaceabi::link::{
-    self as link_abi, ABI_VERSION, LinkReply, LinkRequest, MAX_BUNDLE, MAX_CHUNKS, MAX_DOCS, PATH_MAX,
-    TEXT_MAX, req,
+    ABI_VERSION, LinkReply, LinkRequest, MAX_BUNDLE, MAX_CHUNKS, MAX_DOCS, TEXT_MAX, req,
 };
 use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry};
 use libspace::{Handle, handle, println, sys};
@@ -63,8 +64,6 @@ struct Link {
     /// Paths revoked so far. Kept separately from `docs` so that re-indexing the
     /// corpus cannot resurrect a revoked document.
     revoked: Vec<String>,
-    /// Said once: the list could not be written, so revocations end with this boot.
-    store_warned: bool,
     bundle: Vec<BundleEntry>,
     bundle_bytes: u32,
 }
@@ -105,7 +104,6 @@ impl Link {
             docs: Vec::new(),
             chunks: Vec::new(),
             revoked: Vec::new(),
-            store_warned: false,
             bundle: Vec::new(),
             bundle_bytes: 0,
         }
@@ -144,6 +142,10 @@ impl Link {
     /// index but keeps the revocation list.
     fn index(&mut self, dir: &str) -> Result<(u32, u32), Error> {
         let root = self.root.ok_or(Error::Denied)?;
+        let dir = if dir == "/" { dir } else { dir.trim_end_matches('/') };
+        if dir != "/" && !revocations::valid_path(dir) {
+            return Err(Error::Invalid);
+        }
         let mut entries = [DirEntry::default(); DIR_ENTRIES_MAX];
         let n = sys::fs_list(root, dir, &mut entries)?;
         self.docs.clear();
@@ -164,6 +166,9 @@ impl Link {
                 path.push('/');
             }
             path.push_str(e.name());
+            if !revocations::valid_path(&path) {
+                return Err(Error::Invalid);
+            }
             let revoked = self.is_revoked(&path);
             let body = if revoked { Vec::new() } else { self.read_doc(&path)? };
             let doc = self.docs.len() as u16;
@@ -291,94 +296,24 @@ impl Link {
         reply
     }
 
-    /// Write the revocation list, one path per line.
-    ///
-    /// A revocation that only lives in this process is a promise that ends when the
-    /// process does, which is not what "revoked" is supposed to mean.
-    fn save_revoked(&mut self) {
-        let Some(root) = self.root else { return };
-        let mut text = String::new();
-        for p in &self.revoked {
-            text.push_str(p);
-            text.push('\n');
-        }
-        let r = sys::fs_create(root, link_abi::REVOKED_PATH).and_then(|h| {
-            let w = sys::fs_write(h, 0, text.as_bytes());
-            sys::handle_close(h).ok();
-            w
-        });
-        if let (Err(e), false) = (r, self.store_warned) {
-            self.store_warned = true;
-            println!("[link] revocations not kept on disk ({e}); they last only for this boot");
-        }
-    }
-
-    /// Read back what an earlier process revoked.
-    fn load_revoked(&mut self) {
-        let Some(root) = self.root else { return };
-        let Ok(file) = sys::fs_open(root, link_abi::REVOKED_PATH) else { return };
-        let mut text = String::new();
-        let mut buf = [0u8; 256];
-        let mut off = 0u64;
-        loop {
-            match sys::fs_read(file, off, &mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    match core::str::from_utf8(&buf[..n]) {
-                        Ok(part) => text.push_str(part),
-                        Err(_) => {
-                            text.clear();
-                            break;
-                        }
-                    }
-                    off += n as u64;
-                    if text.len() > MAX_DOCS * (PATH_MAX + 1) {
-                        text.clear();
-                        break;
-                    }
-                }
-                Err(_) => {
-                    text.clear();
-                    break;
-                }
-            }
-        }
-        sys::handle_close(file).ok();
-        for line in text.lines() {
-            let line = line.trim();
-            // A line this service could never have written is not one to trust.
-            if line.is_empty() || line.len() > PATH_MAX || !line.is_ascii() {
-                continue;
-            }
-            if self.is_revoked(line) || self.revoked.len() >= MAX_DOCS {
-                continue;
-            }
-            if self.revoked.try_reserve(1).is_err() {
-                break;
-            }
-            let mut p = String::new();
-            p.push_str(line);
-            self.revoked.push(p);
-        }
-        if !self.revoked.is_empty() {
-            println!("[link] {} revocation(s) loaded from disk", self.revoked.len());
-        }
-    }
-
     /// Drop every revocation, on disk as well as in memory.
-    fn forget(&mut self) -> u32 {
+    fn forget(&mut self) -> Result<u32, Error> {
+        revocations::save(self.root.ok_or(Error::Denied)?, &[])?;
         self.revoked.clear();
-        self.save_revoked();
         println!("[link] revocation list cleared");
-        0
+        Ok(0)
     }
 
     fn revoke(&mut self, path: &str) -> Result<u32, Error> {
-        if path.is_empty() {
+        if !revocations::valid_path(path) {
             return Err(Error::Invalid);
         }
         if !self.is_revoked(path) {
+            if self.revoked.len() == MAX_DOCS {
+                return Err(Error::Quota);
+            }
             let mut p = String::new();
+            p.try_reserve(path.len()).map_err(|_| Error::NoMemory)?;
             p.push_str(path);
             self.revoked.try_reserve(1).map_err(|_| Error::NoMemory)?;
             self.revoked.push(p);
@@ -400,13 +335,13 @@ impl Link {
             if hit { "" } else { " (not in the current index)" },
             self.chunks.len()
         );
-        self.save_revoked();
+        revocations::save(self.root.ok_or(Error::Denied)?, &self.revoked)?;
         Ok(self.revoked.len() as u32)
     }
 
     /// Handle one request. Returns false when the service should exit.
     fn handle(&mut self, r: &LinkRequest, transferred: Option<Handle>) -> bool {
-        if r.kind != req::HELLO && self.root.is_none() {
+        if r.kind != req::HELLO && r.kind != req::QUIT && self.root.is_none() {
             if let Some(h) = transferred {
                 sys::handle_close(h).ok();
             }
@@ -416,13 +351,34 @@ impl Link {
         match r.kind {
             req::HELLO => match transferred {
                 Some(h) if r.abi_version == ABI_VERSION => {
-                    if let Some(old) = self.root.replace(h) {
+                    if let Some(old) = self.root.take() {
                         sys::handle_close(old).ok();
                     }
-                    println!("[link] operator attached, ABI v{ABI_VERSION}");
-                    // Whatever an earlier process revoked is still revoked.
-                    self.load_revoked();
-                    self.reply(&LinkReply { value: ABI_VERSION, ..Default::default() });
+                    self.docs.clear();
+                    self.chunks.clear();
+                    self.bundle.clear();
+                    self.bundle_bytes = 0;
+                    match revocations::load(h) {
+                        Ok(revoked) => {
+                            // A failed save must not be undone by reattaching to the same process.
+                            for path in &self.revoked {
+                                if !revoked.iter().any(|p| p.eq_ignore_ascii_case(path)) {
+                                    self.reply_err(Error::Denied);
+                                    sys::handle_close(h).ok();
+                                    return true;
+                                }
+                            }
+                            self.revoked = revoked;
+                            self.root = Some(h);
+                            println!("[link] operator attached, {} revocation(s) loaded", self.revoked.len());
+                            self.reply(&LinkReply { value: ABI_VERSION, ..Default::default() });
+                        }
+                        Err(e) => {
+                            sys::handle_close(h).ok();
+                            println!("[link] revocation store unavailable: {e}; retrieval denied");
+                            self.reply_err(e);
+                        }
+                    }
                 }
                 other => {
                     if let Some(h) = other {
@@ -463,10 +419,10 @@ impl Link {
                 value3: self.chunks.len() as u32,
                 ..Default::default()
             }),
-            req::FORGET => {
-                let value = self.forget();
-                self.reply(&LinkReply { value, ..Default::default() });
-            }
+            req::FORGET => match self.forget() {
+                Ok(value) => self.reply(&LinkReply { value, ..Default::default() }),
+                Err(e) => self.reply_err(e),
+            },
             req::QUIT => {
                 self.reply(&LinkReply::default());
                 return false;
