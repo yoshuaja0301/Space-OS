@@ -37,6 +37,7 @@ unsafe extern "C" {
 
 /// Process entry point: the kernel starts every program here with a clean register
 /// file and `rsp` at the top of the initial stack.
+#[cfg(target_arch = "x86_64")]
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
@@ -45,6 +46,24 @@ pub extern "C" fn _start() -> ! {
         "xor rbp, rbp",
         "call {start}",
         "ud2",
+        start = sym rust_start,
+    )
+}
+
+/// Process entry point: the kernel starts every program here with a clean register
+/// file and `sp` at the top of the initial stack.
+#[cfg(target_arch = "aarch64")]
+#[unsafe(naked)]
+#[unsafe(no_mangle)]
+pub extern "C" fn _start() -> ! {
+    naked_asm!(
+        "mov x9, sp",
+        "and x9, x9, #-16",
+        "mov sp, x9",
+        "mov x29, xzr",
+        "mov x30, xzr",
+        "bl {start}",
+        "udf #0",
         start = sym rust_start,
     )
 }

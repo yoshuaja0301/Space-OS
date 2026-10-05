@@ -29,8 +29,8 @@ const MAX_NAME: u64 = 128;
 
 pub fn dispatch(frame: &mut SyscallFrame) -> isize {
     arch::enable_interrupts();
-    let a = [frame.arg0, frame.arg1, frame.arg2, frame.arg3, frame.arg4, frame.arg5];
-    let r = match frame.nr as usize {
+    let a = frame.args();
+    let r = match frame.number() as usize {
         nr::EXIT => proc::exit_current(ExitStatus::exited(a[0] as i32)),
         nr::LOG => sys_log(a[0], a[1]),
         nr::YIELD => {
@@ -82,8 +82,8 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
     // Defence in depth for the Intel `sysret` hazard: returning to a non-canonical
     // rip raises #GP in ring 0. User mappings never reach the top of the lower half,
     // but a process whose return address is not user space is terminated instead.
-    if frame.rip >= crate::mm::USER_SPACE_END {
-        proc::exit_current(ExitStatus::killed(kill_reason::GENERAL_PROTECTION, frame.rip));
+    if frame.return_address() >= crate::mm::USER_SPACE_END {
+        proc::exit_current(ExitStatus::killed(kill_reason::GENERAL_PROTECTION, frame.return_address()));
     }
     encode(r)
 }

@@ -158,7 +158,7 @@ impl E1000 {
                 if status & DESC_DD == 0 {
                     return None;
                 }
-                core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+                crate::arch::dma_rmb();
                 (
                     status,
                     core::ptr::read_volatile(d.add(13)),
@@ -180,7 +180,7 @@ impl E1000 {
             // Hand the descriptor back: clear its status, then move the tail to it.
             // SAFETY: as above.
             unsafe { core::ptr::write_volatile(d.add(12), 0) };
-            core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+            crate::arch::dma_wmb();
             wr(self.reg(RDT), i as u32);
             self.rx_next = (i + 1) % RING;
             if good {
@@ -232,7 +232,7 @@ impl E1000 {
             core::ptr::write_volatile(d.add(13), 0);
             core::ptr::write_volatile(d.add(14) as *mut u16, 0);
         }
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        crate::arch::dma_mb();
         self.tx_next = (i + 1) % RING;
         self.tx_busy += 1;
         wr(self.reg(TDT), self.tx_next as u32);

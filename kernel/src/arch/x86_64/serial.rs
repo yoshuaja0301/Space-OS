@@ -14,7 +14,8 @@ const COM2: u16 = 0x2F8;
 /// write would otherwise spin on a status register that never changes.
 static PRESENT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
-pub fn init() {
+/// COM1 is found by probing; the boot information has nothing to add on x86-64.
+pub fn init(_boot_info: *const spaceabi::boot::BootInfo) {
     // Probe the scratch register (16550): if it does not hold what we wrote there
     // is no UART at COM1 and the console stays framebuffer-only.
     let probe_ok = probe(COM1);

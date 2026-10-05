@@ -1,15 +1,15 @@
 //! Device MMIO mappings.
 //!
 //! Device registers must not be cached: the linear map of physical memory is
-//! write-back, so MMIO gets its own window mapped with `PCD` (cache disable) and
-//! `PWT`, plus `NO_EXECUTE`. Mappings are permanent (devices live for the whole
+//! write-back, so MMIO gets its own window mapped as device memory (on x86-64
+//! `PCD` and `PWT`; on AArch64 Device-nGnRnE), never executable. Mappings are permanent (devices live for the whole
 //! kernel lifetime), so a bump allocator over the window is enough.
 
 use spaceabi::error::Error;
 use x86_64::PhysAddr;
-use x86_64::structures::paging::{PageTableFlags, PhysFrame};
+use x86_64::structures::paging::PhysFrame;
 
-use super::{MMIO_BASE, MMIO_WINDOW, PAGE_SIZE, paging};
+use super::{MMIO_BASE, MMIO_WINDOW, MapFlags, PAGE_SIZE, paging};
 use crate::sync::SpinLock;
 
 static NEXT: SpinLock<u64> = SpinLock::new(MMIO_BASE);
@@ -34,12 +34,7 @@ pub fn map(phys: u64, len: u64) -> Result<u64, Error> {
     if end > MMIO_BASE + MMIO_WINDOW {
         return Err(Error::NoMemory);
     }
-    let flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
-        | PageTableFlags::NO_CACHE
-        | PageTableFlags::WRITE_THROUGH
-        | PageTableFlags::GLOBAL
-        | PageTableFlags::NO_EXECUTE;
+    let flags = MapFlags::WRITABLE | MapFlags::DEVICE | MapFlags::GLOBAL;
     for i in 0..pages {
         let frame = PhysFrame::containing_address(PhysAddr::new(first + i * PAGE_SIZE));
         paging::map_kernel_page(base + i * PAGE_SIZE, frame, flags)?;

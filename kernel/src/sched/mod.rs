@@ -219,6 +219,8 @@ pub fn init(idle_stack_top: u64) {
 }
 
 /// An application processor joins: its starting context becomes its idle thread.
+/// (AArch64 does not start its other CPUs yet.)
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 pub fn init_ap(idle_stack_top: u64) {
     adopt_idle(idle_stack_top);
 }
@@ -330,8 +332,7 @@ pub fn schedule() {
         None => crate::mm::paging::activate_kernel(),
     }
     if next_top != 0 {
-        arch::gdt::set_kernel_stack(next_top);
-        arch::syscall::set_kernel_stack(next_top);
+        arch::set_kernel_stack(next_top);
     }
     // SAFETY: both stacks were prepared by this module; interrupts are disabled.
     unsafe { context::switch_to(prev_slot, next_rsp) };
@@ -581,7 +582,7 @@ pub fn idle_loop() -> ! {
         // after that, only an interrupt (tick or reschedule IPI) brings work.
         arch::disable_interrupts();
         schedule();
-        x86_64::instructions::interrupts::enable_and_hlt();
+        arch::enable_interrupts_and_wait();
     }
 }
 

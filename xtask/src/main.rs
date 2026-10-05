@@ -7,6 +7,7 @@
 //!   soak [--boots N] N consecutive cold boots of the acceptance scenario (default 100)
 //!   stress [--minutes N] the acceptance suite over and over in one boot, with random
 //!                    kills between passes, for N minutes (default 480; ADR-0019)
+//!   arm64            the AArch64 scenarios: QEMU `virt` + AAVMF (ADR-0028)
 //!   clippy | fmt | fmt-check | ci
 //!
 //! Environment: `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS` override firmware discovery,
@@ -85,17 +86,55 @@ fn package_spec(name: &str) -> String {
     format!("{name}@{}", env!("CARGO_PKG_VERSION"))
 }
 
+/// The machine the guest is built for (ADR-0028).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Arch {
+    X86_64,
+    Aarch64,
+}
+
+impl Arch {
+    fn uefi_target(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64-unknown-uefi",
+            Arch::Aarch64 => "aarch64-unknown-uefi",
+        }
+    }
+
+    /// The kernel and the user programs: soft-float on both.
+    fn guest_target(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64-unknown-none",
+            Arch::Aarch64 => "aarch64-unknown-none-softfloat",
+        }
+    }
+
+    /// Where UEFI firmware looks for a removable disk's bootloader.
+    fn boot_file(self) -> &'static str {
+        match self {
+            Arch::X86_64 => "BOOTX64.EFI",
+            Arch::Aarch64 => "BOOTAA64.EFI",
+        }
+    }
+}
+
 struct Built {
+    arch: Arch,
     boot_efi: PathBuf,
     kernel_elf: PathBuf,
     user_bins: Vec<(String, PathBuf)>,
 }
 
 fn build(profile_release: bool) -> Result<Built, String> {
+    build_arch(Arch::X86_64, profile_release)
+}
+
+fn build_arch(arch: Arch, profile_release: bool) -> Result<Built, String> {
     let r = root();
     let prof = if profile_release { "release" } else { "dev" };
     let dir = if profile_release { "release" } else { "debug" };
-    println!("== building spaceboot (x86_64-unknown-uefi, {prof})");
+    let (uefi, guest) = (arch.uefi_target(), arch.guest_target());
+    println!("== building spaceboot ({uefi}, {prof})");
     sh(cargo().args([
         "build",
         "--profile",
@@ -103,11 +142,11 @@ fn build(profile_release: bool) -> Result<Built, String> {
         "-p",
         "spaceboot",
         "--target",
-        "x86_64-unknown-uefi",
+        uefi,
         "--target-dir",
         "target/boot",
     ]))?;
-    println!("== building spacekernel (x86_64-unknown-none, {prof})");
+    println!("== building spacekernel ({guest}, {prof})");
     sh(cargo().args([
         "build",
         "--profile",
@@ -115,23 +154,24 @@ fn build(profile_release: bool) -> Result<Built, String> {
         "-p",
         "spacekernel",
         "--target",
-        "x86_64-unknown-none",
+        guest,
         "--target-dir",
         "target/kernel",
     ]))?;
-    println!("== building user programs (x86_64-unknown-none, {prof})");
+    println!("== building user programs ({guest}, {prof})");
     let mut c = cargo();
-    c.args(["build", "--profile", prof, "--target", "x86_64-unknown-none", "--target-dir", "target/user"]);
+    c.args(["build", "--profile", prof, "--target", guest, "--target-dir", "target/user"]);
     for p in USER_PROGRAMS {
         c.args(["-p", &package_spec(p)]);
     }
     sh(&mut c)?;
     let built = Built {
-        boot_efi: r.join(format!("target/boot/x86_64-unknown-uefi/{dir}/spaceboot.efi")),
-        kernel_elf: r.join(format!("target/kernel/x86_64-unknown-none/{dir}/spacekernel")),
+        arch,
+        boot_efi: r.join(format!("target/boot/{uefi}/{dir}/spaceboot.efi")),
+        kernel_elf: r.join(format!("target/kernel/{guest}/{dir}/spacekernel")),
         user_bins: USER_PROGRAMS
             .iter()
-            .map(|p| (p.to_string(), r.join(format!("target/user/x86_64-unknown-none/{dir}/{p}"))))
+            .map(|p| (p.to_string(), r.join(format!("target/user/{guest}/{dir}/{p}"))))
             .collect(),
     };
     // The kernel runs with the FPU and vector units off: an image that could reach
@@ -142,13 +182,23 @@ fn build(profile_release: bool) -> Result<Built, String> {
         .chain(built.user_bins.iter().map(|(n, p)| (n.as_str(), p)))
     {
         let elf = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        total += nofpu::check(name, &elf)?;
+        total += match arch {
+            Arch::X86_64 => nofpu::check(name, &elf)?,
+            Arch::Aarch64 => nofpu::check_a64(name, &elf)?,
+        };
     }
-    println!(
-        "== no x87/MMX/SSE/AVX instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
-         ({total} instructions decoded)",
-        built.user_bins.len()
-    );
+    match arch {
+        Arch::X86_64 => println!(
+            "== no x87/MMX/SSE/AVX instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
+             ({total} instructions decoded)",
+            built.user_bins.len()
+        ),
+        Arch::Aarch64 => println!(
+            "== no FP/SIMD instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
+             ({total} instructions decoded)",
+            built.user_bins.len()
+        ),
+    }
     Ok(built)
 }
 
@@ -254,6 +304,7 @@ fn boot_config(cmdline: &str, extra: &str) -> String {
 /// firmware looks for it, the kernel, the initrd and the configuration.
 fn write_esp_files<T: fatfs::ReadWriteSeek>(
     part: &mut T,
+    boot_name: &str,
     boot: &[u8],
     kernel: &[u8],
     initrd: &[u8],
@@ -263,11 +314,7 @@ fn write_esp_files<T: fatfs::ReadWriteSeek>(
     let rootdir = fs.root_dir();
     let efi = rootdir.create_dir("EFI").map_err(|e| e.to_string())?;
     let bootdir = efi.create_dir("BOOT").map_err(|e| e.to_string())?;
-    bootdir
-        .create_file("BOOTX64.EFI")
-        .map_err(|e| e.to_string())?
-        .write_all(boot)
-        .map_err(|e| e.to_string())?;
+    bootdir.create_file(boot_name).map_err(|e| e.to_string())?.write_all(boot).map_err(|e| e.to_string())?;
     let sp = efi.create_dir("SPACEOS").map_err(|e| e.to_string())?;
     sp.create_file("spacekernel.elf")
         .map_err(|e| e.to_string())?
@@ -305,7 +352,7 @@ fn make_image_cfg(built: &Built, cmdline: &str, extra_cfg: &str, out: &Path) -> 
         fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat32).volume_label(*b"SPACEOS    "),
     )
     .map_err(|e| format!("format: {e}"))?;
-    write_esp_files(&mut part, &boot, &kernel, &initrd, &cfg)?;
+    write_esp_files(&mut part, built.arch.boot_file(), &boot, &kernel, &initrd, &cfg)?;
     part.flush().map_err(|e| e.to_string())?;
     println!(
         "== image {} ({} KiB bootloader, {} KiB kernel, {} KiB initrd, cmdline {cmdline:?}{})",
@@ -487,6 +534,7 @@ fn crc32(data: &[u8]) -> u32 {
 
 /// The files of an EFI system partition: bootloader, kernel, initrd, configuration.
 struct EspFiles {
+    boot_name: &'static str,
     boot: Vec<u8>,
     kernel: Vec<u8>,
     initrd: Vec<u8>,
@@ -496,6 +544,7 @@ struct EspFiles {
 impl EspFiles {
     fn new(built: &Built, cfg: String) -> Result<EspFiles, String> {
         Ok(EspFiles {
+            boot_name: built.arch.boot_file(),
             boot: fs::read(&built.boot_efi).map_err(|e| format!("read bootloader: {e}"))?,
             kernel: stripped(&built.kernel_elf)?,
             initrd: make_initrd(built)?,
@@ -605,7 +654,7 @@ fn make_gpt_disk(volume: &Path, esp: Option<&EspFiles>, out: &Path) -> Result<()
     )
     .map_err(|e| format!("format the EFI system partition: {e}"))?;
     if let Some(e) = esp {
-        write_esp_files(&mut part, &e.boot, &e.kernel, &e.initrd, &e.cfg)?;
+        write_esp_files(&mut part, e.boot_name, &e.boot, &e.kernel, &e.initrd, &e.cfg)?;
     }
     part.flush().map_err(|e| e.to_string())?;
     println!(
@@ -725,7 +774,28 @@ fn package_files() -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     ])
 }
 
-fn find_firmware() -> Result<(PathBuf, PathBuf), String> {
+fn find_firmware(arch: Arch) -> Result<(PathBuf, PathBuf), String> {
+    if arch == Arch::Aarch64 {
+        if let (Ok(c), Ok(v)) = (std::env::var("SPACEOS_AAVMF_CODE"), std::env::var("SPACEOS_AAVMF_VARS")) {
+            return Ok((c.into(), v.into()));
+        }
+        let candidates = [
+            ("/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd"),
+            (
+                "/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw",
+                "/usr/share/edk2/aarch64/vars-template-pflash.raw",
+            ),
+            ("/opt/homebrew/share/qemu/edk2-aarch64-code.fd", "/opt/homebrew/share/qemu/edk2-arm-vars.fd"),
+        ];
+        return candidates
+            .into_iter()
+            .find(|(c, v)| Path::new(c).exists() && Path::new(v).exists())
+            .map(|(c, v)| (c.into(), v.into()))
+            .ok_or_else(|| {
+                "AAVMF firmware not found; install `qemu-efi-aarch64` or set SPACEOS_AAVMF_CODE/SPACEOS_AAVMF_VARS"
+                    .into()
+            });
+    }
     if let (Ok(c), Ok(v)) = (std::env::var("SPACEOS_OVMF_CODE"), std::env::var("SPACEOS_OVMF_VARS")) {
         return Ok((c.into(), v.into()));
     }
@@ -898,6 +968,7 @@ fn tcp_summary(run: &QemuRun) -> String {
 /// matrix walks, so "it boots here" is a checked claim rather than an assumption.
 struct Machine {
     name: &'static str,
+    arch: Arch,
     /// `-machine` value.
     machine: &'static str,
     cpu: &'static str,
@@ -934,10 +1005,29 @@ enum DataDisk {
 
 const LAB: Machine = Machine {
     name: "lab",
+    arch: Arch::X86_64,
     machine: "q35,accel=tcg",
     cpu: "qemu64",
     smp: "4",
     memory: "8G",
+    block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+    net_device: VIRTIO_NET,
+    rng_device: VIRTIO_RNG,
+    extra: &[],
+    must_contain: &[],
+    data_disk: DataDisk::Whole,
+};
+
+/// An AArch64 machine (ADR-0028): QEMU `virt` with a GICv3 and a Cortex-A72 (the
+/// core of a Raspberry Pi 4), booted by AAVMF, everything on PCIe. Four CPUs
+/// are listed; the kernel runs on the first.
+const ARM64_VIRT: Machine = Machine {
+    name: "arm64-virt",
+    arch: Arch::Aarch64,
+    machine: "virt,gic-version=3,accel=tcg",
+    cpu: "cortex-a72",
+    smp: "4",
+    memory: "4G",
     block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
     net_device: VIRTIO_NET,
     rng_device: VIRTIO_RNG,
@@ -958,6 +1048,7 @@ const MACHINES: &[Machine] = &[
     LAB,
     Machine {
         name: "q35-1cpu-2g",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "1",
@@ -971,6 +1062,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "i440fx",
+        arch: Arch::X86_64,
         machine: "pc,accel=tcg",
         cpu: "qemu64",
         smp: "2",
@@ -992,6 +1084,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "cpu-max",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "max",
         smp: "4",
@@ -1012,6 +1105,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "virtio-transitional",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1033,6 +1127,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "virtio-small-queue",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1052,6 +1147,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "no-disk",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1076,6 +1172,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "sata-data",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1099,6 +1196,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "nvme-data",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1119,6 +1217,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "installed-disk",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1144,6 +1243,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "e1000",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1165,6 +1265,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "e1000e",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1183,6 +1284,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "rtl8139-only",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1203,6 +1305,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "no-vga",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1217,6 +1320,7 @@ const MACHINES: &[Machine] = &[
     },
     Machine {
         name: "vmware-vga",
+        arch: Arch::X86_64,
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1276,9 +1380,18 @@ fn qemu_args(
         format!("if=pflash,format=raw,readonly=on,file={}", code.display()),
         "-drive".into(),
         format!("if=pflash,format=raw,file={}", vars_copy.display()),
-        "-drive".into(),
-        format!("format=raw,file={}", image.display()),
     ];
+    match m.arch {
+        Arch::X86_64 => a.extend(["-drive".into(), format!("format=raw,file={}", image.display())]),
+        // `virt` has no IDE: the boot disk is a virtio-blk device the firmware boots
+        // from first.
+        Arch::Aarch64 => a.extend([
+            "-drive".into(),
+            format!("if=none,id=spaceboot,format=raw,file={}", image.display()),
+            "-device".into(),
+            "virtio-blk-pci,drive=spaceboot,bootindex=0,disable-legacy=on".into(),
+        ]),
+    }
     if !m.block_device.is_empty() {
         a.extend([
             "-drive".into(),
@@ -1305,13 +1418,13 @@ fn qemu_args(
             ]);
         }
     }
-    a.extend([
-        "-device".into(),
-        "isa-debug-exit,iobase=0xf4,iosize=0x04".into(),
-        "-no-reboot".into(),
-        "-rtc".into(),
-        "base=utc".into(),
-    ]);
+    match m.arch {
+        Arch::X86_64 => a.extend(["-device".into(), "isa-debug-exit,iobase=0xf4,iosize=0x04".into()]),
+        // The exit status comes through semihosting (`exit=semihosting` on the
+        // guest's command line, ADR-0028).
+        Arch::Aarch64 => a.extend(["-semihosting-config".into(), "enable=on,target=native".into()]),
+    }
+    a.extend(["-no-reboot".into(), "-rtc".into(), "base=utc".into()]);
     a.extend(m.extra.iter().map(|s| (*s).to_string()));
     // COM1 carries the log out.
     match serial_path {
@@ -1332,8 +1445,13 @@ fn qemu_args(
     Ok(a)
 }
 
-fn qemu_bin() -> String {
-    std::env::var("SPACEOS_QEMU").unwrap_or_else(|_| "qemu-system-x86_64".into())
+fn qemu_bin(arch: Arch) -> String {
+    match arch {
+        Arch::X86_64 => std::env::var("SPACEOS_QEMU").unwrap_or_else(|_| "qemu-system-x86_64".into()),
+        Arch::Aarch64 => {
+            std::env::var("SPACEOS_QEMU_AARCH64").unwrap_or_else(|_| "qemu-system-aarch64".into())
+        }
+    }
 }
 
 fn run_qemu_capture(
@@ -1410,8 +1528,8 @@ fn boot_watched(
     log_path: &Path,
     mut w: Watch,
 ) -> Result<QemuRun, String> {
-    let (code, vars) = find_firmware()?;
-    fs::copy(&vars, &w.vars_copy).map_err(|e| format!("copy OVMF vars: {e}"))?;
+    let (code, vars) = find_firmware(machine.arch)?;
+    fs::copy(&vars, &w.vars_copy).map_err(|e| format!("copy firmware vars: {e}"))?;
     if log_path.exists() {
         fs::remove_file(log_path).ok();
     }
@@ -1445,14 +1563,14 @@ fn boot_watched(
     let stderr_path = log_path.with_extension("stderr");
     let stderr_file =
         fs::File::create(&stderr_path).map_err(|e| format!("{}: {e}", stderr_path.display()))?;
-    let mut child = Command::new(qemu_bin())
+    let mut child = Command::new(qemu_bin(machine.arch))
         .args(&args)
         .env("SPACEOS_LAB_LOG", &lab_log)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr_file)
         .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", qemu_bin()))?;
+        .map_err(|e| format!("cannot start {}: {e}", qemu_bin(machine.arch)))?;
     // The typist stops as soon as the guest is gone, so a boot that dies early fails
     // in seconds instead of waiting out the marker deadline.
     let guest_gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -2557,6 +2675,152 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
     }
 }
 
+/// The AArch64 scenarios (ADR-0028): the same programs, built for
+/// `aarch64-unknown-none-softfloat`, on QEMU `virt` under AAVMF. The exit status
+/// comes through semihosting (`exit=semihosting`), except where the machine is
+/// switched off for real.
+const ARM64_SCENARIOS: &[Scenario] = &[
+    Scenario {
+        name: "arm64-acceptance",
+        cmdline: "init=bin/init exit=semihosting",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: EXIT_SUCCESS,
+        // What has to have run, not just not failed: a test that cannot run is
+        // skipped and the suite still passes, so the parts of the port each test
+        // stands on are named here.
+        must_contain: &[
+            "spaceboot: exiting boot services and jumping to kernel",
+            "[kernel] paging: kernel PML4 at",
+            "[kernel] pci: ECAM at",
+            "[kernel] gic: GICv3 distributor at",
+            "[kernel] timer: generic timer at",
+            "[kernel] console input: PL011 UART (INTID",
+            "[kernel] power: PSCI SYSTEM_OFF through",
+            "[kernel] smp: running on the boot CPU only; 3 more listed stay parked",
+            "holds the data volume (the whole disk)",
+            "[kernel] entropy: virtio-rng",
+            "[init] PASS K02: write to kernel memory kills the process (page fault)",
+            "[init] PASS K02: executing the NX stack kills the process (page fault)",
+            "[init] PASS K02: a SIMD instruction kills the process instead of sharing V registers",
+            "[init] PASS K02: privileged instruction at EL0 kills the process (masking interrupts)",
+            "[init] PASS D01: model file read from the guest disk matches the manifest checksum",
+            "[init] PASS A01: native inference: a small model generates 128 tokens matching the pinned baseline",
+            "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305",
+            "[init] PASS NET:",
+            "[init] ALL TESTS PASSED",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"],
+        runs: 1,
+        typing: Typing::None,
+        final_boot_markers: &[],
+        type_lines: &[],
+        ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "arm64-poweroff",
+        // The way a machine without QEMU's help goes off: `shutdown=acpi` keeps the
+        // kernel from ending the run through semihosting, so the shutdown at the end
+        // of the suite switches the machine off through PSCI -- and QEMU, switched
+        // off, exits with 0.
+        cmdline: "init=bin/init exit=semihosting shutdown=acpi",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: 0,
+        must_contain: &[
+            "[kernel] power: PSCI SYSTEM_OFF through",
+            "[init] ALL TESTS PASSED",
+            "[kernel] switching off through PSCI SYSTEM_OFF",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "[init] FAIL", "could not be switched off"],
+        runs: 1,
+        typing: Typing::None,
+        final_boot_markers: &[],
+        type_lines: &[],
+        ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+];
+
+/// Run [`ARM64_SCENARIOS`] on [`ARM64_VIRT`].
+fn cmd_arm64(release: bool, only: Option<&str>) -> Result<(), String> {
+    if let Some(name) = only
+        && !ARM64_SCENARIOS.iter().any(|s| s.name == name)
+    {
+        return Err(format!("no AArch64 scenario named {name:?}"));
+    }
+    let built = build_arch(Arch::Aarch64, release)?;
+    let logs = root().join("build/logs");
+    fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    let data_image = root().join("build/data-arm64.img");
+    make_data_disk(&data_image)?;
+    let mut failures = 0;
+    let mut ran = 0;
+    for s in ARM64_SCENARIOS.iter().filter(|s| only.is_none_or(|n| n == s.name)) {
+        ran += 1;
+        let image = root().join(format!("build/esp-{}.img", s.name));
+        make_image_cfg(&built, s.cmdline, s.boot_cfg, &image)?;
+        // Each scenario writes to the volume (D01, P01, L02): its own copy, so a
+        // second scenario starts from the same disk as the first.
+        let scenario_data = root().join(format!("build/data-{}.img", s.name));
+        fs::copy(&data_image, &scenario_data).map_err(|e| format!("copy the data disk: {e}"))?;
+        println!("== scenario {} on {} (cmdline {:?})", s.name, ARM64_VIRT.name, s.cmdline);
+        let log_path = logs.join(format!("{}.log", s.name));
+        let run = boot_watched(
+            &ARM64_VIRT,
+            &image,
+            &scenario_data,
+            &log_path,
+            Watch {
+                done_markers: &[
+                    "[kernel] shutdown requested",
+                    "spacekernel: halted after panic",
+                    "[init] TESTS FAILED",
+                ],
+                typing: s.typing,
+                type_lines: s.type_lines,
+                ready_marker: s.ready_marker,
+                timeout: BOOT_TIMEOUT * 2,
+                vars_copy: root().join("build/AAVMF_VARS.fd"),
+                progress: None,
+                host: None,
+            },
+        )?;
+        let problems = check_run(s, &run, true);
+        if problems.is_empty() {
+            println!(
+                "   PASS in {:.1}s (exit {:?}), log: {}{}",
+                run.elapsed.as_secs_f64(),
+                run.exit_code,
+                log_path.display(),
+                tcp_summary(&run)
+            );
+            continue;
+        }
+        failures += 1;
+        println!("   FAIL in {:.1}s, log: {}", run.elapsed.as_secs_f64(), log_path.display());
+        for p in problems {
+            println!("     - {p}");
+        }
+        println!("----- last 60 log lines -----");
+        for l in run.log.lines().rev().take(60).collect::<Vec<_>>().into_iter().rev() {
+            println!("{l}");
+        }
+        println!("-----------------------------");
+    }
+    if failures == 0 {
+        println!("== all {ran} AArch64 scenarios passed");
+        Ok(())
+    } else {
+        Err(format!("{failures} AArch64 scenario(s) failed"))
+    }
+}
+
 /// Boot the acceptance image on every machine of the compatibility matrix.
 ///
 /// The lab profile is what the acceptance run uses; this walks the variations a
@@ -3006,14 +3270,14 @@ fn cmd_run(gui: bool, serial_input: bool, cmdline: &str, release: bool) -> Resul
     make_image(&built, cmdline, &image)?;
     let data_image = root().join("build/data.img");
     make_data_disk(&data_image)?;
-    let (code, vars) = find_firmware()?;
+    let (code, vars) = find_firmware(Arch::X86_64)?;
     let vars_copy = root().join("build/OVMF_VARS.fd");
     fs::copy(&vars, &vars_copy).map_err(|e| e.to_string())?;
     let typing = if serial_input { Typing::Serial } else { Typing::None };
     let pcap = std::env::var_os("SPACEOS_PCAP").map(PathBuf::from);
     let args =
         qemu_args(&LAB, &image, &data_image, &vars_copy, &code, gui, None, typing, None, pcap.as_deref())?;
-    println!("== {} {}", qemu_bin(), args.join(" "));
+    println!("== {} {}", qemu_bin(Arch::X86_64), args.join(" "));
     if serial_input {
         println!("== COM2 is a pty; QEMU prints its path below. Type into it with e.g. `screen <pty>`");
     } else if !gui && cmdline.contains("init=bin/space") {
@@ -3021,7 +3285,7 @@ fn cmd_run(gui: bool, serial_input: bool, cmdline: &str, release: bool) -> Resul
             "== note: this guest has no input path. Add --gui for a keyboard, or --serial-input for COM2"
         );
     }
-    let st = Command::new(qemu_bin()).args(&args).status().map_err(|e| e.to_string())?;
+    let st = Command::new(qemu_bin(Arch::X86_64)).args(&args).status().map_err(|e| e.to_string())?;
     println!(
         "== qemu exited with {:?} (33 = clean shutdown, 35 = tests failed, 127 = kernel panic)",
         st.code()
@@ -3062,39 +3326,42 @@ fn cmd_seedsearch() -> Result<(), String> {
 }
 
 fn cmd_clippy() -> Result<(), String> {
-    sh(cargo().args([
-        "clippy",
-        "-p",
-        "spaceabi",
-        "-p",
-        "spaceboot",
-        "--target",
-        "x86_64-unknown-uefi",
-        "--target-dir",
-        "target/boot",
-        "--",
-        "-D",
-        "warnings",
-    ]))?;
-    sh(cargo().args([
-        "clippy",
-        "-p",
-        "spacekernel",
-        "--target",
-        "x86_64-unknown-none",
-        "--target-dir",
-        "target/kernel",
-        "--",
-        "-D",
-        "warnings",
-    ]))?;
-    let mut c = cargo();
-    c.args(["clippy", "--target", "x86_64-unknown-none", "--target-dir", "target/user"]);
-    for p in USER_PROGRAMS {
-        c.args(["-p", &package_spec(p)]);
+    for arch in [Arch::X86_64, Arch::Aarch64] {
+        let (uefi, guest) = (arch.uefi_target(), arch.guest_target());
+        sh(cargo().args([
+            "clippy",
+            "-p",
+            "spaceabi",
+            "-p",
+            "spaceboot",
+            "--target",
+            uefi,
+            "--target-dir",
+            "target/boot",
+            "--",
+            "-D",
+            "warnings",
+        ]))?;
+        sh(cargo().args([
+            "clippy",
+            "-p",
+            "spacekernel",
+            "--target",
+            guest,
+            "--target-dir",
+            "target/kernel",
+            "--",
+            "-D",
+            "warnings",
+        ]))?;
+        let mut c = cargo();
+        c.args(["clippy", "--target", guest, "--target-dir", "target/user"]);
+        for p in USER_PROGRAMS {
+            c.args(["-p", &package_spec(p)]);
+        }
+        c.args(["-p", "libspace", "-p", "spacetls", "--", "-D", "warnings"]);
+        sh(&mut c)?;
     }
-    c.args(["-p", "libspace", "-p", "spacetls", "--", "-D", "warnings"]);
-    sh(&mut c)?;
     sh(cargo().args(["clippy", "-p", "xtask", "--", "-D", "warnings"]))
 }
 
@@ -3167,6 +3434,7 @@ fn main() {
             cmd_disk_image(release, &out)
         }
         "compat" => cmd_compat(release, only.as_deref()),
+        "arm64" => cmd_arm64(release, only.as_deref()),
         "soak" => {
             let boots = args
                 .iter()
@@ -3214,7 +3482,8 @@ fn main() {
             .and_then(|_| cmd_clippy())
             .and_then(|_| cmd_unit())
             .and_then(|_| cmd_test(true, None))
-            .and_then(|_| cmd_compat(true, None)),
+            .and_then(|_| cmd_compat(true, None))
+            .and_then(|_| cmd_arm64(true, None)),
         _ => usage(),
     };
     if let Err(e) = res {

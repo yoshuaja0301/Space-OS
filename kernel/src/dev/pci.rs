@@ -1,20 +1,12 @@
-//! PCI configuration space over the legacy 0xCF8/0xCFC ports.
-//!
-//! Enough to find a device, read its BARs and enable memory space plus bus
-//! mastering. ECAM/MMCONFIG and PCIe extended capabilities are not needed by the
-//! devices the MVP uses.
+//! PCI configuration space: enough to find a device, read its BARs and enable
+//! memory space plus bus mastering. How a configuration register is reached is the
+//! architecture's (`arch::pci`: the 0xCF8/0xCFC ports on x86-64, ECAM on AArch64);
+//! PCIe extended capabilities are not needed by the devices the system uses.
 
 use alloc::vec::Vec;
 
-use x86_64::instructions::port::Port;
-
+use crate::arch;
 use crate::sync::SpinLock;
-
-const CONFIG_ADDRESS: u16 = 0xCF8;
-const CONFIG_DATA: u16 = 0xCFC;
-
-/// Serialises the address/data port pair.
-static CONFIG_LOCK: SpinLock<()> = SpinLock::new(());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Address {
@@ -30,30 +22,12 @@ impl core::fmt::Display for Address {
 }
 
 impl Address {
-    fn encode(&self, offset: u8) -> u32 {
-        0x8000_0000
-            | ((self.bus as u32) << 16)
-            | ((self.device as u32) << 11)
-            | ((self.function as u32) << 8)
-            | ((offset as u32) & 0xFC)
-    }
-
     pub fn read32(&self, offset: u8) -> u32 {
-        let _g = CONFIG_LOCK.lock();
-        // SAFETY: the standard PCI configuration mechanism #1 port pair.
-        unsafe {
-            Port::<u32>::new(CONFIG_ADDRESS).write(self.encode(offset));
-            Port::<u32>::new(CONFIG_DATA).read()
-        }
+        arch::pci::read32(self.bus, self.device, self.function, offset)
     }
 
     pub fn write32(&self, offset: u8, value: u32) {
-        let _g = CONFIG_LOCK.lock();
-        // SAFETY: as above.
-        unsafe {
-            Port::<u32>::new(CONFIG_ADDRESS).write(self.encode(offset));
-            Port::<u32>::new(CONFIG_DATA).write(value);
-        }
+        arch::pci::write32(self.bus, self.device, self.function, offset, value)
     }
 
     pub fn read16(&self, offset: u8) -> u16 {
@@ -160,6 +134,16 @@ pub fn find_class(class: u8, subclass: u8, prog_if: u8) -> Vec<Address> {
 }
 
 /// First device matching `vendor` and any of `devices`.
+/// Every function with `vendor` and one of `devices`, in bus order.
+pub fn find_all(vendor: u16, devices: &[u16]) -> Vec<Address> {
+    DEVICES
+        .lock()
+        .iter()
+        .copied()
+        .filter(|a| a.vendor_id() == vendor && devices.contains(&a.device_id()))
+        .collect()
+}
+
 pub fn find(vendor: u16, devices: &[u16]) -> Option<Address> {
     DEVICES.lock().iter().copied().find(|a| a.vendor_id() == vendor && devices.contains(&a.device_id()))
 }

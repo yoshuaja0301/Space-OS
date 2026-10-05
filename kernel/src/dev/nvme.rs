@@ -171,7 +171,7 @@ impl Queue {
             }
         }
         self.tail = (self.tail + 1) % self.depth;
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        crate::arch::dma_mb();
         wr32(self.sq_doorbell, u32::from(self.tail));
         let cq_entry = self.cq.virt + u64::from(self.head) * 16;
         let phase = u32::from(self.phase);
@@ -180,7 +180,7 @@ impl Queue {
         if !wait::until(COMMAND_MS, || (status_word() >> 16) & 1 == phase) {
             return Err(Error::TimedOut);
         }
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        crate::arch::dma_mb();
         let dw3 = status_word();
         // SAFETY: as above.
         let dw0 = unsafe { core::ptr::read_volatile(cq_entry as *const u32) };

@@ -1,6 +1,6 @@
 # Space OS
 
-Sistem operasi AI-native dengan kernel baru yang dibangun dari nol (Rust, x86-64, UEFI).
+Sistem operasi AI-native dengan kernel baru yang dibangun dari nol (Rust, x86-64 dan AArch64, UEFI).
 Repo ini mengimplementasikan **tahap 1–5** dan sebagian **5A** dari roadmap
 [PRD v0.1](docs/prd/Space_OS_PRD_v0_1.md): bootloader UEFI sendiri, microkernel berorientasi
 capability yang menjalankan thread di **semua CPU** (SMP), user-space dengan syscall/IPC/kuota, VirtIO block + FAT32 baca-tulis + ABI file, jaringan
@@ -10,7 +10,8 @@ bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baselin
 serta layanan Developer Preview (desktop grafis dengan terminal, file manager, Agent Center yang
 menjalankan model dengan Stop kooperatif, dan Command Center untuk pencarian SpaceLink,
 sesi terminal, tool broker, SpaceLink, paket bertanda tangan, adapter cloud) — dengan bukti uji
-otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01** di QEMU, **I01
+otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01** di QEMU — suite yang sama juga
+lulus di **ARM64** (QEMU `virt` + AAVMF, H02) —, **I01
 terhadap penyedia cloud tiruan** di jaringan lab (belum pernah terhadap layanan sungguhan), dan uji
 stabilitas PRD §9: seluruh suite berulang dalam satu boot selama berjam-jam dengan pembunuhan acak dan
 memori yang harus kembali tepat. Tahap 6 dijawab sebatas [studi kelayakannya](docs/gpu-feasibility.md);
@@ -24,8 +25,8 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | Komponen | Direktori | Target | Peran |
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
-| `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, pilih boot normal atau recovery (tombol R, hitungan boot di volume data; ADR-0027), page table higher-half, memory map, GOP, lompat ke kernel |
-| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS per CPU, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif untuk semua CPU (AP dari MADT ACPI, timer local APIC, IPI; ADR-0024), ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk, AHCI (SATA) dan NVMe dengan volume data dari labelnya (ADR-0025) + FAT32 baca-tulis, virtio-net dan Intel e1000 (satu lease frame, ADR-0026), RTC, sumber entropi (virtio-rng/RDRAND, tanpa cadangan lemah), unit FPU/vektor dimatikan, konsol framebuffer + masukan keyboard/serial |
+| `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi`, `aarch64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, pilih boot normal atau recovery (tombol R, hitungan boot di volume data; ADR-0027), page table higher-half, memory map, GOP, lompat ke kernel |
+| `spacekernel` | `kernel` | `x86_64-unknown-none`, `aarch64-unknown-none-softfloat` | Microkernel (x86-64 dan AArch64, ADR-0028): GDT/IDT/TSS per CPU, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif untuk semua CPU (AP dari MADT ACPI, timer local APIC, IPI; ADR-0024), ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk, AHCI (SATA) dan NVMe dengan volume data dari labelnya (ADR-0025) + FAT32 baca-tulis, virtio-net dan Intel e1000 (satu lease frame, ADR-0026), RTC, sumber entropi (virtio-rng/RDRAND, tanpa cadangan lemah), unit FPU/vektor dimatikan, konsol framebuffer + masukan keyboard/serial |
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!`, klien jaringan (`Session`, `TcpStream`) |
 | `spacenet` | `user/services/spacenet` | `x86_64-unknown-none` | Layanan jaringan: DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP; program lain hanya lewat sesi dengan allowlist `host:port` (ADR-0016) |
 | `spacetls` | `user/spacetls` | `x86_64-unknown-none` | Pustaka klien TLS 1.3: rustls (no_std) + RustCrypto di jalur perangkat lunak, kunci dari `SYS_RANDOM`, waktu dari RTC, tanpa root CA bawaan (ADR-0017) |
@@ -40,6 +41,8 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
 | `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 117 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/stress/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan dan kombinasi tombol ke guest serta screenshot, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
+
+Setiap komponen guest juga dibangun untuk `aarch64-unknown-none-softfloat` (bootloader: `aarch64-unknown-uefi`); `cargo xtask arm64` mem-boot hasilnya (ADR-0028).
 
 Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau inferensi host di jalur uji (PRD §1 "definisi native").
 
@@ -57,6 +60,7 @@ cargo xtask run --gui --cmdline "init=bin/spacedesk"          # desktop grafis (
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
 cargo xtask stress --minutes 480           # PRD §9: suite berulang 8 jam dalam satu boot, hasil di build/stress/
 cargo xtask disk-image                     # satu disk GPT untuk dipasang (ESP + volume data): dd ke disk/stik USB (ADR-0027)
+cargo xtask arm64                          # semuanya untuk AArch64, di-boot di QEMU virt + AAVMF (ADR-0028)
 ```
 
 Keluaran acceptance (dipotong):

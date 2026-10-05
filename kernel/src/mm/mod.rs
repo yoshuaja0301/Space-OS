@@ -15,6 +15,7 @@ pub mod heap;
 pub mod kstack;
 pub mod mmio;
 pub mod paging;
+pub mod pt;
 
 pub use paging::{AddressSpace, phys_to_virt};
 use spaceabi::boot::BootInfo;
@@ -28,6 +29,42 @@ pub const MMIO_BASE: u64 = 0xFFFF_B000_0000_0000;
 pub const MMIO_WINDOW: u64 = 1 << 30;
 /// Exclusive end of user space (lower canonical half).
 pub const USER_SPACE_END: u64 = 0x0000_8000_0000_0000;
+
+/// What a mapping allows, independent of how an architecture encodes it. Every
+/// mapping can be read; the flags add to that.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MapFlags(u8);
+
+impl MapFlags {
+    /// Kernel-only, read-only, not executable, cached.
+    pub const KERNEL_RO: MapFlags = MapFlags(0);
+    pub const WRITABLE: MapFlags = MapFlags(1);
+    /// Reachable from user mode.
+    pub const USER: MapFlags = MapFlags(2);
+    pub const EXECUTABLE: MapFlags = MapFlags(4);
+    /// Device registers: uncached, never speculated into.
+    pub const DEVICE: MapFlags = MapFlags(8);
+    /// The same in every address space (kernel mappings), so it may stay in the TLB
+    /// across address-space switches.
+    pub const GLOBAL: MapFlags = MapFlags(16);
+
+    pub const fn contains(self, other: MapFlags) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl core::ops::BitOr for MapFlags {
+    type Output = MapFlags;
+    fn bitor(self, rhs: MapFlags) -> MapFlags {
+        MapFlags(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for MapFlags {
+    fn bitor_assign(&mut self, rhs: MapFlags) {
+        self.0 |= rhs.0;
+    }
+}
 
 pub fn init(bi: &BootInfo) {
     frame::init(bi);

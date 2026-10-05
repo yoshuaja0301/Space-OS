@@ -5,8 +5,6 @@ use alloc::boxed::Box;
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 
-use x86_64::structures::paging::PageTableFlags;
-
 use crate::mm::{self, AddressSpace, frame, heap, paging};
 use crate::proc::handles::{MemoryKind, MemoryObject};
 use crate::{arch, cmdline};
@@ -39,12 +37,7 @@ pub fn run_early() {
 
     // Kernel paging: map, write, read back through the linear map, unmap.
     let f = frame::alloc_zeroed().expect("frame");
-    paging::map_kernel_page(
-        SCRATCH_VA,
-        f,
-        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE,
-    )
-    .expect("map scratch");
+    paging::map_kernel_page(SCRATCH_VA, f, mm::MapFlags::WRITABLE).expect("map scratch");
     // SAFETY: just mapped.
     unsafe { core::ptr::write_volatile(SCRATCH_VA as *mut u64, 0xDEAD_BEEF_CAFE_F00D) };
     let via_linear = mm::phys_to_virt(f.start_address().as_u64()).as_ptr::<u64>();
@@ -178,18 +171,7 @@ pub fn run_cmdline_fault_injection() {
             let stack = crate::mm::kstack::KernelStack::new().expect("kernel stack for selftest");
             let top = stack.top;
             core::mem::forget(stack);
-            // SAFETY: switches to a freshly mapped stack and never returns.
-            unsafe {
-                core::arch::asm!(
-                    "mov rsp, rax",
-                    "xor ebp, ebp",
-                    "call {f}",
-                    "ud2",
-                    in("rax") top,
-                    f = sym overflow_stack,
-                    options(noreturn)
-                )
-            }
+            arch::run_on_stack(top, overflow_stack)
         }
         Some(other) => println!("[kernel] unknown selftest '{other}' ignored"),
         None => {}

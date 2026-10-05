@@ -72,6 +72,8 @@ pub fn take_dropped() -> u32 {
 /// What one scan code meant: the key event, if it completed one, and the byte it
 /// types for a terminal, if any.
 pub struct Decoded {
+    /// Read by the PS/2 driver; AArch64 has no keyboard driver yet.
+    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
     pub event: Option<InputEvent>,
     pub ch: Option<u8>,
 }
@@ -208,7 +210,9 @@ const NO_EVENT: InputEvent = InputEvent { kind: 0, flags: 0, key: 0, ch: 0, time
 static EVENT_RING: SpinLock<EventRing> =
     SpinLock::new(EventRing { buf: [NO_EVENT; EVENTS], head: 0, len: 0, dropped: 0 });
 
-/// Queue one key event. Called from interrupt context.
+/// Queue one key event. Called from interrupt context (on AArch64, nothing sends
+/// key events yet).
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 pub fn push_event(e: InputEvent) {
     let mut r = EVENT_RING.lock();
     if r.len == EVENTS {

@@ -6,7 +6,6 @@
 //! wedged device into an error instead of a hang.
 
 use alloc::vec::Vec;
-use core::sync::atomic::{Ordering, fence};
 
 use spaceabi::error::Error;
 use x86_64::structures::paging::PhysFrame;
@@ -102,6 +101,7 @@ impl DmaPage {
 }
 
 struct VirtioBlk {
+    pci: pci::Address,
     common: u64,
     notify: u64,
     notify_multiplier: u32,
@@ -132,7 +132,13 @@ struct VirtioBlk {
 // memory owned exclusively by the driver, which is serialised by `BLK`'s lock.
 unsafe impl Send for VirtioBlk {}
 
-static BLK: SpinLock<Option<VirtioBlk>> = SpinLock::new(None);
+/// Most virtio-blk devices the driver takes: a VM with a boot disk and a data disk on
+/// virtio (QEMU `virt` on AArch64, virt-manager, Proxmox) has two.
+const MAX_DEVICES: usize = 8;
+
+/// One slot per device, in PCI order. Each has its own lock: a request to one disk
+/// never waits for another.
+static BLK: [SpinLock<Option<VirtioBlk>>; MAX_DEVICES] = [const { SpinLock::new(None) }; MAX_DEVICES];
 
 fn mmio_read<T: Copy>(addr: u64) -> T {
     // SAFETY: `addr` is inside a device MMIO mapping created by `mmio::map`.
@@ -170,23 +176,31 @@ fn used_idx_ptr(q: &VirtioBlk) -> *const u16 {
     (q.queue.virt + q.used_off + 2) as *const u16
 }
 
-/// Probe the PCI bus and bring the first virtio-blk device up.
+/// Probe the PCI bus and bring every virtio-blk device up.
 pub fn init() {
-    match probe() {
-        Ok(Some(cap)) => println!(
-            "[kernel] virtio-blk: ready, {} MiB ({} sectors)",
-            cap * SECTOR_SIZE / (1024 * 1024),
-            cap
-        ),
-        Ok(None) => println!("[kernel] virtio-blk: no device present"),
-        Err(e) => println!("[kernel] virtio-blk: initialisation failed: {e}"),
+    let found = pci::find_all(VIRTIO_VENDOR, &BLK_DEVICE_IDS);
+    if found.is_empty() {
+        println!("[kernel] virtio-blk: no device present");
+        return;
+    }
+    if found.len() > MAX_DEVICES {
+        println!("[kernel] virtio-blk: {} devices; only the first {MAX_DEVICES} are used", found.len());
+    }
+    for (slot, addr) in found.into_iter().take(MAX_DEVICES).enumerate() {
+        match probe(slot, addr) {
+            Ok(Some(cap)) => println!(
+                "[kernel] virtio-blk: ready, {} MiB ({} sectors)",
+                cap * SECTOR_SIZE / (1024 * 1024),
+                cap
+            ),
+            // `probe` said why.
+            Ok(None) => {}
+            Err(e) => println!("[kernel] virtio-blk: {addr}: initialisation failed: {e}"),
+        }
     }
 }
 
-fn probe() -> Result<Option<u64>, Error> {
-    let Some(addr) = pci::find(VIRTIO_VENDOR, &BLK_DEVICE_IDS) else {
-        return Ok(None);
-    };
+fn probe(slot: usize, addr: pci::Address) -> Result<Option<u64>, Error> {
     addr.enable_memory_and_bus_master();
 
     let mut common = 0u64;
@@ -303,6 +317,7 @@ fn probe() -> Result<Option<u64>, Error> {
 
     let capacity_sectors = if device_cfg != 0 { mmio_read::<u64>(device_cfg) } else { 0 };
     let dev = VirtioBlk {
+        pci: addr,
         common,
         notify,
         notify_multiplier,
@@ -338,27 +353,39 @@ fn probe() -> Result<Option<u64>, Error> {
         },
         status
     );
-    *BLK.lock() = Some(dev);
+    *BLK[slot].lock() = Some(dev);
     Ok(Some(capacity_sectors))
 }
 
-/// True when a block device is present.
-pub fn present() -> bool {
-    BLK.lock().as_ref().is_some_and(|d| !d.failed)
+/// The devices that are up, by slot.
+pub fn devices() -> Vec<usize> {
+    (0..MAX_DEVICES).filter(|&d| BLK[d].lock().as_ref().is_some_and(|b| !b.failed)).collect()
 }
 
-/// Capacity in 512-byte sectors (0 when absent).
-pub fn capacity_sectors() -> u64 {
-    BLK.lock().as_ref().map(|d| d.capacity_sectors).unwrap_or(0)
+/// How the log names device `d`: its PCI address.
+pub fn name(d: usize) -> alloc::string::String {
+    match BLK.get(d).and_then(|b| b.lock().as_ref().map(|b| b.pci)) {
+        Some(a) => alloc::format!("virtio-blk {a}"),
+        None => alloc::string::String::from("virtio-blk"),
+    }
 }
 
-/// Read `buf.len()` bytes starting at sector `lba`. `buf.len()` must be a multiple
-/// of [`SECTOR_SIZE`].
-pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
+fn slot(d: usize) -> Result<&'static SpinLock<Option<VirtioBlk>>, Error> {
+    BLK.get(d).ok_or(Error::NotFound)
+}
+
+/// Capacity of device `d` in 512-byte sectors (0 when absent).
+pub fn capacity_sectors(d: usize) -> u64 {
+    slot(d).ok().and_then(|b| b.lock().as_ref().map(|b| b.capacity_sectors)).unwrap_or(0)
+}
+
+/// Read `buf.len()` bytes of device `d` starting at sector `lba`. `buf.len()` must
+/// be a multiple of [`SECTOR_SIZE`].
+pub fn read_sectors(d: usize, lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     if buf.is_empty() || !(buf.len() as u64).is_multiple_of(SECTOR_SIZE) {
         return Err(Error::Invalid);
     }
-    let mut guard = BLK.lock();
+    let mut guard = slot(d)?.lock();
     let dev = guard.as_mut().ok_or(Error::NotFound)?;
     if dev.failed {
         return Err(Error::Fault);
@@ -393,21 +420,21 @@ pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
 /// `kind` decides who owns the data pages: the device fills them for a read and
 /// reads them for a write, which is the only difference between the two chains.
 /// A flush carries no data at all.
-/// True when the device declared itself read-only, so no write will ever succeed.
-pub fn read_only() -> bool {
-    BLK.lock().as_ref().is_some_and(|d| d.read_only)
+/// True when device `d` declared itself read-only, so no write will ever succeed.
+pub fn read_only(d: usize) -> bool {
+    slot(d).is_ok_and(|b| b.lock().as_ref().is_some_and(|b| b.read_only))
 }
 
-/// Write `buf.len()` bytes starting at sector `lba`. `buf.len()` must be a multiple
-/// of [`SECTOR_SIZE`].
+/// Write `buf.len()` bytes to device `d` starting at sector `lba`. `buf.len()` must
+/// be a multiple of [`SECTOR_SIZE`].
 ///
 /// The bytes are copied into the driver's DMA pages first: the device must never be
 /// pointed at kernel memory the caller happens to own.
-pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
+pub fn write_sectors(d: usize, lba: u64, buf: &[u8]) -> Result<(), Error> {
     if buf.is_empty() || !(buf.len() as u64).is_multiple_of(SECTOR_SIZE) {
         return Err(Error::Invalid);
     }
-    let mut guard = BLK.lock();
+    let mut guard = slot(d)?.lock();
     let dev = guard.as_mut().ok_or(Error::NotFound)?;
     if dev.failed {
         return Err(Error::Fault);
@@ -444,8 +471,8 @@ pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
 ///
 /// Without `VIRTIO_BLK_F_FLUSH` there is nothing to ask, and saying so is better
 /// than pretending: the caller learns that "written" means "handed to the host".
-pub fn flush() -> Result<(), Error> {
-    let mut guard = BLK.lock();
+pub fn flush(d: usize) -> Result<(), Error> {
+    let mut guard = slot(d)?.lock();
     let dev = guard.as_mut().ok_or(Error::NotFound)?;
     if dev.failed {
         return Err(Error::Fault);
@@ -502,17 +529,17 @@ fn request(dev: &mut VirtioBlk, kind: u32, lba: u64, bytes: u64) -> Result<(), E
         let slot = (dev.avail_idx % dev.size) as usize;
         core::ptr::write_volatile(avail_ring_ptr(dev, slot), 0);
         core::ptr::write_volatile(avail_flags_ptr(dev), 0);
-        fence(Ordering::SeqCst);
+        crate::arch::dma_mb();
         dev.avail_idx = dev.avail_idx.wrapping_add(1);
         core::ptr::write_volatile(avail_idx_ptr(dev), dev.avail_idx);
     }
-    fence(Ordering::SeqCst);
+    crate::arch::dma_mb();
     let notify_addr = dev.notify + dev.queue_notify_off as u64 * dev.notify_multiplier as u64;
     mmio_write::<u16>(notify_addr, 0);
 
     let mut spins = 0u64;
     loop {
-        fence(Ordering::SeqCst);
+        crate::arch::dma_mb();
         // SAFETY: used ring inside the queue page.
         let used = unsafe { core::ptr::read_volatile(used_idx_ptr(dev)) };
         if used != dev.last_used {
@@ -527,7 +554,7 @@ fn request(dev: &mut VirtioBlk, kind: u32, lba: u64, bytes: u64) -> Result<(), E
             // late completion would otherwise be read as the next request's data.
             mmio_write::<u8>(dev.common + CC_DEVICE_STATUS, 0);
             dev.failed = true;
-            println!("[kernel] virtio-blk: request timed out; device reset and taken offline");
+            println!("[kernel] virtio-blk {}: request timed out; device reset and taken offline", dev.pci);
             return Err(Error::WouldBlock);
         }
         core::hint::spin_loop();

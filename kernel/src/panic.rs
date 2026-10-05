@@ -15,7 +15,9 @@ static PANICKING: AtomicBool = AtomicBool::new(false);
 /// The CPU that panicked first (the one writing the report).
 static PANIC_CPU: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-/// A panic is under way (the NMI that stops the other CPUs checks this).
+/// A panic is under way (the NMI that stops the other CPUs checks this). AArch64
+/// runs one CPU so far, and nothing there asks.
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 pub fn in_progress() -> bool {
     PANICKING.load(Ordering::SeqCst)
 }
@@ -63,9 +65,9 @@ fn panic(info: &PanicInfo) -> ! {
 /// frame address is checked against the page tables before it is dereferenced so a
 /// corrupted chain cannot turn a panic into a nested fault.
 pub fn backtrace() {
-    let mut rbp: u64;
-    // SAFETY: reading a register.
-    unsafe { core::arch::asm!("mov {}, rbp", out(reg) rbp, options(nomem, nostack)) };
+    // The frame record is the same on both architectures: the caller's frame
+    // pointer at [fp], the return address at [fp + 8].
+    let mut rbp = arch::frame_pointer();
     eprint!("backtrace (frame pointers):\n");
     let mut depth = 0;
     while rbp != 0 && depth < 32 {

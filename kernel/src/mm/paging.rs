@@ -1,18 +1,16 @@
-//! Page tables: the kernel's own PML4 and per-process address spaces.
+//! Page tables: the kernel's own and per-process address spaces. The walk is
+//! `pt`; this module decides what goes where.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use spaceabi::boot::{BootInfo, PHYS_OFFSET};
 use spaceabi::error::Error;
-use x86_64::registers::control::{Cr3, Cr3Flags};
-use x86_64::structures::paging::mapper::{MappedFrame, TranslateResult};
-use x86_64::structures::paging::{
-    FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
-};
+use x86_64::structures::paging::PhysFrame;
 use x86_64::{PhysAddr, VirtAddr};
 
-use super::{PAGE_SIZE, USER_SPACE_END, frame};
+use super::{MapFlags, PAGE_SIZE, USER_SPACE_END, frame, pt};
+use crate::arch::mmu;
 use crate::proc::handles::MemoryObject;
 use crate::sync::{SpinLock, StaticCell};
 
@@ -28,102 +26,63 @@ pub fn phys_to_virt(pa: u64) -> VirtAddr {
 static KERNEL_PML4: StaticCell<u64> = StaticCell::new(0);
 static KERNEL_MAP_LOCK: SpinLock<()> = SpinLock::new(());
 
-pub struct KernelFrameAlloc;
-
-// SAFETY: frames come from the global allocator and are zeroed; never handed out twice.
-unsafe impl FrameAllocator<Size4KiB> for KernelFrameAlloc {
-    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
-        frame::alloc_zeroed()
-    }
-}
-
-fn table_at(phys: u64) -> &'static mut PageTable {
-    // SAFETY: page tables live in RAM reachable through the linear map; callers
-    // serialise access (single CPU, interrupts off or the map lock held).
-    unsafe { &mut *phys_to_virt(phys).as_mut_ptr::<PageTable>() }
-}
-
-pub fn kernel_pml4() -> PhysFrame {
+fn kernel_root() -> u64 {
     // SAFETY: written once during init.
-    PhysFrame::containing_address(PhysAddr::new(unsafe { *KERNEL_PML4.get() }))
+    unsafe { *KERNEL_PML4.get() }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn kernel_pml4() -> PhysFrame {
+    PhysFrame::containing_address(PhysAddr::new(kernel_root()))
 }
 
 pub fn init(bi: &BootInfo) {
-    let new = frame::alloc_zeroed().expect("no frame for kernel PML4");
-    let boot = table_at(bi.boot_pml4);
-    let table = table_at(new.start_address().as_u64());
-    for i in 256..512 {
-        table[i] = boot[i].clone();
-    }
+    let new = frame::alloc_zeroed().expect("no frame for kernel PML4").start_address().as_u64();
+    // SAFETY: the bootloader's root and a fresh frame; single CPU, early boot.
+    let (boot, table) = unsafe { (pt::table(bi.boot_pml4), pt::table(new)) };
+    table[256..512].copy_from_slice(&boot[256..512]);
     // Pre-populate the PDPTs of the heap and kernel-stack regions so that every
     // process PML4 (which copies slots 256..512) shares the same sub-tables.
     for idx in [HEAP_PML4_INDEX, KSTACK_PML4_INDEX, MMIO_PML4_INDEX] {
-        let pdpt = frame::alloc_zeroed().expect("no frame for kernel PDPT");
-        table[idx].set_frame(pdpt, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+        let pdpt = frame::alloc_zeroed().expect("no frame for kernel PDPT").start_address().as_u64();
+        mmu::write_entry(&mut table[idx], mmu::table_entry(pdpt, MapFlags::WRITABLE));
     }
     // SAFETY: single CPU, early boot.
-    unsafe {
-        *KERNEL_PML4.get_mut() = new.start_address().as_u64();
-        Cr3::write(new, Cr3Flags::empty());
-    }
+    unsafe { *KERNEL_PML4.get_mut() = new };
+    mmu::install_kernel_root(new);
     println!(
         "[kernel] paging: kernel PML4 at {:#x}; linear map {} GiB at {:#x}; boot identity map dropped",
-        new.start_address(),
+        new,
         bi.phys_map_end >> 30,
         PHYS_OFFSET
     );
 }
 
-/// Run `f` with a mapper over the kernel PML4 (upper-half mappings are shared by all
-/// address spaces because their PML4 slots point at the same sub-tables).
-pub fn with_kernel_mapper<R>(f: impl FnOnce(&mut OffsetPageTable<'static>) -> R) -> R {
+pub fn map_kernel_page(va: u64, frame: PhysFrame, flags: MapFlags) -> Result<(), Error> {
     let _g = KERNEL_MAP_LOCK.lock();
-    let table = table_at(kernel_pml4().start_address().as_u64());
-    // SAFETY: the linear map is at PHYS_OFFSET and the table is the live kernel PML4.
-    let mut mapper = unsafe { OffsetPageTable::new(table, VirtAddr::new(PHYS_OFFSET)) };
-    f(&mut mapper)
-}
-
-pub fn map_kernel_page(va: u64, frame: PhysFrame, flags: PageTableFlags) -> Result<(), Error> {
-    with_kernel_mapper(|m| {
-        let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(va));
-        // SAFETY: kernel-owned frame mapped at a kernel-owned virtual address.
-        unsafe { m.map_to(page, frame, flags, &mut KernelFrameAlloc) }.map_err(|_| Error::NoMemory)?.flush();
-        Ok(())
-    })
+    pt::map(kernel_root(), va, frame.start_address().as_u64(), flags).map_err(|_| Error::NoMemory)
 }
 
 pub fn unmap_kernel_page(va: u64) -> Option<PhysFrame> {
-    with_kernel_mapper(|m| {
-        let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(va));
-        let (f, flush) = m.unmap(page).ok()?;
-        flush.flush();
-        Some(f)
-    })
+    let _g = KERNEL_MAP_LOCK.lock();
+    pt::unmap(kernel_root(), va).map(|pa| PhysFrame::containing_address(PhysAddr::new(pa)))
 }
 
-/// Translate through the *current* CR3 without taking locks (panic-safe, read only).
+/// Translate through the live tables without taking locks (panic-safe, read only).
 pub fn translate_current(va: u64) -> Option<u64> {
-    let (cr3, _) = Cr3::read();
-    let table = table_at(cr3.start_address().as_u64());
-    // SAFETY: read-only walk of the live tables.
-    let mapper = unsafe { OffsetPageTable::new(table, VirtAddr::new(PHYS_OFFSET)) };
-    match mapper.translate(VirtAddr::new(va)) {
-        TranslateResult::Mapped { frame, offset, .. } => Some(frame.start_address().as_u64() + offset),
-        _ => None,
-    }
+    pt::translate(mmu::root_for(va), va).map(|(pa, _, _)| pa)
 }
 
-/// Load `frame` into CR3, even when it is already there: the scheduler relies on
-/// every switch flushing what this CPU cached of other address spaces (ADR-0024).
+/// Switch to `frame`'s address space, even when it is already there: the scheduler
+/// relies on every switch flushing what this CPU cached of other address spaces
+/// (ADR-0024).
 pub fn load_cr3(frame: PhysFrame) {
-    // SAFETY: only fully formed PML4s (kernel or process) are ever passed here.
-    unsafe { Cr3::write(frame, Cr3Flags::empty()) };
+    mmu::load_user_root(frame.start_address().as_u64());
 }
 
+/// Leave whatever user address space this CPU is in: only the kernel stays mapped.
 pub fn activate_kernel() {
-    // SAFETY: the kernel PML4 maps everything the kernel needs.
-    unsafe { Cr3::write(kernel_pml4(), Cr3Flags::empty()) };
+    mmu::load_user_root(kernel_root());
 }
 
 pub struct Region {
@@ -159,11 +118,9 @@ pub const MMAP_BASE: u64 = 0x10_0000_0000;
 impl AddressSpace {
     pub fn new() -> Result<Self, Error> {
         let pml4 = frame::alloc_zeroed().ok_or(Error::NoMemory)?;
-        let kernel = table_at(kernel_pml4().start_address().as_u64());
-        let table = table_at(pml4.start_address().as_u64());
-        for i in 256..512 {
-            table[i] = kernel[i].clone();
-        }
+        // SAFETY: the live kernel root and a fresh frame nobody else has seen.
+        let (kernel, table) = unsafe { (pt::table(kernel_root()), pt::table(pml4.start_address().as_u64())) };
+        table[256..512].copy_from_slice(&kernel[256..512]);
         Ok(AddressSpace { pml4, regions: Vec::new(), used_pages: 0, torn_down: false })
     }
 
@@ -171,10 +128,8 @@ impl AddressSpace {
         self.pml4
     }
 
-    fn mapper(&mut self) -> OffsetPageTable<'_> {
-        let table = table_at(self.pml4.start_address().as_u64());
-        // SAFETY: linear map at PHYS_OFFSET; `&mut self` guarantees exclusivity.
-        unsafe { OffsetPageTable::new(table, VirtAddr::new(PHYS_OFFSET)) }
+    fn root(&self) -> u64 {
+        self.pml4.start_address().as_u64()
     }
 
     fn range_ok(start: u64, pages: usize) -> bool {
@@ -250,30 +205,24 @@ impl AddressSpace {
         }
         // Reserve the bookkeeping slot up front so a failed push cannot leave frames mapped.
         self.regions.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+        let mut flags = MapFlags::USER;
         if writable {
-            flags |= PageTableFlags::WRITABLE;
+            flags |= MapFlags::WRITABLE;
         }
-        if !executable {
-            flags |= PageTableFlags::NO_EXECUTE;
+        if executable {
+            flags |= MapFlags::EXECUTABLE;
         }
+        let root = self.root();
         let mut mapped = 0usize;
-        let mut mapper = self.mapper();
         let mut err = None;
         for i in 0..pages {
-            let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
+            let va = start + i as u64 * PAGE_SIZE;
             let Some(frame) = frame::alloc_zeroed() else {
                 err = Some(Error::NoMemory);
                 break;
             };
-            // SAFETY: fresh frame, user-space page in this process's tables.
-            match unsafe {
-                mapper.map_to(Page::<Size4KiB>::containing_address(va), frame, flags, &mut KernelFrameAlloc)
-            } {
-                Ok(flush) => {
-                    flush.flush();
-                    mapped += 1;
-                }
+            match pt::map(root, va, frame.start_address().as_u64(), flags) {
+                Ok(()) => mapped += 1,
                 Err(_) => {
                     frame::free(frame);
                     err = Some(Error::NoMemory);
@@ -283,10 +232,8 @@ impl AddressSpace {
         }
         if let Some(e) = err {
             for i in 0..mapped {
-                let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
-                if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
-                    flush.flush();
-                    frame::free(f);
+                if let Some(f) = pt::unmap(root, start + i as u64 * PAGE_SIZE) {
+                    frame::free_phys(f);
                 }
             }
             return Err(e);
@@ -308,24 +255,16 @@ impl AddressSpace {
         let pages = object.frames.len();
         let start = self.free_range(pages)?;
         self.regions.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        let mut flags =
-            PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::NO_EXECUTE;
+        let mut flags = MapFlags::USER;
         if writable {
-            flags |= PageTableFlags::WRITABLE;
+            flags |= MapFlags::WRITABLE;
         }
+        let root = self.root();
         let mut mapped = 0usize;
-        let mut mapper = self.mapper();
         let mut err = None;
         for (i, frame) in object.frames.iter().enumerate() {
-            let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
-            // SAFETY: frames owned by the memory object; user page in this process.
-            match unsafe {
-                mapper.map_to(Page::<Size4KiB>::containing_address(va), *frame, flags, &mut KernelFrameAlloc)
-            } {
-                Ok(flush) => {
-                    flush.flush();
-                    mapped += 1;
-                }
+            match pt::map(root, start + i as u64 * PAGE_SIZE, frame.start_address().as_u64(), flags) {
+                Ok(()) => mapped += 1,
                 Err(_) => {
                     err = Some(Error::NoMemory);
                     break;
@@ -334,10 +273,7 @@ impl AddressSpace {
         }
         if let Some(e) = err {
             for i in 0..mapped {
-                let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
-                if let Ok((_, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
-                    flush.flush();
-                }
+                pt::unmap(root, start + i as u64 * PAGE_SIZE);
             }
             return Err(e);
         }
@@ -353,14 +289,12 @@ impl AddressSpace {
         let idx =
             self.regions.iter().position(|r| r.start == start && r.pages == pages).ok_or(Error::Invalid)?;
         let owned = self.regions[idx].owns_frames();
-        let mut mapper = self.mapper();
+        let root = self.root();
         for i in 0..pages {
-            let va = VirtAddr::new(start + i as u64 * PAGE_SIZE);
-            if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
-                flush.flush();
-                if owned {
-                    frame::free(f);
-                }
+            if let Some(f) = pt::unmap(root, start + i as u64 * PAGE_SIZE)
+                && owned
+            {
+                frame::free_phys(f);
             }
         }
         let region = self.regions.swap_remove(idx);
@@ -379,15 +313,15 @@ impl AddressSpace {
         if len == 0 {
             return true;
         }
-        let mapper = self.mapper();
+        let root = self.root();
         let mut page = addr & !(PAGE_SIZE - 1);
         while page < end {
-            match mapper.translate(VirtAddr::new(page)) {
-                TranslateResult::Mapped { frame: MappedFrame::Size4KiB(_), flags, .. } => {
-                    if !flags.contains(PageTableFlags::USER_ACCESSIBLE) {
+            match pt::translate(root, page) {
+                Some((_, flags, true)) => {
+                    if !flags.contains(MapFlags::USER) {
                         return false;
                     }
-                    if write && !flags.contains(PageTableFlags::WRITABLE) {
+                    if write && !flags.contains(MapFlags::WRITABLE) {
                         return false;
                     }
                 }
@@ -401,17 +335,16 @@ impl AddressSpace {
     /// Copy `data` into user memory that was just mapped (used by the ELF loader,
     /// before the space is ever active). Goes through the linear map.
     pub fn write_initial(&mut self, va: u64, data: &[u8]) -> Result<(), Error> {
-        let mapper = self.mapper();
+        let root = self.root();
         let mut off = 0usize;
         while off < data.len() {
             let cur = va + off as u64;
-            let TranslateResult::Mapped { frame: MappedFrame::Size4KiB(f), offset, .. } =
-                mapper.translate(VirtAddr::new(cur))
-            else {
+            let Some((pa, _, true)) = pt::translate(root, cur) else {
                 return Err(Error::Fault);
             };
+            let offset = pa & (PAGE_SIZE - 1);
             let chunk = ((PAGE_SIZE - offset) as usize).min(data.len() - off);
-            let dst = phys_to_virt(f.start_address().as_u64() + offset).as_mut_ptr::<u8>();
+            let dst = phys_to_virt(pa).as_mut_ptr::<u8>();
             // SAFETY: `chunk` bytes inside one mapped frame of this address space.
             unsafe { core::ptr::copy_nonoverlapping(data[off..].as_ptr(), dst, chunk) };
             off += chunk;
@@ -427,54 +360,25 @@ impl AddressSpace {
         self.torn_down = true;
         // Pop instead of collecting into a fresh Vec: process exit must never need
         // the kernel heap (an allocation failure there would panic the kernel).
+        let root = self.root();
         while let Some(r) = self.regions.pop() {
-            let mut mapper = self.mapper();
             for i in 0..r.pages {
-                let va = VirtAddr::new(r.start + i as u64 * PAGE_SIZE);
-                if let Ok((f, flush)) = mapper.unmap(Page::<Size4KiB>::containing_address(va)) {
-                    flush.ignore();
-                    if r.owns_frames() {
-                        frame::free(f);
-                    }
+                if let Some(f) = pt::unmap(root, r.start + i as u64 * PAGE_SIZE)
+                    && r.owns_frames()
+                {
+                    frame::free_phys(f);
                 }
             }
         }
         self.used_pages = 0;
-        let pml4 = table_at(self.pml4.start_address().as_u64());
-        for i in 0..256 {
-            let e = &pml4[i];
-            if e.is_unused() {
-                continue;
-            }
-            let pdpt_phys = e.addr().as_u64();
-            let pdpt = table_at(pdpt_phys);
-            for j in 0..512 {
-                let e2 = &pdpt[j];
-                if e2.is_unused() || e2.flags().contains(PageTableFlags::HUGE_PAGE) {
-                    continue;
-                }
-                let pd_phys = e2.addr().as_u64();
-                let pd = table_at(pd_phys);
-                for k in 0..512 {
-                    let e3 = &pd[k];
-                    if e3.is_unused() || e3.flags().contains(PageTableFlags::HUGE_PAGE) {
-                        continue;
-                    }
-                    frame::free(PhysFrame::containing_address(e3.addr()));
-                }
-                frame::free(PhysFrame::containing_address(PhysAddr::new(pd_phys)));
-            }
-            frame::free(PhysFrame::containing_address(PhysAddr::new(pdpt_phys)));
-            pml4[i].set_unused();
-        }
+        pt::free_tables(root, 0..256);
     }
 }
 
 impl Drop for AddressSpace {
     fn drop(&mut self) {
         self.teardown();
-        let (cur, _) = Cr3::read();
-        assert!(cur != self.pml4, "dropping the active address space");
+        assert!(!mmu::user_root_active(self.root()), "dropping the active address space");
         frame::free(self.pml4);
     }
 }

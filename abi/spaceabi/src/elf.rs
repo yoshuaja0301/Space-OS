@@ -1,4 +1,5 @@
-//! Minimal ELF64 (little-endian, x86-64) reader: enough to load static executables.
+//! Minimal ELF64 (little-endian, x86-64 or AArch64) reader: enough to load static
+//! executables.
 //!
 //! Only `PT_LOAD` program headers are interpreted. Everything is bounds-checked so a
 //! malformed image yields an error instead of an out-of-bounds read.
@@ -16,6 +17,12 @@ pub enum ElfError {
 }
 
 pub const PT_LOAD: u32 = 1;
+pub const EM_X86_64: u16 = 0x3E;
+pub const EM_AARCH64: u16 = 0xB7;
+
+/// The machine this code is built for: what [`Elf::parse`] accepts. Host tools
+/// that look at guest programs say which machine they expect ([`Elf::parse_for`]).
+pub const EM_NATIVE: u16 = if cfg!(target_arch = "aarch64") { EM_AARCH64 } else { EM_X86_64 };
 pub const PF_X: u32 = 1;
 pub const PF_W: u32 = 2;
 pub const PF_R: u32 = 4;
@@ -60,7 +67,13 @@ fn rd64(d: &[u8], o: usize) -> u64 {
 }
 
 impl<'a> Elf<'a> {
+    /// An executable for the machine this code runs on.
     pub fn parse(data: &'a [u8]) -> Result<Self, ElfError> {
+        Self::parse_for(data, EM_NATIVE)
+    }
+
+    /// An executable for `machine` (`EM_X86_64` or `EM_AARCH64`).
+    pub fn parse_for(data: &'a [u8], machine: u16) -> Result<Self, ElfError> {
         if data.len() < 64 {
             return Err(ElfError::TooShort);
         }
@@ -76,7 +89,7 @@ impl<'a> Elf<'a> {
         if rd16(data, 16) != 2 {
             return Err(ElfError::NotExecutable);
         }
-        if rd16(data, 18) != 0x3E {
+        if rd16(data, 18) != machine {
             return Err(ElfError::WrongMachine);
         }
         let entry = rd64(data, 24);

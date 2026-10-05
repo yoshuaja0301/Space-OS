@@ -24,80 +24,26 @@ pub extern "C" fn space_main() -> i32 {
             println!("[fault] read {v}");
         }
         "nx_exec" => {
-            // The stack is mapped NX: executing from it must fault.
-            let code = [0xC3u8; 16]; // ret
+            // The stack is mapped NX: executing from it must fault. Words, so the
+            // code is aligned on AArch64 too (a misaligned pc is a different fault).
+            let code = [if cfg!(target_arch = "aarch64") { 0xD65F_03C0u32 } else { 0xC3C3_C3C3 }; 4]; // ret
             let f: extern "C" fn() = unsafe { core::mem::transmute(code.as_ptr()) };
             f();
         }
-        "div_zero" => {
-            // Rust's `/` inserts a software check that panics; use the instruction
-            // directly so the CPU raises #DE.
-            // SAFETY: intentionally raises a divide error.
-            unsafe {
-                core::arch::asm!("xor edx, edx", "mov eax, 1", "xor ecx, ecx", "div ecx",
-                    out("eax") _, out("edx") _, out("ecx") _)
-            };
-        }
-        "ud2" => {
-            // SAFETY: undefined instruction; the kernel must report INVALID_OPCODE.
-            unsafe { core::arch::asm!("ud2") };
-        }
-        "cli" => {
-            // SAFETY: privileged instruction in ring 3 -> #GP.
-            unsafe { core::arch::asm!("cli") };
-        }
-        "int3" => {
-            // SAFETY: breakpoint trap in ring 3; the kernel must report BREAKPOINT.
-            unsafe { core::arch::asm!("int3") };
-        }
-        "sse" => {
-            // `pxor xmm0, xmm0`, as bytes: this target has no SSE, and the kernel
-            // keeps no vector state per thread, so the unit is off and the
-            // instruction must raise #UD instead of touching another process's XMM0.
-            // SAFETY: deliberate.
-            unsafe { core::arch::asm!(".byte 0x66, 0x0f, 0xef, 0xc0") };
-        }
-        "x87" => {
-            // `fld1`: with CR0.EM set, any x87 instruction raises #NM.
-            // SAFETY: deliberate.
-            unsafe { core::arch::asm!(".byte 0xd9, 0xe8") };
-        }
-        "tf_syscall" => {
-            // Set TF and immediately execute `syscall`: the single-step trap is then
-            // delivered on the first *kernel* instruction. The kernel must survive
-            // that and terminate this process when the trap re-fires in ring 3.
-            // SAFETY: deliberate.
-            unsafe {
-                core::arch::asm!(
-                    "pushfq",
-                    "or qword ptr [rsp], 0x100",
-                    "popfq",
-                    "syscall",
-                    inout("rax") spaceabi::syscall::nr::TICKS as u64 => _,
-                    out("rcx") _, out("r11") _,
-                )
-            };
-        }
+        "div_zero" => arch::div_zero(),
+        "ud2" => arch::undefined_instruction(),
+        "cli" => arch::privileged_instruction(),
+        "int3" => arch::breakpoint(),
+        "sse" => arch::vector_instruction(),
+        "x87" => arch::float_instruction(),
+        "tf_syscall" => arch::single_step_into_syscall(),
         "noncanon_rsp_syscall" | "kernel_rsp_syscall" => {
-            // The kernel must never touch the user stack pointer: with rsp pointing
-            // at a non-canonical or kernel address, `syscall` must still return
+            // The kernel must never touch the user stack pointer: with it pointing at
+            // a non-canonical or kernel address, a system call must still return
             // normally. Exit 0 on success.
-            let bad_rsp: u64 =
+            let bad_sp: u64 =
                 if mode == "noncanon_rsp_syscall" { 0x8000_0000_0000_0000 } else { 0xFFFF_8000_0000_0000 };
-            let t: u64;
-            // SAFETY: rsp is restored before anything touches the stack again.
-            unsafe {
-                core::arch::asm!(
-                    "mov r12, rsp",
-                    "mov rsp, {bad}",
-                    "syscall",
-                    "mov rsp, r12",
-                    bad = in(reg) bad_rsp,
-                    inout("rax") spaceabi::syscall::nr::TICKS as u64 => t,
-                    out("rcx") _, out("r11") _, out("r12") _,
-                    options(nostack)
-                )
-            };
+            let t = arch::syscall_with_stack(bad_sp);
             println!("[fault] syscall with a hostile rsp returned ticks={t}");
             return 0;
         }
@@ -127,4 +73,154 @@ pub extern "C" fn space_main() -> i32 {
     }
     println!("[fault] survived '{}' - this is a test failure", mode);
     3
+}
+
+#[cfg(target_arch = "x86_64")]
+mod arch {
+    pub fn div_zero() {
+        // Rust's `/` inserts a software check that panics; use the instruction
+        // directly so the CPU raises #DE.
+        // SAFETY: intentionally raises a divide error.
+        unsafe {
+            core::arch::asm!("xor edx, edx", "mov eax, 1", "xor ecx, ecx", "div ecx",
+                out("eax") _, out("edx") _, out("ecx") _)
+        };
+    }
+
+    pub fn undefined_instruction() {
+        // SAFETY: undefined instruction; the kernel must report INVALID_OPCODE.
+        unsafe { core::arch::asm!("ud2") };
+    }
+
+    pub fn privileged_instruction() {
+        // SAFETY: privileged instruction in ring 3 -> #GP.
+        unsafe { core::arch::asm!("cli") };
+    }
+
+    pub fn breakpoint() {
+        // SAFETY: breakpoint trap in ring 3; the kernel must report BREAKPOINT.
+        unsafe { core::arch::asm!("int3") };
+    }
+
+    pub fn vector_instruction() {
+        // `pxor xmm0, xmm0`, as bytes: this target has no SSE, and the kernel
+        // keeps no vector state per thread, so the unit is off and the
+        // instruction must raise #UD instead of touching another process's XMM0.
+        // SAFETY: deliberate.
+        unsafe { core::arch::asm!(".byte 0x66, 0x0f, 0xef, 0xc0") };
+    }
+
+    pub fn float_instruction() {
+        // `fld1`: with CR0.EM set, any x87 instruction raises #NM.
+        // SAFETY: deliberate.
+        unsafe { core::arch::asm!(".byte 0xd9, 0xe8") };
+    }
+
+    pub fn single_step_into_syscall() {
+        // Set TF and immediately execute `syscall`: the single-step trap is then
+        // delivered on the first *kernel* instruction. The kernel must survive
+        // that and terminate this process when the trap re-fires in ring 3.
+        // SAFETY: deliberate.
+        unsafe {
+            core::arch::asm!(
+                "pushfq",
+                "or qword ptr [rsp], 0x100",
+                "popfq",
+                "syscall",
+                inout("rax") spaceabi::syscall::nr::TICKS as u64 => _,
+                out("rcx") _, out("r11") _,
+            )
+        };
+    }
+
+    /// `TICKS` with the stack pointer at `bad`, restored afterwards.
+    pub fn syscall_with_stack(bad: u64) -> u64 {
+        let t: u64;
+        // SAFETY: rsp is restored before anything touches the stack again.
+        unsafe {
+            core::arch::asm!(
+                "mov r12, rsp",
+                "mov rsp, {bad}",
+                "syscall",
+                "mov rsp, r12",
+                bad = in(reg) bad,
+                inout("rax") spaceabi::syscall::nr::TICKS as u64 => t,
+                out("rcx") _, out("r11") _, out("r12") _,
+                options(nostack)
+            )
+        };
+        t
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+mod arch {
+    use libspace::println;
+
+    /// AArch64 integer division by zero does not trap: the quotient is 0. Say so;
+    /// the parent does not ask for this on AArch64 (ADR-0028).
+    pub fn div_zero() {
+        let q: u64;
+        // SAFETY: `udiv` by zero is defined (it gives 0).
+        unsafe { core::arch::asm!("udiv {q}, {n}, xzr", q = out(reg) q, n = in(reg) 1u64) };
+        println!("[fault] udiv by zero gave {q}: AArch64 does not trap it");
+    }
+
+    pub fn undefined_instruction() {
+        // SAFETY: a permanently undefined instruction; INVALID_OPCODE.
+        unsafe { core::arch::asm!("udf #0") };
+    }
+
+    pub fn privileged_instruction() {
+        // Masking interrupts from EL0 traps while SCTLR_EL1.UMA is clear, which the
+        // kernel makes sure of: GENERAL_PROTECTION.
+        // SAFETY: deliberate.
+        unsafe { core::arch::asm!("msr daifset, #2") };
+    }
+
+    pub fn breakpoint() {
+        // SAFETY: a breakpoint instruction; BREAKPOINT.
+        unsafe { core::arch::asm!("brk #0") };
+    }
+
+    pub fn vector_instruction() {
+        // `eor v0.16b, v0.16b, v0.16b`, as a word: the FP/SIMD unit is trapped
+        // (CPACR_EL1.FPEN = 0), so it must stop this process (NO_FPU) instead of
+        // touching another process's V0.
+        // SAFETY: deliberate.
+        unsafe { core::arch::asm!(".inst 0x6e201c00") };
+    }
+
+    pub fn float_instruction() {
+        // `fmov d0, xzr`: the same trap.
+        // SAFETY: deliberate.
+        unsafe { core::arch::asm!(".inst 0x9e6703e0") };
+    }
+
+    /// Single-stepping is a debug feature only EL1 can turn on: nothing to try
+    /// from EL0. The parent does not ask for this on AArch64.
+    pub fn single_step_into_syscall() {
+        println!("[fault] no single-step from EL0 on AArch64");
+    }
+
+    /// `TICKS` with the stack pointer at `bad`, restored afterwards.
+    pub fn syscall_with_stack(bad: u64) -> u64 {
+        let t: u64;
+        // SAFETY: sp is restored before anything touches the stack again; `svc`
+        // itself does not use it.
+        unsafe {
+            core::arch::asm!(
+                "mov x20, sp",
+                "mov sp, {bad}",
+                "svc #0",
+                "mov sp, x20",
+                bad = in(reg) bad,
+                in("x8") spaceabi::syscall::nr::TICKS as u64,
+                lateout("x0") t,
+                out("x20") _,
+                options(nostack)
+            )
+        };
+        t
+    }
 }

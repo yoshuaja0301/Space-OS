@@ -13,6 +13,7 @@ use spaceabi::syscall::{
 ///
 /// # Safety
 /// The kernel validates everything, but pointer arguments must follow the ABI contract.
+#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub unsafe fn raw(nr: usize, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> isize {
     let ret: isize;
@@ -29,6 +30,32 @@ pub unsafe fn raw(nr: usize, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
             in("r9") a5,
             lateout("rcx") _,
             lateout("r11") _,
+            options(nostack)
+        );
+    }
+    ret
+}
+
+/// Raw syscall with up to six arguments (AArch64: `svc #0`, the number in `x8`, the
+/// arguments in `x0`-`x5`, the result in `x0`; ADR-0028).
+///
+/// # Safety
+/// The kernel validates everything, but pointer arguments must follow the ABI contract.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn raw(nr: usize, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> isize {
+    let ret: isize;
+    // SAFETY: `svc #0` with the ABI v0 register convention for AArch64.
+    unsafe {
+        asm!(
+            "svc #0",
+            inlateout("x0") a0 as isize => ret,
+            in("x1") a1,
+            in("x2") a2,
+            in("x3") a3,
+            in("x4") a4,
+            in("x5") a5,
+            in("x8") nr,
             options(nostack)
         );
     }

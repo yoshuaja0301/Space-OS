@@ -3,9 +3,8 @@
 //! instead of silently corrupting memory.
 
 use spaceabi::error::Error;
-use x86_64::structures::paging::PageTableFlags;
 
-use super::{KSTACK_BASE, PAGE_SIZE, frame, paging};
+use super::{KSTACK_BASE, MapFlags, PAGE_SIZE, frame, paging};
 use crate::sync::SpinLock;
 
 pub const SLOT_SIZE: u64 = 64 * 1024;
@@ -46,7 +45,7 @@ impl KernelStack {
         };
         let top = KSTACK_BASE + (slot as u64 + 1) * SLOT_SIZE;
         let bottom = top - STACK_PAGES * PAGE_SIZE;
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+        let flags = MapFlags::WRITABLE;
         for i in 0..STACK_PAGES {
             let va = bottom + i * PAGE_SIZE;
             let Some(f) = frame::alloc_zeroed() else {

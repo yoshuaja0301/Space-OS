@@ -7,6 +7,10 @@ UEFI (OVMF) ──► spaceboot (boot/)  ──► spacekernel (kernel/) ──�
                  BootInfo (spaceabi::boot)     ABI v0 (spaceabi::syscall)   libspace (user/libspace)
 ```
 
+## Dua arsitektur (ADR-0028)
+
+Kode di luar `kernel/src/arch/` tidak menyebut satu pun instruksi atau register: walk page table ada sekali di `mm::pt` (x86-64 dan AArch64 sama-sama empat tingkat 512 entri), dan `arch::{x86_64,aarch64}` hanya menyandikan entri, mengurus root dan TLB, interrupt, context switch, entry syscall, konsol, PCI (port vs ECAM), waktu dan daya. Di AArch64: EL1/EL0, `TTBR1` kernel dan `TTBR0` proses, GICv3, timer generik, PL011, PSCI; boot lewat AAVMF (`BOOTAA64.EFI`). Uraian di bawah ini adalah jalur x86-64.
+
 ## Rantai boot
 
 1. OVMF memuat `\EFI\BOOT\BOOTX64.EFI` (= `spaceboot`) dari ESP.
@@ -35,7 +39,7 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 
 ## Penyimpanan (tahap 3)
 
-`pci` (port 0xCF8/0xCFC) menemukan perangkat; `virtio_blk` membawa perangkat virtio-blk 1.0 modern ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan **dan penulisan** dengan polling berbatas (`VIRTIO_BLK_F_FLUSH` dinegosiasikan bila ditawarkan, `VIRTIO_BLK_F_RO` dicatat sehingga tulisan ditolak di depan); register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca dan menulis volume FAT32 dari perangkat itu, `SYS_FS_OPEN/READ/STAT` memberi user space akses baca berbasis capability, dan `SYS_FS_CREATE/WRITE` akses tulis di balik hak root `FS_WRITE` yang terpisah (ADR-0015). Hanya disk data yang terjangkau (ADR-0025): selain virtio-blk, `ahci` (setiap pengendali SATA; setiap port dihentikan lalu port dengan disk diberi command list, FIS dan command table sendiri; READ/WRITE DMA EXT, FLUSH CACHE EXT) dan `nvme` (reset, admin queue, satu pasang I/O queue, PRP) menemukan disk, dan `block` memilih **satu** volume data dari semuanya: FAT32 berlabel `SPACEDATA`, seluruh disk atau satu partisi GPT/MBR. `fs` menghitung sektor dari awal volume; `block` menolak permintaan yang melewati akhirnya sebelum driver melihatnya, jadi ESP — di disk lain atau di partisi lain disk yang sama — tidak terjangkau. Semua driver blok mem-poll; batas waktunya diukur dengan TSC karena driver berjalan sebelum timer dan di bawah spinlock.
+`pci` (port 0xCF8/0xCFC, atau ECAM di AArch64) menemukan perangkat; `virtio_blk` membawa setiap perangkat virtio-blk 1.0 modern (sampai delapan) ke keadaan siap (reset → ACKNOWLEDGE/DRIVER → negosiasi `VIRTIO_F_VERSION_1` → antrean 0 → DRIVER_OK) dan melayani pembacaan **dan penulisan** dengan polling berbatas (`VIRTIO_BLK_F_FLUSH` dinegosiasikan bila ditawarkan, `VIRTIO_BLK_F_RO` dicatat sehingga tulisan ditolak di depan); register perangkat dipetakan uncached di jendela MMIO. `fs::fat32` membaca dan menulis volume FAT32 dari perangkat itu, `SYS_FS_OPEN/READ/STAT` memberi user space akses baca berbasis capability, dan `SYS_FS_CREATE/WRITE` akses tulis di balik hak root `FS_WRITE` yang terpisah (ADR-0015). Hanya disk data yang terjangkau (ADR-0025): selain virtio-blk, `ahci` (setiap pengendali SATA; setiap port dihentikan lalu port dengan disk diberi command list, FIS dan command table sendiri; READ/WRITE DMA EXT, FLUSH CACHE EXT) dan `nvme` (reset, admin queue, satu pasang I/O queue, PRP) menemukan disk, dan `block` memilih **satu** volume data dari semuanya: FAT32 berlabel `SPACEDATA`, seluruh disk atau satu partisi GPT/MBR. `fs` menghitung sektor dari awal volume; `block` menolak permintaan yang melewati akhirnya sebelum driver melihatnya, jadi ESP — di disk lain atau di partisi lain disk yang sama — tidak terjangkau. Semua driver blok mem-poll; batas waktunya diukur dengan TSC karena driver berjalan sebelum timer dan di bawah spinlock.
 
 ## Jaringan (tahap 3, ADR-0016)
 

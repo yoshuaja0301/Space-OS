@@ -31,7 +31,8 @@ pub const DATA_LABEL: &[u8; 11] = b"SPACEDATA  ";
 /// A disk, by controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Disk {
-    Virtio,
+    /// Slot from [`virtio_blk::devices`].
+    Virtio(usize),
     /// Handle from [`ahci::disks`].
     Ahci(usize),
     /// Controller handle and namespace, from [`nvme::namespaces`].
@@ -50,7 +51,7 @@ static DATA: SpinLock<Option<Volume>> = SpinLock::new(None);
 
 fn read_on(disk: Disk, lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     match disk {
-        Disk::Virtio => virtio_blk::read_sectors(lba, buf),
+        Disk::Virtio(d) => virtio_blk::read_sectors(d, lba, buf),
         Disk::Ahci(d) => ahci::read_sectors(d, lba, buf),
         Disk::Nvme(c, ns) => nvme::read_sectors(c, ns, lba, buf),
     }
@@ -58,7 +59,7 @@ fn read_on(disk: Disk, lba: u64, buf: &mut [u8]) -> Result<(), Error> {
 
 fn sectors_on(disk: Disk) -> u64 {
     match disk {
-        Disk::Virtio => virtio_blk::capacity_sectors(),
+        Disk::Virtio(d) => virtio_blk::capacity_sectors(d),
         Disk::Ahci(d) => ahci::capacity_sectors(d),
         Disk::Nvme(c, ns) => nvme::capacity_sectors(c, ns),
     }
@@ -66,7 +67,7 @@ fn sectors_on(disk: Disk) -> u64 {
 
 fn name(disk: Disk) -> String {
     match disk {
-        Disk::Virtio => String::from("virtio-blk"),
+        Disk::Virtio(d) => virtio_blk::name(d),
         Disk::Ahci(d) => ahci::name(d),
         Disk::Nvme(c, ns) => nvme::name(c, ns),
     }
@@ -198,9 +199,7 @@ fn probe_gpt(disk: Disk, disk_sectors: u64) -> Result<Probe, Error> {
 /// Probe every disk the drivers found and choose the data volume.
 pub fn init() {
     let mut disks = Vec::new();
-    if virtio_blk::present() {
-        disks.push(Disk::Virtio);
-    }
+    disks.extend(virtio_blk::devices().into_iter().map(Disk::Virtio));
     disks.extend(ahci::disks().into_iter().map(Disk::Ahci));
     disks.extend(nvme::namespaces().into_iter().map(|(c, ns)| Disk::Nvme(c, ns)));
     let mut chosen: Option<Volume> = None;
@@ -274,7 +273,7 @@ pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
     let v = volume()?;
     let at = locate(&v, lba, buf.len())?;
     match v.disk {
-        Disk::Virtio => virtio_blk::write_sectors(at, buf),
+        Disk::Virtio(d) => virtio_blk::write_sectors(d, at, buf),
         Disk::Ahci(d) => ahci::write_sectors(d, at, buf),
         Disk::Nvme(c, ns) => nvme::write_sectors(c, ns, at, buf),
     }
@@ -283,7 +282,7 @@ pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
 /// Make earlier writes to the data volume durable.
 pub fn flush() -> Result<(), Error> {
     match volume()?.disk {
-        Disk::Virtio => virtio_blk::flush(),
+        Disk::Virtio(d) => virtio_blk::flush(d),
         Disk::Ahci(d) => ahci::flush(d),
         Disk::Nvme(c, ns) => nvme::flush(c, ns),
     }
@@ -293,7 +292,7 @@ pub fn flush() -> Result<(), Error> {
 /// that says it is read-only).
 pub fn read_only() -> bool {
     match *DATA.lock() {
-        Some(Volume { disk: Disk::Virtio, .. }) => virtio_blk::read_only(),
+        Some(Volume { disk: Disk::Virtio(d), .. }) => virtio_blk::read_only(d),
         Some(_) => false,
         None => true,
     }

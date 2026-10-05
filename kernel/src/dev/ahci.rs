@@ -240,7 +240,7 @@ impl Port {
             }
         }
         wr(self.reg(P_IS), u32::MAX);
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        crate::arch::dma_mb();
         wr(self.reg(P_CI), 1);
         let mut error = false;
         let done = wait::until(COMMAND_MS, || {

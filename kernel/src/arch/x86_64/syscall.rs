@@ -33,6 +33,21 @@ pub struct SyscallFrame {
     pub user_rsp: u64,
 }
 
+impl SyscallFrame {
+    pub fn number(&self) -> u64 {
+        self.nr
+    }
+
+    pub fn args(&self) -> [u64; 6] {
+        [self.arg0, self.arg1, self.arg2, self.arg3, self.arg4, self.arg5]
+    }
+
+    /// Where the process resumes (`sysret` loads it from `rcx`).
+    pub fn return_address(&self) -> u64 {
+        self.rip
+    }
+}
+
 global_asm!(
     ".section .text",
     ".global syscall_entry",

@@ -1,7 +1,7 @@
 //! Boot protocol between `spaceboot` (UEFI) and `spacekernel`.
 //!
-//! The bootloader leaves the machine in this state when it jumps to the kernel
-//! entry point:
+//! The bootloader leaves an x86-64 machine in this state when it jumps to the
+//! kernel entry point:
 //!
 //! * long mode, interrupts disabled, `EFER.NXE` and `CR0.WP` set;
 //! * `CR3` points at page tables owned by the bootloader (`MemKind::KERNEL`) that
@@ -10,6 +10,17 @@
 //!   memory that the kernel is expected to discard;
 //! * `RSP` points at the top of a bootloader-provided kernel stack;
 //! * `RDI` holds a pointer (in the [`PHYS_OFFSET`] window) to a [`BootInfo`].
+//!
+//! And an AArch64 machine (ADR-0028):
+//!
+//! * EL1, MMU and caches on, `DAIF` all masked;
+//! * `TTBR1_EL1` points at bootloader tables (`MemKind::KERNEL`) mapping the kernel
+//!   image at its link address, physical memory at [`PHYS_OFFSET`], and the console
+//!   UART, if any, at [`EARLY_UART_VIRT`]; `TTBR0_EL1` still holds the firmware's
+//!   identity map, which the kernel replaces before it reuses firmware memory;
+//! * `MAIR_EL1` holds the attributes of [`mair`] at those indices;
+//! * `SP` points at the top of a bootloader-provided kernel stack;
+//! * `X0` holds a pointer (in the [`PHYS_OFFSET`] window) to a [`BootInfo`].
 
 /// Virtual base of the linear map of physical memory (PML4 slot 256).
 pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000;
@@ -17,9 +28,32 @@ pub const PHYS_OFFSET: u64 = 0xFFFF_8000_0000_0000;
 /// Link address of the kernel image (top 2 GiB, `code-model=kernel`).
 pub const KERNEL_VIRT_BASE: u64 = 0xFFFF_FFFF_8000_0000;
 
+/// AArch64: where the bootloader maps the console UART's register page (device
+/// memory), so the kernel can print before it maps devices itself (slot 384).
+pub const EARLY_UART_VIRT: u64 = 0xFFFF_C000_0000_0000;
+
+/// AArch64 `MAIR_EL1` attribute indices both sides use. They are the ones UEFI
+/// firmware (EDK2 on AArch64) programs, so the bootloader can map with them while
+/// still running on the firmware's tables, and checks that it does.
+pub mod mair {
+    /// Device-nGnRnE.
+    pub const DEVICE: u64 = 0;
+    /// Normal memory, inner and outer write-back.
+    pub const NORMAL: u64 = 3;
+    pub const DEVICE_ATTR: u8 = 0x00;
+    pub const NORMAL_ATTR: u8 = 0xFF;
+}
+
 /// "SPACEBOO" – marks a valid [`BootInfo`].
 pub const BOOT_INFO_MAGIC: u64 = 0x4F4F_4245_4341_5053;
-pub const BOOT_INFO_VERSION: u32 = 1;
+pub const BOOT_INFO_VERSION: u32 = 2;
+
+/// What kind of UART [`BootInfo::uart`] is (the ACPI SPCR interface types).
+pub mod uart_kind {
+    pub const NONE: u32 = 0;
+    /// ARM PL011 (SPCR interface type 3).
+    pub const PL011: u32 = 3;
+}
 
 /// Size of the kernel stack allocated by the bootloader.
 pub const BOOT_STACK_SIZE: usize = 64 * 1024;
@@ -122,13 +156,22 @@ pub struct BootInfo {
     pub initrd: PhysRange,
     /// Kernel command line (UTF-8, not NUL-terminated) or `len == 0`.
     pub cmdline: PhysRange,
-    /// Physical address of the boot PML4 built by the bootloader.
+    /// Physical address of the root of the bootloader's kernel tables: the PML4 on
+    /// x86-64, the `TTBR1_EL1` table on AArch64.
     pub boot_pml4: u64,
     /// Kernel stack the kernel is running on when it is entered.
     pub boot_stack: PhysRange,
     /// ACPI RSDP physical address or 0.
     pub rsdp: u64,
     pub framebuffer: FramebufferInfo,
+    /// Seconds since the Unix epoch when the bootloader ran (UEFI `GetTime`, taken
+    /// as UTC), or 0 when the firmware did not say.
+    pub boot_time: u64,
+    /// Console UART registers (physical; AArch64 only, from ACPI SPCR) and its
+    /// [`uart_kind`]; mapped at [`EARLY_UART_VIRT`].
+    pub uart: u64,
+    pub uart_kind: u32,
+    pub _pad2: u32,
 }
 
 impl BootInfo {

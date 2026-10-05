@@ -5,9 +5,8 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use linked_list_allocator::Heap;
-use x86_64::structures::paging::PageTableFlags;
 
-use super::{HEAP_BASE, HEAP_SIZE, PAGE_SIZE, frame, paging};
+use super::{HEAP_BASE, HEAP_SIZE, MapFlags, PAGE_SIZE, frame, paging};
 use crate::sync::SpinLock;
 
 struct HeapInner(Heap);
@@ -48,10 +47,7 @@ pub fn init() {
     let pages = HEAP_SIZE as u64 / PAGE_SIZE;
     for i in 0..pages {
         let f = frame::alloc_zeroed().expect("no frame for kernel heap");
-        let flags = PageTableFlags::PRESENT
-            | PageTableFlags::WRITABLE
-            | PageTableFlags::GLOBAL
-            | PageTableFlags::NO_EXECUTE;
+        let flags = MapFlags::WRITABLE | MapFlags::GLOBAL;
         paging::map_kernel_page(HEAP_BASE + i * PAGE_SIZE, f, flags).expect("map kernel heap");
     }
     let mut h = HEAP.0.lock();

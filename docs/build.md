@@ -2,8 +2,9 @@
 
 ## Prasyarat
 
-- Rust via `rustup` (toolchain `1.94.1` dan target `x86_64-unknown-none`, `x86_64-unknown-uefi` dipasang otomatis dari `rust-toolchain.toml`).
+- Rust via `rustup` (toolchain `1.94.1` dan target `x86_64-unknown-none`, `x86_64-unknown-uefi`, `aarch64-unknown-none-softfloat`, `aarch64-unknown-uefi` dipasang otomatis dari `rust-toolchain.toml`).
 - QEMU ≥ 8.2 (`qemu-system-x86`) dan firmware OVMF. Ubuntu/Debian: `sudo apt install qemu-system-x86 ovmf`. Lokasi OVMF dicari otomatis; timpa dengan `SPACEOS_OVMF_CODE` / `SPACEOS_OVMF_VARS`.
+- Untuk AArch64 (`cargo xtask arm64`): `qemu-system-arm` dan firmware AAVMF (`sudo apt install qemu-system-arm qemu-efi-aarch64`); timpa dengan `SPACEOS_AAVMF_CODE` / `SPACEOS_AAVMF_VARS`, dan biner QEMU dengan `SPACEOS_QEMU_AARCH64`.
 - Tidak perlu `mtools`, `mkfs.fat`, atau `nasm`: image FAT dibuat murni oleh `xtask` (crate `fatfs`), stub interrupt dirakit oleh `rustc`.
 
 ## Perintah
@@ -17,10 +18,11 @@
 | `cargo xtask run --gui --cmdline "init=bin/spacedesk"` | boot ke **desktop** (ADR-0020): Super+Enter (atau Alt+F1) terminal, Super+E file manager, Super+A Agent Center (tombol `5` menjalankan model, `S` Stop), Super+Space Command Center, Alt+Tab pindah jendela, Ctrl+Alt+Delete mematikan mesin. Di jendela QEMU, Super sering ditangkap sistem host; pakai Alt+F1/F2/F3/F5 |
 | `cargo xtask test [--only <nama>]` | lima belas skenario boot + pemeriksaan log/exit code dan rekaman jaringan, log di `build/logs/` |
 | `cargo xtask compat` | lima belas konfigurasi mesin QEMU dengan image yang sama (ADR-0010), log di `build/logs/compat/` |
+| `cargo xtask arm64 [--only <nama>]` | semuanya dibangun untuk AArch64 dan di-boot di QEMU `virt` + AAVMF (ADR-0028): `arm64-acceptance` dan `arm64-poweroff`, log di `build/logs/` |
 | `cargo xtask stress --minutes 480` | uji stabilitas (ADR-0019): satu boot, seluruh suite berulang selama 8 jam dengan pembunuhan acak dan pemeriksaan memori; hasil di `build/stress/` |
 | `cargo xtask unit` | uji unit host (`spaceabi`, `xtask`) |
 | `cargo xtask soak --boots 100` | 100 cold boot berturut-turut skenario acceptance (K01) |
-| `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy + `unit` + `test` + `compat` |
+| `cargo xtask clippy` / `fmt` / `fmt-check` / `ci` | lint dan format semua target; `ci` = fmt-check + clippy (kedua arsitektur) + `unit` + `test` + `compat` + `arm64` |
 
 Proses user pertama dipilih `init=` pada cmdline kernel (`bin/init` bila tidak disebut).
 Tambahkan `--debug` untuk profil dev. Build pertama ≈ 1 menit; build inkremental beberapa detik.

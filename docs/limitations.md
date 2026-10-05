@@ -145,14 +145,24 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Satu ask pada satu waktu untuk hingga 4 klien; ask yang panjang menahan yang lain.
 - Kredensial dipegang di memori adapter dan tidak dihapus saat keluar. Di disk (`/spaceos/cred/cloud.key`) ia terbaca oleh siapa pun yang memegang `FS` atas volume — `init` dan broker; broker hanya melayani workspace. Belum ada penyimpanan kredensial terenkripsi.
 
+## AArch64 (ADR-0028)
+
+- Hanya diuji di QEMU `virt` (GICv3, Cortex-A72) dengan AAVMF; belum di papan fisik.
+- Satu CPU: CPU lain yang tercantum di MADT tetap diparkir firmware (PSCI `CPU_ON` belum dipakai).
+- Firmware harus berjalan di EL1 dan memakai indeks `MAIR_EL1` EDK2 (0 Device-nGnRnE, 3 write-back); firmware di EL2 — umum di papan fisik — ditolak bootloader dengan pesan. Hanya GICv3 (bukan GICv2).
+- Belum ada keyboard (tanpa PS/2; virtio-input dan USB belum ditulis) dan belum ada framebuffer di `virt` (`ramfb`/virtio-gpu belum): desktop dan uji keyboard dilewati. Masukan konsol hanya lewat UART PL011.
+- Pembagian dengan nol tidak menjebak di AArch64 dan single-step tidak bisa diminta dari EL0: dua uji K02 itu dilewati dengan alasan.
+- DMA dianggap koheren dengan cache (benar untuk PCIe di `virt`); SoC yang DMA-nya tidak men-snoop cache butuh pemeliharaan cache yang belum ada. Penghalang `dsb sy` sebelum memberi tahu perangkat ada, tetapi di TCG tidak bisa dibuktikan perlu.
+- Overflow stack kernel tidak punya stack terpisah untuk dilaporkan (x86-64 punya IST).
+
 ## Belum ada (tahap berikutnya)
 
 - VirtIO input dan virtio-gpu, mouse (sisa tahap 3): masukan hanya keyboard PS/2 dan COM2, layar hanya framebuffer UEFI.
 - Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud terhadap penyedia sungguhan (5A).
-- GPU, ARM64 (6–7).
+- GPU (6).
 
 ## Verifikasi
 
-- Semua bukti berasal dari **QEMU TCG** dengan profil ADR-0003; belum pernah dicoba pada PC fisik.
+- Semua bukti berasal dari **QEMU TCG** dengan profil ADR-0003 (x86-64) dan `virt` (AArch64, ADR-0028); belum pernah dicoba pada mesin fisik.
 - Soak 100 boot (K01) dijalankan pada satu host; stress 8 jam (PRD §9) belum dijalankan.
 - Tidak ada fuzzing syscall; uji negatif bersifat contoh, bukan eksplorasi acak.

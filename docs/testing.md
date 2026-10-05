@@ -300,6 +300,17 @@ Harness menuntut sisi penyedia juga (`lab_must_contain`): 401, `streamed 4 piece
 `nobody stopped it`, `THE CREDENTIAL LEAKED`, `attempt 4 answered`, `lab-budget` atau `lab-local`.
 Gigi setiap klaim ada di `docs/evidence/cloud-summary.txt`.
 
+## Skenario AArch64 `cargo xtask arm64` (ADR-0028)
+
+Kernel, bootloader dan **semua** program user dibangun untuk AArch64 dan di-boot di QEMU `virt` (GICv3, Cortex-A72, 4 CPU tercantum, 4 GiB) dengan AAVMF; disk boot dan disk data adalah virtio-blk PCIe, kartu jaringan virtio-net di jaringan lab yang sama (pcap diperiksa). Status keluar lewat semihosting (`exit=semihosting`).
+
+| Skenario | Command line | Harapan |
+|---|---|---|
+| `arm64-acceptance` | `init=bin/init exit=semihosting` | suite penerimaan yang sama: `ALL TESTS PASSED`, dan penanda bagian port yang menopang setiap uji harus ada (ECAM, GICv3, timer generik, PL011, PSCI, volume data di virtio-blk kedua, K02 abort/NX/SIMD/DAIF, D01, A01, TLS, NET) — uji yang tidak bisa berjalan dilewati, jadi "lulus" saja tidak cukup; exit 33 |
+| `arm64-poweroff` | `init=bin/init exit=semihosting shutdown=acpi` | shutdown di akhir suite mematikan mesin lewat PSCI `SYSTEM_OFF` (`switching off through PSCI SYSTEM_OFF`), dan QEMU yang dimatikan keluar dengan 0 |
+
+Uji yang di AArch64 tidak punya padanan dilewati dengan alasan: pembagian dengan nol (tidak menjebak), TF/single-step (fitur debug EL1), injeksi PS/2. Uji SIMD/FP mengharapkan `NO_FPU` (satu unit FP/SIMD yang dijebak). Gerbang "tanpa FPU" untuk A64 memeriksa setiap word segmen executable: pemrosesan data FP/SIMD, load/store register FP/SIMD, akses FPCR/FPSR; `fault` memuat tepat dua dengan sengaja.
+
 ## Gerbang build: tidak ada instruksi FPU atau vektor
 
 `cargo xtask build` mendekode setiap instruksi di segmen executable kernel dan semua program

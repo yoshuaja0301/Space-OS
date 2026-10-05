@@ -43,6 +43,10 @@ const ROOT: Handle = handle::BOOTSTRAP;
 const CHILD_QUOTA: u64 = 128;
 const CYCLES: u32 = 50;
 
+/// Built for AArch64 (ADR-0028): a few tests ask the CPU for something only
+/// x86-64 has, and say so instead of running.
+const AARCH64: bool = cfg!(target_arch = "aarch64");
+
 struct Runner {
     passed: u32,
     failed: Vec<String>,
@@ -793,31 +797,56 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
     r.run("K02", "executing the NX stack kills the process (page fault)", || {
         fault_case("nx_exec", kill_reason::PAGE_FAULT)
     });
-    r.run("K02", "divide by zero kills the process", || fault_case("div_zero", kill_reason::DIVIDE_ERROR));
+    r.run_if(
+        !AARCH64,
+        "AArch64 integer division by zero does not trap: the quotient is 0",
+        "K02",
+        "divide by zero kills the process",
+        || fault_case("div_zero", kill_reason::DIVIDE_ERROR),
+    );
     r.run("K02", "undefined instruction kills the process", || {
         fault_case("ud2", kill_reason::INVALID_OPCODE)
     });
-    r.run("K02", "privileged instruction in ring 3 kills the process (#GP)", || {
-        fault_case("cli", kill_reason::GENERAL_PROTECTION)
-    });
+    let privileged = if AARCH64 {
+        "privileged instruction at EL0 kills the process (masking interrupts)"
+    } else {
+        "privileged instruction in ring 3 kills the process (#GP)"
+    };
+    r.run("K02", privileged, || fault_case("cli", kill_reason::GENERAL_PROTECTION));
     r.run("C01", "writing through a read-only memory-object mapping kills the process", || {
         fault_case("ro_vmo_write", kill_reason::PAGE_FAULT)
     });
-    r.run("K02", "int3 in ring 3 kills the process (breakpoint)", || {
-        fault_case("int3", kill_reason::BREAKPOINT)
-    });
+    let breakpoint = if AARCH64 {
+        "brk at EL0 kills the process (breakpoint)"
+    } else {
+        "int3 in ring 3 kills the process (breakpoint)"
+    };
+    r.run("K02", breakpoint, || fault_case("int3", kill_reason::BREAKPOINT));
     // The kernel keeps no FPU or vector registers per thread, so the units are off:
     // an instruction that would have used them dies instead of reading what another
-    // process left in them.
-    r.run("K02", "an SSE instruction kills the process instead of sharing XMM registers", || {
-        fault_case("sse", kill_reason::INVALID_OPCODE)
-    });
-    r.run("K02", "an x87 instruction kills the process (no FPU for user space)", || {
-        fault_case("x87", kill_reason::NO_FPU)
-    });
-    r.run("K02", "TF set before syscall: kernel survives the ring-0 #DB, process is terminated", || {
-        fault_case("tf_syscall", kill_reason::DEBUG)
-    });
+    // process left in them. On AArch64 both are the one trapped FP/SIMD unit.
+    if AARCH64 {
+        r.run("K02", "a SIMD instruction kills the process instead of sharing V registers", || {
+            fault_case("sse", kill_reason::NO_FPU)
+        });
+        r.run("K02", "an FP instruction kills the process (no FPU for user space)", || {
+            fault_case("x87", kill_reason::NO_FPU)
+        });
+    } else {
+        r.run("K02", "an SSE instruction kills the process instead of sharing XMM registers", || {
+            fault_case("sse", kill_reason::INVALID_OPCODE)
+        });
+        r.run("K02", "an x87 instruction kills the process (no FPU for user space)", || {
+            fault_case("x87", kill_reason::NO_FPU)
+        });
+    }
+    r.run_if(
+        !AARCH64,
+        "single-step is an EL1 debug feature: nothing to try from EL0 on AArch64",
+        "K02",
+        "TF set before syscall: kernel survives the ring-0 #DB, process is terminated",
+        || fault_case("tf_syscall", kill_reason::DEBUG),
+    );
     r.run("K02", "jump to a kernel address kills the process (page fault)", || {
         fault_case("kernel_rip_jump", kill_reason::PAGE_FAULT)
     });
@@ -2727,45 +2756,51 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         Ok(())
     });
 
-    r.run("U01", "a key press reaches user space through IRQ 1 and the decoder", || {
-        // Nothing else in an automated run proves the keyboard works: the two typed
-        // scenarios need a harness to press keys, and no machine in the compatibility
-        // matrix has anybody sitting at it. The controller can be told to deliver a
-        // key press itself, which exercises the whole path -- 8042, IRQ 1, the drain,
-        // the decoder, the ring -- exactly as a finger would.
-        let mut buf = [0u8; 32];
-        for _ in 0..64 {
-            match sys::console_read(ROOT, &mut buf) {
-                Ok(0) => break,
-                Ok(_) | Err(Error::DataLoss) => {}
-                Err(e) => return Err(alloc::format!("draining the console: {e}")),
-            }
-        }
-        sys::debug(ROOT, debug_op::PS2_INJECT).map_err(|e| alloc::format!("inject: {e}"))?;
-        // The interrupt is delivered by the machine, not by this process, so the byte
-        // may not be queued by the time the syscall returns.
-        for attempt in 0..50 {
-            match sys::console_read(ROOT, &mut buf) {
-                Ok(0) | Err(Error::DataLoss) => {}
-                Ok(n) => {
-                    if buf[..n] != [PS2_INJECT_CHAR] {
-                        return Err(alloc::format!(
-                            "keyboard delivered {:?}, expected {:?}",
-                            &buf[..n],
-                            [PS2_INJECT_CHAR]
-                        ));
-                    }
-                    return Ok(());
+    r.run_if(
+        !AARCH64,
+        "no PS/2 keyboard controller on AArch64",
+        "U01",
+        "a key press reaches user space through IRQ 1 and the decoder",
+        || {
+            // Nothing else in an automated run proves the keyboard works: the two typed
+            // scenarios need a harness to press keys, and no machine in the compatibility
+            // matrix has anybody sitting at it. The controller can be told to deliver a
+            // key press itself, which exercises the whole path -- 8042, IRQ 1, the drain,
+            // the decoder, the ring -- exactly as a finger would.
+            let mut buf = [0u8; 32];
+            for _ in 0..64 {
+                match sys::console_read(ROOT, &mut buf) {
+                    Ok(0) => break,
+                    Ok(_) | Err(Error::DataLoss) => {}
+                    Err(e) => return Err(alloc::format!("draining the console: {e}")),
                 }
-                Err(e) => return Err(alloc::format!("console_read: {e}")),
             }
-            if attempt == 49 {
-                return Err(String::from("no key press arrived from the PS/2 controller"));
+            sys::debug(ROOT, debug_op::PS2_INJECT).map_err(|e| alloc::format!("inject: {e}"))?;
+            // The interrupt is delivered by the machine, not by this process, so the byte
+            // may not be queued by the time the syscall returns.
+            for attempt in 0..50 {
+                match sys::console_read(ROOT, &mut buf) {
+                    Ok(0) | Err(Error::DataLoss) => {}
+                    Ok(n) => {
+                        if buf[..n] != [PS2_INJECT_CHAR] {
+                            return Err(alloc::format!(
+                                "keyboard delivered {:?}, expected {:?}",
+                                &buf[..n],
+                                [PS2_INJECT_CHAR]
+                            ));
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => return Err(alloc::format!("console_read: {e}")),
+                }
+                if attempt == 49 {
+                    return Err(String::from("no key press arrived from the PS/2 controller"));
+                }
+                sys::sleep_ms(10);
             }
-            sys::sleep_ms(10);
-        }
-        Ok(())
-    });
+            Ok(())
+        },
+    );
 
     r.run("U01", "input lost to a full buffer is reported before the bytes that survived", || {
         // Start from an empty ring so the flood is the only thing in it. Anything

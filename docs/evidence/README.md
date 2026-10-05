@@ -1,4 +1,4 @@
-# Bukti uji (sesi verifikasi 2026-09-16; diperbarui 2026-09-30 dengan desktop, Agent Center, Command Center, SMP disk SATA/NVMe, kartu Intel e1000 dan recovery)
+# Bukti uji (sesi verifikasi 2026-09-16; diperbarui 2026-09-30 dengan desktop, Agent Center, Command Center, SMP disk SATA/NVMe, kartu Intel e1000 dan recovery, dan 2026-10-05 dengan ARM64)
 
 Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boots 100`, dibersihkan dari escape ANSI OVMF. Semua berasal dari profil ADR-0003 (QEMU TCG); bukan performa perangkat fisik.
 
@@ -27,6 +27,8 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 | `compat-e1000.log` | kartu jaringan Intel 82540EM alih-alih virtio-net (ADR-0026) | `virtio-net: no device present`, `e1000: 00:04.0 (device 100e) ready, mac 52:54:00:12:34:56, link up`, seluruh uji `NET`, `TLS` dan `I01` lulus lewat kartu itu, TCP diperiksa di pcap |
 | `compat-virtio-small-queue.log` | virtio-blk dengan `queue-size=4` | antrean hasil negosiasi 4 deskriptor, 2 halaman data per permintaan, FAT32 tetap ter-mount |
 | `compat-no-vga.log` | mesin tanpa VGA (tanpa GOP) | `framebuffer: none usable; serial console only`, keenam uji yang membutuhkan layar (termasuk Agent Center dan Command Center) dilewati dengan alasan, `ALL TESTS PASSED (111/111, 6 skipped)` |
+| `arm64-acceptance.log` | **AArch64** (ADR-0028): kernel, bootloader dan semua program dibangun untuk AArch64, di-boot di QEMU `virt` (GICv3, Cortex-A72, 4 CPU tercantum) dengan AAVMF | `ALL TESTS PASSED (107/107, 10 skipped)`, exit semihosting 33: ECAM, GICv3, timer generik 62,5 MHz, konsol PL011 dengan interrupt, volume data di virtio-blk kedua, K02 (abort, `udf`, akses DAIF dari EL0, `brk`, SIMD/FP → no FPU), K03, D01, A01 (`128 tokens … matching the pinned baseline`, baseline yang sama dengan x86-64), TLS 8/8, I01 11/11, TCP diperiksa di pcap. Dilewati dengan alasan: desktop dan keyboard (tanpa framebuffer/PS/2 di `virt`), uji paralel (satu CPU), pembagian dengan nol dan TF (tidak ada di AArch64) |
+| `arm64-poweroff.log` | AArch64 dengan `shutdown=acpi`: shutdown di akhir suite tanpa semihosting | `power: PSCI SYSTEM_OFF through HVC` saat boot, `switching off through PSCI SYSTEM_OFF` di akhir; QEMU dimatikan dan keluar dengan 0 |
 | `soak-summary.txt` | 100 cold boot skenario acceptance pada build lengkap tahap 5 (K01) | lihat isi file; setiap boot memuat model dari disk, memverifikasi checksum, dan menghasilkan 128 token |
 
 ## Lingkungan host
@@ -35,8 +37,9 @@ Log serial guest yang dihasilkan `cargo xtask test` dan `cargo xtask soak --boot
 |---|---|
 | Host OS | Ubuntu 24.04.4 LTS (container, tanpa KVM → TCG) |
 | QEMU | 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18) |
-| OVMF | 2024.02-2ubuntu0.9 (`OVMF_CODE_4M.fd`) |
-| Rust | 1.94.1 (e408947bf 2026-03-25), target `x86_64-unknown-none`, `x86_64-unknown-uefi` |
-| Profil QEMU | q35, TCG, 4 vCPU `qemu64`, 8 GiB, AHCI, `isa-debug-exit` (acuan; variasi lain ada di `compat-summary.txt`) |
+| OVMF | 2024.02-2ubuntu0.10 (`OVMF_CODE_4M.fd`; sampai 2026-10-05 sesi memakai 2024.02-2ubuntu0.9) |
+| AAVMF | 2024.02-2ubuntu0.10 (`qemu-efi-aarch64`, `AAVMF_CODE.fd`) |
+| Rust | 1.94.1 (e408947bf 2026-03-25), target `x86_64-unknown-none`, `x86_64-unknown-uefi`, `aarch64-unknown-none-softfloat`, `aarch64-unknown-uefi` |
+| Profil QEMU | q35, TCG, 4 vCPU `qemu64`, 8 GiB, AHCI, `isa-debug-exit` (acuan; variasi lain ada di `compat-summary.txt`); AArch64: `virt,gic-version=3`, TCG, Cortex-A72, 4 CPU tercantum, 4 GiB, virtio-blk PCIe untuk disk boot dan data, semihosting |
 
 Untuk mereproduksi: `cargo xtask test`, `cargo xtask compat`, lalu `cargo xtask soak --boots 100`; log baru ada di `build/logs/`.

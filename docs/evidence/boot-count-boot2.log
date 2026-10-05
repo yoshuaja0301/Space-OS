@@ -2,18 +2,18 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 381696 bytes, initrd 3991552 bytes, config 91 bytes
-spaceboot: kernel 3 segments, 372 KiB at phys 0x7d524000, entry 0xffffffff80123454
+spaceboot: kernel 377600 bytes, initrd 3991552 bytes, config 91 bytes
+spaceboot: kernel 3 segments, 368 KiB at phys 0x7d524000, entry 0xffffffff8012456c
 spaceboot: 0 boot(s) since the system last came up
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 3991552 bytes, cmdline 18 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 38 memory regions, initrd 3991552 bytes, cmdline 18 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] cpu: x87/SSE/AVX off for user space (no per-thread FPU state); RDRAND absent
-[kernel] frames: 2094327 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094328 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -57,21 +57,21 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
 [kernel] virtio-blk: ready, 64 MiB (131072 sectors)
 [kernel] ahci: 00:1f.2 port 0: "QEMU HARDDISK", 64 MiB, AHCI 1.0
-[kernel] block: virtio-blk (64 MiB) holds the data volume (the whole disk)
+[kernel] block: virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk)
 [kernel] block: AHCI 00:1f.2 port 0 (64 MiB): MBR with 1 partition(s), none labelled SPACEDATA; not used
 [kernel] virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
 [kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
 [kernel] entropy: virtio-rng
-[kernel] vfs: FAT32 mounted from virtio-blk (512 byte clusters, 64 MiB volume)
+[kernel] vfs: FAT32 mounted from virtio-blk 00:02.0 (512 byte clusters, 64 MiB volume)
 [kernel] vfs: volume is writable
 [kernel] pic remapped to vectors 32..47
 [kernel] console input: keyboard (IRQ1) and COM2 serial (IRQ3)
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791220073 s since the Unix epoch (UTC)
+[kernel] rtc: 1791226617 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (620300 counts)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (616020 counts)
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400f3c, 25 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spaceterm
@@ -88,4 +88,4 @@ quit
 [shell] session closed after 2 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 180 ms, 81 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 133 ms, 33 context switches)

@@ -1,6 +1,6 @@
 [package]
 name = "spaceboot"
-description = "Space OS UEFI bootloader (x86_64-unknown-uefi)"
+description = "Space OS UEFI bootloader (x86_64-unknown-uefi, aarch64-unknown-uefi)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,4 +13,6 @@ bench = false
 [dependencies]
 spaceabi.workspace = true
 uefi.workspace = true
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
 x86_64.workspace = true

@@ -11,7 +11,7 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use x86_64::instructions::interrupts;
+use crate::arch;
 
 /// Spins before a wait on another CPU counts as a deadlock (several seconds).
 const SPINS_MAX: u64 = 1 << 32;
@@ -38,8 +38,8 @@ impl<T> SpinLock<T> {
     }
 
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        let reenable_irq = interrupts::are_enabled();
-        interrupts::disable();
+        let reenable_irq = arch::interrupts_enabled();
+        arch::disable_interrupts();
         let me = crate::arch::percpu::index() as u32 + 1;
         if self.owner.load(Ordering::Relaxed) == me {
             // Only this CPU writes its own number here, and it clears it before
@@ -61,14 +61,14 @@ impl<T> SpinLock<T> {
 
     /// Acquire only if free (used on the panic path to avoid self-deadlock).
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
-        let reenable_irq = interrupts::are_enabled();
-        interrupts::disable();
+        let reenable_irq = arch::interrupts_enabled();
+        arch::disable_interrupts();
         if self.locked.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
             self.owner.store(crate::arch::percpu::index() as u32 + 1, Ordering::Relaxed);
             Some(SpinLockGuard { lock: self, reenable_irq })
         } else {
             if reenable_irq {
-                interrupts::enable();
+                arch::enable_interrupts();
             }
             None
         }
@@ -104,7 +104,7 @@ impl<T> Drop for SpinLockGuard<'_, T> {
         self.lock.owner.store(0, Ordering::Relaxed);
         self.lock.locked.store(false, Ordering::Release);
         if self.reenable_irq {
-            interrupts::enable();
+            arch::enable_interrupts();
         }
     }
 }
@@ -137,11 +137,11 @@ impl<T> StaticCell<T> {
 
 /// Run `f` with interrupts disabled, restoring the previous state afterwards.
 pub fn without_interrupts<R>(f: impl FnOnce() -> R) -> R {
-    let was = interrupts::are_enabled();
-    interrupts::disable();
+    let was = arch::interrupts_enabled();
+    arch::disable_interrupts();
     let r = f();
     if was {
-        interrupts::enable();
+        arch::enable_interrupts();
     }
     r
 }

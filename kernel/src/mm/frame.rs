@@ -130,6 +130,7 @@ const LOW_LIMIT_FRAME: usize = (0x10_0000 / PAGE_SIZE) as usize;
 static LOW: SpinLock<[Option<PhysFrame>; LOW_FRAMES]> = SpinLock::new([None; LOW_FRAMES]);
 
 /// One of the frames kept below 1 MiB, if the memory map had any to keep.
+#[cfg(target_arch = "x86_64")]
 pub fn take_low() -> Option<PhysFrame> {
     LOW.lock().iter_mut().find_map(Option::take)
 }
@@ -184,6 +185,11 @@ pub fn free(frame: PhysFrame) {
     if idx < b.hint {
         b.hint = idx;
     }
+}
+
+/// [`free`] by physical address.
+pub fn free_phys(pa: u64) {
+    free(PhysFrame::containing_address(PhysAddr::new(pa)));
 }
 
 /// `(usable, free)` frame counts.

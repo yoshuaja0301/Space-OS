@@ -1,6 +1,6 @@
 [package]
 name = "spacekernel"
-description = "Space OS microkernel (x86_64-unknown-none)"
+description = "Space OS microkernel (x86_64-unknown-none, aarch64-unknown-none-softfloat)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

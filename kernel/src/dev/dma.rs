@@ -1,9 +1,12 @@
 //! Memory a device reads and writes directly.
 //!
 //! One 4 KiB frame from the frame allocator, zeroed, reached by the CPU through the
-//! linear map. x86 keeps DMA coherent with the caches, so the write-back linear map
-//! is fine for it; drivers still order their descriptor writes with fences before
-//! telling the device.
+//! linear map. x86 keeps DMA coherent with the caches, and so do the AArch64
+//! machines the kernel supports (PCIe on QEMU `virt`, server-class SoCs), so the
+//! write-back linear map is fine for it; drivers still order their descriptor
+//! writes before telling the device (`arch::dma_mb` and friends: a fence on
+//! x86-64, a system-wide barrier on AArch64). A SoC whose DMA does not snoop the
+//! caches would need cache maintenance here, which the kernel does not do (ADR-0028).
 
 use spaceabi::error::Error;
 

@@ -45,6 +45,12 @@ pub fn init() {
 
 /// The time-stamp counter: a count that only goes up, at a rate this kernel does
 /// not measure. Every x86_64 CPU has one.
+/// Counts of [`timestamp`] per millisecond, for device waits: an upper bound, as the
+/// TSC rate is not known this early (see `dev::wait`).
+pub fn counts_per_ms() -> u64 {
+    5_000_000
+}
+
 pub fn timestamp() -> u64 {
     // SAFETY: RDTSC reads a counter and has no other effect.
     unsafe { core::arch::x86_64::_rdtsc() }

@@ -5,8 +5,6 @@
 //! The block driver predates this module and keeps its own copy of the transport
 //! code; new drivers use this one.
 
-use core::sync::atomic::{Ordering, fence};
-
 use spaceabi::error::Error;
 use x86_64::structures::paging::PhysFrame;
 
@@ -271,11 +269,11 @@ impl SplitQueue {
         unsafe {
             core::ptr::write_volatile((self.page.virt + self.avail_off + 4 + slot * 2) as *mut u16, head);
             // The entry must be visible before the index that publishes it.
-            fence(Ordering::SeqCst);
+            crate::arch::dma_mb();
             self.avail_idx = self.avail_idx.wrapping_add(1);
             core::ptr::write_volatile((self.page.virt + self.avail_off + 2) as *mut u16, self.avail_idx);
         }
-        fence(Ordering::SeqCst);
+        crate::arch::dma_mb();
     }
 
     /// Tell the device there is new work on this queue.
@@ -284,7 +282,7 @@ impl SplitQueue {
     }
 
     fn used_idx(&self) -> u16 {
-        fence(Ordering::SeqCst);
+        crate::arch::dma_mb();
         // SAFETY: used ring index inside the queue page.
         unsafe { core::ptr::read_volatile((self.page.virt + self.used_off + 2) as *const u16) }
     }
