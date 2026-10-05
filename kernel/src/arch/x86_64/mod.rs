@@ -1,5 +1,6 @@
 pub(crate) use crate::acpi;
 pub mod apic;
+pub mod clock;
 pub mod context;
 pub mod cpu;
 pub mod gdt;

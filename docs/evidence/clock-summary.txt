@@ -1,0 +1,32 @@
+# Jam guest terhadap jam host (ADR-0029) — sesi verifikasi 2026-10-05
+
+## Sebelum: waktu = jumlah interrupt tick (run stress 8 jam pada b781c79, dihentikan di putaran 233)
+
+Kolom pertama adalah waktu host sejak QEMU mulai (cap waktu harness); angka di baris adalah
+uptime guest sendiri. Rasio dihitung dari putaran 2, saat guest mulai menghitung run-nya.
+
+  00:00:50 pass 2 starting, 34 s into the run
+  00:38:48 pass 50 starting, 1656 s into the run    -> 71.2 % dari host sejak putaran 2
+  01:18:23 pass 100 starting, 3333 s into the run    -> 70.9 % dari host sejak putaran 2
+  01:57:24 pass 150 starting, 4980 s into the run    -> 70.7 % dari host sejak putaran 2
+  02:36:43 pass 200 starting, 6623 s into the run    -> 70.4 % dari host sejak putaran 2
+  03:02:34 pass 233 starting, 7697 s into the run    -> 70.3 % dari host sejak putaran 2
+
+Run fa734f5 sebelumnya: putaran 10 pada 310 s guest / 431 s host, putaran 35 pada 1164 s / 1632 s (0,71).
+Dengan laju itu guest baru mencapai 480 menitnya pada jam ke-11,4 host; harness memotong pada 8 jam 20 menit.
+
+## Sesudah: waktu dari counter (timer ACPI PM di x86-64, CNTVCT_EL0 di AArch64)
+
+Stress 12 menit (cargo xtask stress --minutes 12) — host sekaligus menjalankan clippy dan uji unit:
+  [stress] done: 21 passes in 12.2 min, 2457 tests passed, 126 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 2087568, peak kernel heap 45552 bytes
+  passes: 21 (21 ok), 2457 tests passed; 0.2 h of guest time; a pass took 33.4-36.4 s, 34.9 s on average
+  clock: 662 s of guest time against 662 s of host time from pass 1 to pass 20 (100.00 %)
+  verdict: passed
+
+Kernel x86-64 (build/logs/acceptance.log) dan AArch64 (build/logs/arm64-acceptance.log):
+  [kernel] pit: 1000 Hz (divisor 1193)
+  [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
+  [kernel] timer: generic timer at 62500000 Hz, 1000 Hz tick (virtual timer, INTID 27)
+  [kernel] clock: generic timer count at 62500000 Hz, 64 bits
+
+Setiap mesin compat menuntut baris itu (cargo xtask compat, 15/15 lulus); lihat baris jam di compat-summary.txt.

@@ -169,6 +169,12 @@ berlangsung berjam-jam sementara pengembangan jalan terus:
   alamat kernel ditolak, dan handle tanpa `STATS` ditolak. Skenario `acceptance` kini boot dengan
   `init=bin/init` (bawaan yang diucapkan), dan uji memeriksa bahwa program yang disebut `init=`
   memang yang sedang berjalan.
+- *Jam yang tertinggal.* Run delapan jam pada `b781c79` dihentikan di putaran 233 setelah 3 jam
+  2 menit di host, tanpa satu pun kegagalan: guest menghitung waktu dari interrupt tick, di bawah
+  TCG tiga dari sepuluh tick hilang, dan jam guest berjalan 0,70 kali jam host. Guest tidak akan
+  mencapai 480 menitnya sebelum harness memotong pada 8 jam 20 menit. Kini waktu diambil dari
+  counter (ADR-0029), dan harness menilai jam guest terhadap jam host di setiap run stress (beda
+  lebih dari 2 % menggagalkan run).
 
 **7. Versi pendeknya ikut di setiap run uji.** Skenario `stress` (`stress=2`) masuk ke
 `cargo xtask test`: dua putaran penuh plus chaos, memori kembali tepat ke putaran 1. Kebocoran

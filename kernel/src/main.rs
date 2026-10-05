@@ -17,6 +17,7 @@ mod console;
 
 mod acpi;
 mod arch;
+mod clock;
 mod cmdline;
 mod dev;
 mod fb;
@@ -87,6 +88,7 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     dev::init();
     fs::init();
     arch::init_platform(bi, sched::TICK_HZ);
+    clock::init(bi.rsdp);
     sched::init(top);
     arch::rtc::init(sched::uptime_ms());
     selftest::run_early();

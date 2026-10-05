@@ -176,7 +176,8 @@ static SCHED: SpinLock<Scheduler> = SpinLock::new(Scheduler {
     live_threads: 0,
 });
 
-/// PIT ticks since boot, counted by the boot CPU.
+/// Ticks since boot: as many as the clock's counter says went by (`crate::clock`), or
+/// the boot CPU's tick interrupts counted where there is no counter.
 static TICKS: AtomicU64 = AtomicU64::new(0);
 /// Bit `i` set while CPU `i` runs its idle thread (changed under the scheduler lock).
 static IDLE_CPUS: AtomicU64 = AtomicU64::new(0);
@@ -514,6 +515,20 @@ pub fn remove_sleeper(t: &Arc<Thread>) {
     drop(gone);
 }
 
+/// The boot CPU's tick, under the scheduler lock: the tick count catches up with the
+/// clock's counter -- ticks that came late or merged cost no time -- and never goes
+/// back. Without a counter, one more tick.
+fn advance_ticks() -> u64 {
+    match crate::clock::ticks(u64::from(TICK_HZ)) {
+        Some(by_counter) => {
+            let now = by_counter.max(TICKS.load(Ordering::Relaxed));
+            TICKS.store(now, Ordering::Relaxed);
+            now
+        }
+        None => TICKS.fetch_add(1, Ordering::Relaxed) + 1,
+    }
+}
+
 /// Called from a timer interrupt with interrupts disabled: the PIT on the boot CPU,
 /// the local APIC timer on the others.
 pub fn timer_tick() {
@@ -523,7 +538,7 @@ pub fn timer_tick() {
     let need_resched = {
         let mut s = SCHED.lock();
         if cpu == 0 {
-            let now = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
+            let now = advance_ticks();
             let mut i = 0;
             while i < s.sleepers.len() {
                 if s.sleepers[i].0 <= now {

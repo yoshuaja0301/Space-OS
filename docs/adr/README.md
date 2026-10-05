@@ -32,3 +32,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0026](0026-e1000.md) | Kartu jaringan Intel e1000 di balik lease yang sama | Diterima |
 | [0027](0027-recovery-install.md) | Recovery yang dipilih bootloader, hitungan boot, dan satu disk untuk dipasang | Diterima |
 | [0028](0028-aarch64.md) | AArch64: kernel yang sama di mesin ARM | Diterima |
+| [0029](0029-clock.md) | Waktu dari counter (timer ACPI PM, generic timer), bukan dari hitungan tick | Diterima |

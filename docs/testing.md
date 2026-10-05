@@ -363,7 +363,7 @@ tata letak pesan jaringan tanpa padding implisit, pencocokan allowlist, codec DN
 (kueri, jawaban, rantai CNAME, pointer kompresi yang bermusuhan) — dan `xtask`
 sendiri, termasuk server DNS lab, analisis pcap (port yang dipakai ulang adalah koneksi
 baru, dan koneksi kedua yang mengabaikan FIN tetap tertangkap; koneksi yang ditinggalkan layanan
-yang dibunuh dibedakan dari FIN yang diabaikan koneksi hidup atau koneksi yang sudah ditutup guest) dan pembaca baris putaran stress.
+yang dibunuh dibedakan dari FIN yang diabaikan koneksi hidup atau koneksi yang sudah ditutup guest), pembaca baris putaran stress, dan pemeriksaan jam stress (angka run `b781c79` yang jamnya berjalan 70 % gagal, jam dalam 2 % lulus, rentang di bawah sepuluh menit tidak dinilai).
 
 ## Selftest kernel (sebelum user-space)
 
@@ -392,15 +392,16 @@ serta layanan lab yang hidup setiap 60 detik, lalu menulis ke `build/stress/`:
 | Berkas | Isi |
 |---|---|
 | `stress.log`, `stress.lab.log`, `stress.pcap` | log serial lengkap, log layanan lab, rekaman jaringan |
-| `summary.txt` | catatan guest sendiri, putaran, memori setelah setiap putaran dan terendah/tertinggi selama run, TCP, lab, host, putusan |
+| `summary.txt` | catatan guest sendiri, putaran, memori setelah setiap putaran dan terendah/tertinggi selama run, jam guest terhadap jam host, TCP, lab, host, putusan |
 | `memory.csv` | satu baris per putaran: lulus/total, detik, dan kesembilan angka memori |
 
 Run gagal bila: kode keluar bukan 33, guest tidak menulis `STRESS PASSED`, log memuat `KERNEL PANIC`,
 `[init] FAIL`, `LEAK` atau `[churn]`, layanan lab menulis salah satu baris terlarang (kredensial
 bocor, percobaan keempat, aliran yang tidak dihentikan, ask yang seharusnya ditolak sampai ke
 penyedia), angka memori putaran mana pun berbeda dari putaran 1, atau guest berjalan kurang dari
-waktu yang diminta, atau FIN peer tidak dijawab di koneksi yang masih hidup — aturan yang sama
-dengan setiap skenario lain. Koneksi yang ditinggalkan `spacenet` yang dibunuh dilaporkan tetapi
+waktu yang diminta, jam guest berbeda lebih dari 2 % dari jam host antara putaran pertama dan
+terakhir (rentang ≥ 10 menit; ADR-0029), atau FIN peer tidak dijawab di koneksi yang masih hidup —
+aturan yang sama dengan setiap skenario lain. Koneksi yang ditinggalkan `spacenet` yang dibunuh dilaporkan tetapi
 tidak menggagalkan; koneksi itu memang berakhir begitu.
 
 ## Soak K01

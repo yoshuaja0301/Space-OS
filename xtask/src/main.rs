@@ -2104,6 +2104,8 @@ const SCENARIOS: &[Scenario] = &[
             "[kernel] entropy: virtio-rng",
             "[init] entropy: available",
             "[kernel] rtc:",
+            // Time from a counter, not from counting ticks (ADR-0029).
+            "[kernel] clock: ACPI PM timer at 3579545 Hz",
             "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",
             "[init] PASS NET: a frame arriving while the receiver sleeps wakes it",
@@ -2694,6 +2696,7 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[kernel] pci: ECAM at",
             "[kernel] gic: GICv3 distributor at",
             "[kernel] timer: generic timer at",
+            "[kernel] clock: generic timer count at",
             "[kernel] console input: PL011 UART (INTID",
             "[kernel] power: PSCI SYSTEM_OFF through",
             "[kernel] smp: 4 CPUs online (boot CPU MPIDR 0x0; started 0x1 0x2 0x3), GICv3",
@@ -2828,8 +2831,14 @@ fn cmd_arm64(release: bool, only: Option<&str>) -> Result<(), String> {
 /// transitional virtio device, no disk, no display) and checks that the same image
 /// still reaches the end - degrading where hardware is missing, never crashing.
 fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
-    const COMMON: &[&str] =
-        &["[kernel] selftest: heap ok", "[init] Space OS init running", "[init] ALL TESTS PASSED"];
+    // Every machine keeps time with the PM timer (ADR-0029): i440fx's PIIX4 and q35's ICH9
+    // both have one, at the port their own FADT names.
+    const COMMON: &[&str] = &[
+        "[kernel] selftest: heap ok",
+        "[kernel] clock: ACPI PM timer at 3579545 Hz",
+        "[init] Space OS init running",
+        "[init] ALL TESTS PASSED",
+    ];
     const FORBIDDEN: &[&str] = &["KERNEL PANIC", "[init] FAIL", "TESTS FAILED"];
 
     if let Some(name) = only
@@ -3016,9 +3025,16 @@ fn cmd_stress(minutes: u64, release: bool) -> Result<(), String> {
         log_path.with_extension("lab.log").display()
     );
     let t0 = Instant::now();
+    // The guest's uptime at each pass line, and when the host saw it.
+    let mut clock: Option<ClockSpan> = None;
     let mut progress = |line: &str| {
         let t = t0.elapsed().as_secs();
         let stamp = format!("{:02}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60);
+        if let Some(p) = parse_pass_line(line) {
+            let mark =
+                ClockMark { pass: p.pass, host_ms: t0.elapsed().as_millis() as u64, guest_ms: p.figures[8] };
+            clock.get_or_insert(ClockSpan { first: mark, last: mark }).last = mark;
+        }
         if let Some(rest) = line.strip_prefix("[stress] ") {
             // The pass line ends in its figures; the harness keeps those for the CSV.
             println!("{stamp} {}", rest.split(" frames_free=").next().unwrap_or(rest));
@@ -3048,7 +3064,7 @@ fn cmd_stress(minutes: u64, release: bool) -> Result<(), String> {
             host: Some((Duration::from_secs(60), exe)),
         },
     )?;
-    let (summary, csv, problems) = stress_report(&run, minutes);
+    let (summary, csv, problems) = stress_report(&run, minutes, clock);
     fs::write(dir.join("summary.txt"), &summary).map_err(|e| e.to_string())?;
     fs::write(dir.join("memory.csv"), &csv).map_err(|e| e.to_string())?;
     println!("{summary}");
@@ -3109,8 +3125,57 @@ fn parse_pass_line(line: &str) -> Option<PassLine> {
     Some(PassLine { pass, ok, passed: passed.parse().ok()?, total: total.parse().ok()?, seconds, figures })
 }
 
+/// The guest's uptime at a pass line, and the host's time when it saw the line.
+#[derive(Clone, Copy)]
+struct ClockMark {
+    pass: u64,
+    host_ms: u64,
+    guest_ms: u64,
+}
+
+/// The first and the last pass line of a run.
+#[derive(Clone, Copy)]
+struct ClockSpan {
+    first: ClockMark,
+    last: ClockMark,
+}
+
+/// How far the guest's clock may stray from the host's (ADR-0029). It reads a
+/// counter that runs with the host's time, so it should not stray at all; the margin
+/// is for the moments the host takes to see a line.
+const CLOCK_TOLERANCE: f64 = 0.02;
+
+/// The guest's clock against the host's over a run: the summary's line, and a
+/// problem when they disagree. Spans under ten minutes are too short to judge.
+fn clock_check(span: ClockSpan) -> (Option<String>, Option<String>) {
+    let (f, l) = (span.first, span.last);
+    let host = l.host_ms.saturating_sub(f.host_ms);
+    if host < 600_000 {
+        return (None, None);
+    }
+    let guest = l.guest_ms.saturating_sub(f.guest_ms);
+    let ratio = guest as f64 / host as f64;
+    let line = format!(
+        "clock: {:.0} s of guest time against {:.0} s of host time from pass {} to pass {} ({:.2} %)\n",
+        guest as f64 / 1000.0,
+        host as f64 / 1000.0,
+        f.pass,
+        l.pass,
+        ratio * 100.0
+    );
+    let problem = ((ratio - 1.0).abs() > CLOCK_TOLERANCE).then(|| {
+        format!(
+            "the guest's clock ran at {:.1} % of the host's from pass {} to pass {}",
+            ratio * 100.0,
+            f.pass,
+            l.pass
+        )
+    });
+    (Some(line), problem)
+}
+
 /// The run's record: a summary for people, one CSV row per pass, and what failed.
-fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
+fn stress_report(run: &QemuRun, minutes: u64, clock: Option<ClockSpan>) -> (String, String, Vec<String>) {
     let mut problems = Vec::new();
     if run.timed_out {
         problems.push(format!("timed out after {:?}", run.elapsed));
@@ -3171,6 +3236,8 @@ fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
     if guest_minutes < minutes as f64 {
         problems.push(format!("the guest ran {guest_minutes:.1} of {minutes} minutes"));
     }
+    let (clock_line, clock_problem) = clock.map_or((None, None), clock_check);
+    problems.extend(clock_problem);
     let mut out = String::new();
     let done =
         run.log.lines().find(|l| l.starts_with("[stress] done:")).unwrap_or("[stress] done: (missing)");
@@ -3208,6 +3275,9 @@ fn stress_report(run: &QemuRun, minutes: u64) -> (String, String, Vec<String>) {
             lowest * 4 / 1024,
             f.figures[0].saturating_sub(lowest) * 4 / 1024
         ));
+    }
+    if let Some(line) = clock_line {
+        out.push_str(&line);
     }
     let killed = run
         .log
@@ -3557,5 +3627,34 @@ mod tests {
 
         assert!(parse_pass_line("[stress] pass 3 chaos: 6 killed after 357 ms").is_none());
         assert!(parse_pass_line("[stress] pass 3 starting, 60 s into the run").is_none());
+    }
+
+    /// The clock the stress run measured on b781c79, which counted tick interrupts:
+    /// pass 49 ended at 1656 s of guest time and 2328 s of host time, pass 226 at
+    /// 7532 s and 10718 s. That is a failed run; a clock within 2 % is not.
+    #[test]
+    fn clock_check_catches_a_slow_guest() {
+        let mark = |pass, host_s: u64, guest_s: u64| ClockMark {
+            pass,
+            host_ms: host_s * 1000,
+            guest_ms: guest_s * 1000,
+        };
+        let slow = ClockSpan { first: mark(49, 2328, 1656), last: mark(226, 10718, 7532) };
+        let (line, problem) = clock_check(slow);
+        assert!(line.expect("a summary line").contains("(70.04 %)"));
+        assert_eq!(
+            problem.as_deref(),
+            Some("the guest's clock ran at 70.0 % of the host's from pass 49 to pass 226")
+        );
+
+        let good = ClockSpan { first: mark(1, 40, 25), last: mark(700, 28_840, 28_820) };
+        let (line, problem) = clock_check(good);
+        assert!(line.is_some() && problem.is_none());
+        let fast = ClockSpan { first: mark(1, 40, 25), last: mark(700, 28_840, 29_500) };
+        assert!(clock_check(fast).1.is_some());
+
+        // Too short a span to tell 2 % from the time a line takes to arrive.
+        let short = ClockSpan { first: mark(1, 40, 25), last: mark(3, 100, 50) };
+        assert_eq!(clock_check(short), (None, None));
     }
 }

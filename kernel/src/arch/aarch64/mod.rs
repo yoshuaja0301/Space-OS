@@ -5,6 +5,7 @@
 //! trapped at EL1 and EL0 (`cpu::init`), for the same reason x86-64 switches x87 and
 //! SSE off: no FP state is kept per thread.
 
+pub mod clock;
 pub mod context;
 pub mod cpu;
 pub mod exceptions;

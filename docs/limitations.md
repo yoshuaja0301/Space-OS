@@ -15,7 +15,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Siklus referensi antar-channel (endpoint A dikirim lewat channel B dan endpoint B dikirim lewat channel A) tidak dideteksi dan bocor; siklus satu channel ditolak (`Invalid`).
 - NMI bersarang (NMI kedua saat handler NMI belum selesai) merusak frame di stack IST NMI.
 - Headroom heap kernel 1 MiB menolak alokasi yang dipicu user, tetapi fragmentasi ekstrem masih dapat membuat alokasi internal kernel gagal (panic).
-- Hanya **PIC + PIT**; belum ada ACPI/LAPIC/IOAPIC/HPET; RSDP hanya diteruskan.
+- IRQ perangkat hanya lewat **PIC** (belum IOAPIC atau MSI); tick CPU boot dari PIT, CPU lain dari timer local APIC. Waktu diambil dari **timer ACPI PM** (ADR-0029); mesin tanpa timer PM (ACPI "hardware-reduced") kembali menghitung interrupt tick, dan tick yang hilang di sana adalah waktu yang hilang. Belum HPET, belum TSC sebagai sumber waktu. Timer PM 24 bit berputar setiap 4,7 detik: CPU boot yang tidak menerima tick selama itu kehilangan satu putaran.
 - Linear map hanya memuat RAM dan framebuffer; MMIO perangkat dipetakan uncached on demand (ADR-0010). Framebuffer sendiri masih write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
 - Granularitas linear map 2 MiB: satu halaman besar yang sebagian RAM dan sebagian MMIO tetap dipetakan write-back seluruhnya. Pada q35/i440fx batas PCI hole sejajar 2 MiB sehingga tidak terjadi.
 - Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).
