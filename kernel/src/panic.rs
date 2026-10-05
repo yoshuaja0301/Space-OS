@@ -15,9 +15,8 @@ static PANICKING: AtomicBool = AtomicBool::new(false);
 /// The CPU that panicked first (the one writing the report).
 static PANIC_CPU: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-/// A panic is under way (the NMI that stops the other CPUs checks this). AArch64
-/// runs one CPU so far, and nothing there asks.
-#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+/// A panic is under way (the NMI -- on AArch64, the SGI -- that stops the other
+/// CPUs checks this).
 pub fn in_progress() -> bool {
     PANICKING.load(Ordering::SeqCst)
 }

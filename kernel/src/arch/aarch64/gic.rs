@@ -9,10 +9,16 @@
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use alloc::vec::Vec;
+
+use super::percpu;
+use crate::sync::SpinLock;
 use crate::{acpi, mm};
 
 /// The software-generated interrupt that tells a CPU to look at the run queue.
 pub const SGI_RESCHEDULE: u32 = 1;
+/// The one that stops a CPU while another panics.
+pub const SGI_HALT: u32 = 2;
 
 const GICD_CTLR: u64 = 0x0000;
 const GICD_TYPER: u64 = 0x0004;
@@ -34,8 +40,15 @@ const SGI_FRAME: u64 = 0x1_0000;
 const PRIORITY: u8 = 0xA0;
 
 static GICD: AtomicU64 = AtomicU64::new(0);
-/// This CPU's redistributor (control frame).
-static GICR: AtomicU64 = AtomicU64::new(0);
+/// Each CPU's redistributor (control frame), by CPU index.
+static GICR: [AtomicU64; percpu::MAX_CPUS] = [const { AtomicU64::new(0) }; percpu::MAX_CPUS];
+/// The mapped redistributor regions, (virtual base, length), for CPUs that start
+/// later to find their own in.
+static REGIONS: SpinLock<Vec<(u64, u64)>> = SpinLock::new(Vec::new());
+
+fn my_gicr() -> u64 {
+    GICR[percpu::index()].load(Ordering::Relaxed)
+}
 
 fn rd32(base: u64, off: u64) -> u32 {
     // SAFETY: `base` is a mapped GIC frame and `off` one of its registers.
@@ -73,13 +86,13 @@ struct Layout {
     gicd: u64,
     version: u8,
     /// Redistributor regions: (base, length).
-    gicr: alloc::vec::Vec<(u64, u64)>,
+    gicr: Vec<(u64, u64)>,
 }
 
 fn layout(rsdp: u64) -> Result<Layout, &'static str> {
     let madt = acpi::find(rsdp, b"APIC").map_err(|_| "no MADT")?;
-    let mut l = Layout { gicd: 0, version: 0, gicr: alloc::vec::Vec::new() };
-    let mut per_cpu = alloc::vec::Vec::new();
+    let mut l = Layout { gicd: 0, version: 0, gicr: Vec::new() };
+    let mut per_cpu = Vec::new();
     for (kind, e) in acpi::madt_entries(madt) {
         match kind {
             // GIC distributor: base at 8, version at 20.
@@ -117,28 +130,14 @@ pub fn init(rsdp: u64) -> Result<(), &'static str> {
     let l = layout(rsdp)?;
     let gicd = mm::mmio::map(l.gicd, 0x1_0000).map_err(|_| "cannot map the distributor")?;
     let me = affinity();
-    let mut mine = 0;
-    'regions: for &(base, len) in &l.gicr {
-        let virt = mm::mmio::map(base, len).map_err(|_| "cannot map the redistributors")?;
-        let mut at = 0;
-        while at + 0x2_0000 <= len {
-            let typer = rd64(virt, at + GICR_TYPER);
-            if typer >> 32 == me {
-                mine = virt + at;
-                break 'regions;
-            }
-            // VLPIS (bit 1) adds two frames; Last (bit 4) ends the region.
-            if typer & (1 << 4) != 0 {
-                break;
-            }
-            at += if typer & 2 != 0 { 0x4_0000 } else { 0x2_0000 };
+    {
+        let mut regions = REGIONS.lock();
+        for &(base, len) in &l.gicr {
+            let virt = mm::mmio::map(base, len).map_err(|_| "cannot map the redistributors")?;
+            regions.push((virt, len));
         }
     }
-    if mine == 0 {
-        return Err("no redistributor for this CPU");
-    }
     GICD.store(gicd, Ordering::Relaxed);
-    GICR.store(mine, Ordering::Relaxed);
 
     // Distributor: affinity routing and Group 1 on; every SPI masked, Group 1,
     // one priority.
@@ -158,9 +157,30 @@ pub fn init(rsdp: u64) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// This CPU's redistributor and CPU interface.
-fn init_cpu() -> Result<(), &'static str> {
-    let gicr = GICR.load(Ordering::Relaxed);
+/// This CPU's redistributor, found by its affinity in the mapped regions.
+fn find_redistributor() -> Option<u64> {
+    let me = affinity();
+    for &(virt, len) in REGIONS.lock().iter() {
+        let mut at = 0;
+        while at + 0x2_0000 <= len {
+            let typer = rd64(virt, at + GICR_TYPER);
+            if typer >> 32 == me {
+                return Some(virt + at);
+            }
+            // VLPIS (bit 1) adds two frames; Last (bit 4) ends the region.
+            if typer & (1 << 4) != 0 {
+                break;
+            }
+            at += if typer & 2 != 0 { 0x4_0000 } else { 0x2_0000 };
+        }
+    }
+    None
+}
+
+/// This CPU's redistributor and CPU interface: every CPU calls this once.
+pub fn init_cpu() -> Result<(), &'static str> {
+    let gicr = find_redistributor().ok_or("no redistributor for this CPU")?;
+    GICR[percpu::index()].store(gicr, Ordering::Relaxed);
     // Wake the redistributor: clear ProcessorSleep, wait for ChildrenAsleep to clear.
     wr32(gicr, GICR_WAKER, rd32(gicr, GICR_WAKER) & !(1 << 1));
     if !crate::dev::wait::until(100, || rd32(gicr, GICR_WAKER) & (1 << 2) == 0) {
@@ -171,6 +191,7 @@ fn init_cpu() -> Result<(), &'static str> {
     for i in 0..8 {
         wr32(sgi, GICD_IPRIORITYR + 4 * i, u32::from_ne_bytes([PRIORITY; 4]));
     }
+    wr32(sgi, GICD_ISENABLER, (1 << SGI_RESCHEDULE) | (1 << SGI_HALT));
     // SAFETY: the GICv3 CPU interface registers: system-register access on, every
     // priority let through, Group 1 on.
     unsafe {
@@ -199,7 +220,7 @@ pub fn enable(intid: u32, edge: bool) {
     let cfg_word = u64::from(intid / 16);
     let cfg_bit = (intid % 16) * 2 + 1;
     if intid < 32 {
-        let sgi = GICR.load(Ordering::Relaxed) + SGI_FRAME;
+        let sgi = my_gicr() + SGI_FRAME;
         let cfg = rd32(sgi, GICD_ICFGR + 4 * cfg_word);
         wr32(sgi, GICD_ICFGR + 4 * cfg_word, if edge { cfg | (1 << cfg_bit) } else { cfg & !(1 << cfg_bit) });
         wr32(sgi, GICD_ISENABLER, 1 << bit);
@@ -215,6 +236,29 @@ pub fn enable(intid: u32, edge: bool) {
     wr32(gicd, GICD_IGROUPR + 4 * word, rd32(gicd, GICD_IGROUPR + 4 * word) | (1 << bit));
     wr32(gicd, GICD_ISENABLER + 4 * word, 1 << bit);
     wait_rwp(gicd);
+}
+
+/// Send software-generated interrupt `intid` to the CPU with affinity `target`.
+pub fn send_sgi(intid: u32, target: u64) {
+    let (aff3, aff2, aff1, aff0) =
+        ((target >> 32) & 0xFF, (target >> 16) & 0xFF, (target >> 8) & 0xFF, target & 0xFF);
+    // ICC_SGI1R_EL1: Aff3 55:48, range selector 47:44, Aff2 39:32, INTID 27:24,
+    // Aff1 23:16, target list 15:0 (one bit per Aff0 within the range).
+    let v = (aff3 << 48)
+        | ((aff0 / 16) << 44)
+        | (aff2 << 32)
+        | (u64::from(intid) << 24)
+        | (aff1 << 16)
+        | (1 << (aff0 % 16));
+    // SAFETY: generating an SGI; the barrier makes earlier stores visible first.
+    unsafe { asm!("dsb ish", "msr icc_sgi1r_el1, {}", "isb", in(reg) v, options(nostack)) };
+}
+
+/// Send `intid` to every CPU but this one (IRM, bit 40).
+pub fn send_sgi_others(intid: u32) {
+    let v = (1u64 << 40) | (u64::from(intid) << 24);
+    // SAFETY: as above.
+    unsafe { asm!("dsb ish", "msr icc_sgi1r_el1, {}", "isb", in(reg) v, options(nostack)) };
 }
 
 /// The interrupt being signalled, acknowledged; `None` if it was spurious.

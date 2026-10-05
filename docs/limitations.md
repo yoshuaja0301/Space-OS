@@ -148,7 +148,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## AArch64 (ADR-0028)
 
 - Hanya diuji di QEMU `virt` (GICv3, Cortex-A72) dengan AAVMF; belum di papan fisik.
-- Satu CPU: CPU lain yang tercantum di MADT tetap diparkir firmware (PSCI `CPU_ON` belum dipakai).
+- IRQ perangkat (konsol PL011) hanya ke CPU boot; CPU lain dihentikan saat panic dengan SGI biasa, jadi CPU yang memegang spinlock dengan interrupt dimask berhenti setelah melepasnya (tanpa pseudo-NMI).
+- Model memori ARM lebih lemah dari x86: penjadwal menyerahkan thread antar-CPU hanya lewat spinlock, tetapi TCG di host x86 tidak memperlihatkan pengurutan ulang yang hanya terjadi di perangkat keras ARM.
 - Firmware harus berjalan di EL1 dan memakai indeks `MAIR_EL1` EDK2 (0 Device-nGnRnE, 3 write-back); firmware di EL2 — umum di papan fisik — ditolak bootloader dengan pesan. Hanya GICv3 (bukan GICv2).
 - Belum ada keyboard (tanpa PS/2; virtio-input dan USB belum ditulis) dan belum ada framebuffer di `virt` (`ramfb`/virtio-gpu belum): desktop dan uji keyboard dilewati. Masukan konsol hanya lewat UART PL011.
 - Pembagian dengan nol tidak menjebak di AArch64 dan single-step tidak bisa diminta dari EL0: dua uji K02 itu dilewati dengan alasan.

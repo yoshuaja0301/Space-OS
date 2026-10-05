@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 377600 bytes, initrd 3991552 bytes, config 86 bytes
-spaceboot: kernel 3 segments, 368 KiB at phys 0x7d526000, entry 0xffffffff8012456c
+spaceboot: kernel 3 segments, 368 KiB at phys 0x7d525000, entry 0xffffffff8012456c
 spaceboot: 3 boot(s) since the system last came up
 spaceboot: 3 boots in a row did not come up; starting recovery
 spaceboot: recovery (failed-boots)
@@ -71,14 +71,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791226606 s since the Unix epoch (UTC)
+[kernel] rtc: 1791227995 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (623360 counts)
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (621970 counts)
 [kernel] spawn pid 1 'bin/spacerecovery': entry=0x40429c, 30 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spacerecovery
-[recovery] Space OS recovery console: no model, no network and no AI needed
 [kernel] entering idle loop; scheduler live
+[recovery] Space OS recovery console: no model, no network and no AI needed
 [recovery] started because the boots before this one did not come up
 [recovery] ready; type 'help'
 recovery> status
@@ -105,4 +105,4 @@ recovery> check
 [recovery] check done: 0 problem(s)
 recovery> poweroff
 [recovery] powering off
-[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2509 ms, 231 context switches)
+[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2479 ms, 227 context switches)

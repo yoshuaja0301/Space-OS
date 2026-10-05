@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 377600 bytes, initrd 3991552 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 368 KiB at phys 0x7d537000, entry 0xffffffff8012456c
+spaceboot: kernel 3 segments, 368 KiB at phys 0x7d528000, entry 0xffffffff8012456c
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -68,14 +68,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791226553 s since the Unix epoch (UTC)
+[kernel] rtc: 1791227944 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (624530 counts)
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (617340 counts)
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400f3c, 25 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spaceterm
-[kernel] entering idle loop; scheduler live
 [term] Space OS interactive session
+[kernel] entering idle loop; scheduler live
 [kernel] spawn pid 2 'bin/spaceshell': entry=0x4037fc, 28 pages mapped, quota 256 pages
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0
@@ -113,7 +113,7 @@ space> stop
 [kernel] pid 3 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
 [shell] session: worker stopped (hang), commands served 7
-[shell] Stop: worker 'hang' was killed after 16 ms
+[shell] Stop: worker 'hang' was killed after 14 ms
 space> status
 [shell] worker stopped (hang), last exit code -1, commands served 8
 space> quit
@@ -121,4 +121,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5791 ms, 5632 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5726 ms, 5578 context switches)

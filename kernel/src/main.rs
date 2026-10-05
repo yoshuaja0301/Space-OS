@@ -91,10 +91,12 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     arch::rtc::init(sched::uptime_ms());
     selftest::run_early();
     selftest::run_cmdline_fault_injection();
+    // How to switch off comes first: on AArch64 the same firmware interface (PSCI)
+    // also starts the other processors.
+    arch::power::init(bi.rsdp);
     // The other processors join last: everything they use exists by now, and the
     // self-tests above ran with nobody else around.
     arch::smp::init(bi.rsdp);
-    arch::power::init(bi.rsdp);
 
     match proc::spawn_init() {
         Ok((p, name)) => println!("[kernel] init spawned as pid {} from {name}", p.pid),

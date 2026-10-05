@@ -1018,9 +1018,8 @@ const LAB: Machine = Machine {
     data_disk: DataDisk::Whole,
 };
 
-/// An AArch64 machine (ADR-0028): QEMU `virt` with a GICv3 and a Cortex-A72 (the
-/// core of a Raspberry Pi 4), booted by AAVMF, everything on PCIe. Four CPUs
-/// are listed; the kernel runs on the first.
+/// An AArch64 machine (ADR-0028): QEMU `virt` with a GICv3 and four Cortex-A72s
+/// (the core of a Raspberry Pi 4), booted by AAVMF, everything on PCIe.
 const ARM64_VIRT: Machine = Machine {
     name: "arm64-virt",
     arch: Arch::Aarch64,
@@ -2697,7 +2696,8 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[kernel] timer: generic timer at",
             "[kernel] console input: PL011 UART (INTID",
             "[kernel] power: PSCI SYSTEM_OFF through",
-            "[kernel] smp: running on the boot CPU only; 3 more listed stay parked",
+            "[kernel] smp: 4 CPUs online (boot CPU MPIDR 0x0; started 0x1 0x2 0x3), GICv3",
+            "[init] PASS K02: two processes run at the same time on different CPUs",
             "holds the data volume (the whole disk)",
             "[kernel] entropy: virtio-rng",
             "[init] PASS K02: write to kernel memory kills the process (page fault)",

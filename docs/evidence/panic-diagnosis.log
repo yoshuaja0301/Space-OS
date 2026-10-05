@@ -3,12 +3,12 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 377600 bytes, initrd 3991552 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 368 KiB at phys 0x7d527000, entry 0xffffffff8012456c
+spaceboot: kernel 3 segments, 368 KiB at phys 0x7d52a000, entry 0xffffffff8012456c
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 38 memory regions, initrd 3991552 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 36 memory regions, initrd 3991552 bytes, cmdline 14 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
 [kernel] cpu: x87/SSE/AVX off for user space (no per-thread FPU state); RDRAND absent
@@ -68,7 +68,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791226457 s since the Unix epoch (UTC)
+[kernel] rtc: 1791227847 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 
 !!! KERNEL PANIC !!!

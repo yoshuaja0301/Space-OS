@@ -306,7 +306,7 @@ Kernel, bootloader dan **semua** program user dibangun untuk AArch64 dan di-boot
 
 | Skenario | Command line | Harapan |
 |---|---|---|
-| `arm64-acceptance` | `init=bin/init exit=semihosting` | suite penerimaan yang sama: `ALL TESTS PASSED`, dan penanda bagian port yang menopang setiap uji harus ada (ECAM, GICv3, timer generik, PL011, PSCI, volume data di virtio-blk kedua, K02 abort/NX/SIMD/DAIF, D01, A01, TLS, NET) — uji yang tidak bisa berjalan dilewati, jadi "lulus" saja tidak cukup; exit 33 |
+| `arm64-acceptance` | `init=bin/init exit=semihosting` | suite penerimaan yang sama: `ALL TESTS PASSED`, dan penanda bagian port yang menopang setiap uji harus ada (ECAM, GICv3, timer generik, PL011, PSCI, 4 CPU online dan uji paralel K02, volume data di virtio-blk kedua, K02 abort/NX/SIMD/DAIF, D01, A01, TLS, NET) — uji yang tidak bisa berjalan dilewati, jadi "lulus" saja tidak cukup; exit 33 |
 | `arm64-poweroff` | `init=bin/init exit=semihosting shutdown=acpi` | shutdown di akhir suite mematikan mesin lewat PSCI `SYSTEM_OFF` (`switching off through PSCI SYSTEM_OFF`), dan QEMU yang dimatikan keluar dengan 0 |
 
 Uji yang di AArch64 tidak punya padanan dilewati dengan alasan: pembagian dengan nol (tidak menjebak), TF/single-step (fitur debug EL1), injeksi PS/2. Uji SIMD/FP mengharapkan `NO_FPU` (satu unit FP/SIMD yang dijebak). Gerbang "tanpa FPU" untuk A64 memeriksa setiap word segmen executable: pemrosesan data FP/SIMD, load/store register FP/SIMD, akses FPCR/FPSR; `fault` memuat tepat dua dengan sengaja.

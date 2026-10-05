@@ -112,6 +112,11 @@ unsafe extern "C" {
     static exception_vectors: u8;
 }
 
+/// The vector table's address, for a CPU that installs it itself (`smp`).
+pub fn vectors() -> u64 {
+    core::ptr::addr_of!(exception_vectors) as u64
+}
+
 pub fn init() {
     // SAFETY: the vector table is 2 KiB aligned code in the kernel image.
     unsafe {
@@ -265,9 +270,12 @@ fn handle_irq() {
     if intid == timer::intid() {
         timer::rearm();
         gic::end(intid);
-        // The network device is polled: a frame that arrived since the last tick
-        // wakes its waiters here, before the tick decides who runs next.
-        crate::dev::nic::poll_tick();
+        // The network device is polled from the boot CPU's tick: a frame that
+        // arrived since the last tick wakes its waiters here, before the tick
+        // decides who runs next.
+        if super::percpu::index() == 0 {
+            crate::dev::nic::poll_tick();
+        }
         sched::timer_tick();
     } else if Some(intid) == serial::input_intid() {
         serial::drain_input();
@@ -275,6 +283,13 @@ fn handle_irq() {
     } else if intid == gic::SGI_RESCHEDULE {
         gic::end(intid);
         sched::reschedule_ipi();
+    } else if intid == gic::SGI_HALT {
+        gic::end(intid);
+        // Another CPU panicked and is stopping the rest: stop here, touching
+        // nothing.
+        if crate::panic::in_progress() {
+            super::halt_forever();
+        }
     } else {
         gic::end(intid);
     }

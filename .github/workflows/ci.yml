@@ -18,7 +18,8 @@ jobs:
   test:
     name: fmt + clippy + QEMU scenarios + compatibility matrix + AArch64
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Two architectures: a run without a warm cache builds everything twice.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Install QEMU, OVMF and AAVMF

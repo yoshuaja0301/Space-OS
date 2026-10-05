@@ -219,8 +219,6 @@ pub fn init(idle_stack_top: u64) {
 }
 
 /// An application processor joins: its starting context becomes its idle thread.
-/// (AArch64 does not start its other CPUs yet.)
-#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 pub fn init_ap(idle_stack_top: u64) {
     adopt_idle(idle_stack_top);
 }

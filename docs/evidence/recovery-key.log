@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 377600 bytes, initrd 3991552 bytes, config 94 bytes
-spaceboot: kernel 3 segments, 368 KiB at phys 0x7d528000, entry 0xffffffff8012456c
+spaceboot: kernel 3 segments, 368 KiB at phys 0x7d537000, entry 0xffffffff8012456c
 spaceboot: press R within 5 s for recovery
 spaceboot: recovery (operator)
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
@@ -70,10 +70,10 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791226597 s since the Unix epoch (UTC)
+[kernel] rtc: 1791227987 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (1023630 counts)
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (615490 counts)
 [kernel] spawn pid 1 'bin/spacerecovery': entry=0x40429c, 30 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spacerecovery
 [recovery] Space OS recovery console: no model, no network and no AI needed
@@ -110,4 +110,4 @@ recovery> files
 [recovery] 14 entries in /spaceos
 recovery> poweroff
 [recovery] powering off
-[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2556 ms, 239 context switches)
+[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2572 ms, 241 context switches)

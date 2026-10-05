@@ -29,7 +29,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == i440fx
    init : ALL TESTS PASSED (97/97, 20 skipped)
-   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 3 ms
+   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : virtio-blk 00:03.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:03.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
@@ -40,7 +40,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == cpu-max
    init : ALL TESTS PASSED (117/117, 0 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
@@ -62,7 +62,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == virtio-small-queue
    init : ALL TESTS PASSED (117/117, 0 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -87,7 +87,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : AHCI 00:1f.2 port 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from AHCI 00:1f.2 port 1 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
@@ -139,7 +139,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : 4/4 uji desktop lulus
 == rtl8139-only
    init : ALL TESTS PASSED (82/82, 35 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: no device present
    tcp  : tidak ada kartu yang didukung; uji NET dilewati
@@ -161,7 +161,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    desk : dilewati (no framebuffer on this machine)
 == vmware-vga
    init : ALL TESTS PASSED (117/117, 0 skipped)
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
