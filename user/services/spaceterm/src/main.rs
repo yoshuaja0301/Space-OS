@@ -58,6 +58,13 @@ pub extern "C" fn space_main() -> i32 {
         sys::kill(shell).ok();
         return give_up(&alloc::format!("cannot open the session: {e}"));
     }
+    // A session a person can type into is the system being up: boots that did not
+    // get this far are no longer counted against it (ADR-0027).
+    match libspace::boot::mark_up(ROOT) {
+        Ok(true) => println!("[term] the system is up; the boot count is back to 0"),
+        Ok(false) => {}
+        Err(e) => println!("[term] cannot clear the boot count: {e}"),
+    }
 
     // From here the person at the console is in charge. Waiting is all this process
     // has left to do.

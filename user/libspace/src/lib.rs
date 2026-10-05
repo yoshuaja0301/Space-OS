@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+pub mod boot;
 pub mod compute;
 pub mod desk;
 pub mod gfx;

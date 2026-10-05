@@ -30,3 +30,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0024](0024-smp.md) | SMP: setiap CPU menjalankan thread — satu run queue, `on_cpu`, tanpa TLB shootdown | Diterima |
 | [0025](0025-block-devices.md) | Disk SATA (AHCI) dan NVMe, dan volume data yang dipilih dari labelnya | Diterima |
 | [0026](0026-e1000.md) | Kartu jaringan Intel e1000 di balik lease yang sama | Diterima |
+| [0027](0027-recovery-install.md) | Recovery yang dipilih bootloader, hitungan boot, dan satu disk untuk dipasang | Diterima |

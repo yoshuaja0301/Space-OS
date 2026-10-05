@@ -53,6 +53,7 @@ const USER_PROGRAMS: &[&str] = &[
     "churn",
     "spacedesk",
     "deskapps",
+    "spacerecovery",
 ];
 const ESP_SIZE: u64 = 64 * 1024 * 1024;
 /// Guest data disk (virtio-blk): holds the model and its manifest.
@@ -241,11 +242,52 @@ fn write_mbr(f: &mut fs::File) -> Result<(), String> {
 }
 
 fn make_image(built: &Built, cmdline: &str, out: &Path) -> Result<(), String> {
+    make_image_cfg(built, cmdline, "", out)
+}
+
+/// What `spaceos.cfg` says: the command line, then any further settings.
+fn boot_config(cmdline: &str, extra: &str) -> String {
+    format!("# Space OS boot configuration (read by spaceboot)\ncmdline={cmdline}\n{extra}")
+}
+
+/// The boot files on a formatted EFI system partition: the bootloader where the
+/// firmware looks for it, the kernel, the initrd and the configuration.
+fn write_esp_files<T: fatfs::ReadWriteSeek>(
+    part: &mut T,
+    boot: &[u8],
+    kernel: &[u8],
+    initrd: &[u8],
+    cfg: &str,
+) -> Result<(), String> {
+    let fs = fatfs::FileSystem::new(part, fatfs::FsOptions::new()).map_err(|e| format!("mount: {e}"))?;
+    let rootdir = fs.root_dir();
+    let efi = rootdir.create_dir("EFI").map_err(|e| e.to_string())?;
+    let bootdir = efi.create_dir("BOOT").map_err(|e| e.to_string())?;
+    bootdir
+        .create_file("BOOTX64.EFI")
+        .map_err(|e| e.to_string())?
+        .write_all(boot)
+        .map_err(|e| e.to_string())?;
+    let sp = efi.create_dir("SPACEOS").map_err(|e| e.to_string())?;
+    sp.create_file("spacekernel.elf")
+        .map_err(|e| e.to_string())?
+        .write_all(kernel)
+        .map_err(|e| e.to_string())?;
+    sp.create_file("initrd.tar").map_err(|e| e.to_string())?.write_all(initrd).map_err(|e| e.to_string())?;
+    sp.create_file("spaceos.cfg")
+        .map_err(|e| e.to_string())?
+        .write_all(cfg.as_bytes())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// The boot disk the scenarios use: an MBR with one EFI system partition.
+fn make_image_cfg(built: &Built, cmdline: &str, extra_cfg: &str, out: &Path) -> Result<(), String> {
     fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
     let initrd = make_initrd(built)?;
     let boot = fs::read(&built.boot_efi).map_err(|e| format!("read bootloader: {e}"))?;
     let kernel = stripped(&built.kernel_elf)?;
-    let cfg = format!("# Space OS boot configuration (read by spaceboot)\ncmdline={cmdline}\n");
+    let cfg = boot_config(cmdline, extra_cfg);
 
     let mut f = fs::OpenOptions::new()
         .read(true)
@@ -263,38 +305,19 @@ fn make_image(built: &Built, cmdline: &str, out: &Path) -> Result<(), String> {
         fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat32).volume_label(*b"SPACEOS    "),
     )
     .map_err(|e| format!("format: {e}"))?;
-    {
-        let fs =
-            fatfs::FileSystem::new(&mut part, fatfs::FsOptions::new()).map_err(|e| format!("mount: {e}"))?;
-        let rootdir = fs.root_dir();
-        let efi = rootdir.create_dir("EFI").map_err(|e| e.to_string())?;
-        let bootdir = efi.create_dir("BOOT").map_err(|e| e.to_string())?;
-        bootdir
-            .create_file("BOOTX64.EFI")
-            .map_err(|e| e.to_string())?
-            .write_all(&boot)
-            .map_err(|e| e.to_string())?;
-        let sp = efi.create_dir("SPACEOS").map_err(|e| e.to_string())?;
-        sp.create_file("spacekernel.elf")
-            .map_err(|e| e.to_string())?
-            .write_all(&kernel)
-            .map_err(|e| e.to_string())?;
-        sp.create_file("initrd.tar")
-            .map_err(|e| e.to_string())?
-            .write_all(&initrd)
-            .map_err(|e| e.to_string())?;
-        sp.create_file("spaceos.cfg")
-            .map_err(|e| e.to_string())?
-            .write_all(cfg.as_bytes())
-            .map_err(|e| e.to_string())?;
-    }
+    write_esp_files(&mut part, &boot, &kernel, &initrd, &cfg)?;
     part.flush().map_err(|e| e.to_string())?;
     println!(
-        "== image {} ({} KiB bootloader, {} KiB kernel, {} KiB initrd, cmdline {cmdline:?})",
+        "== image {} ({} KiB bootloader, {} KiB kernel, {} KiB initrd, cmdline {cmdline:?}{})",
         out.display(),
         boot.len() / 1024,
         kernel.len() / 1024,
-        initrd.len() / 1024
+        initrd.len() / 1024,
+        if extra_cfg.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", extra_cfg.trim().replace('\n', ", "))
+        }
     );
     Ok(())
 }
@@ -462,11 +485,30 @@ fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
-/// A GPT data disk laid out the way an installed system's disk is: partition 1 an
-/// EFI system partition with a FAT32 volume labelled `SPACEOS` (standing in for
-/// the boot files), partition 2 a copy of the data volume in `volume`. Both GPT
-/// copies, both checksums: firmware and host tools read it as a valid disk.
-fn make_data_disk_gpt(volume: &Path, out: &Path) -> Result<(), String> {
+/// The files of an EFI system partition: bootloader, kernel, initrd, configuration.
+struct EspFiles {
+    boot: Vec<u8>,
+    kernel: Vec<u8>,
+    initrd: Vec<u8>,
+    cfg: String,
+}
+
+impl EspFiles {
+    fn new(built: &Built, cfg: String) -> Result<EspFiles, String> {
+        Ok(EspFiles {
+            boot: fs::read(&built.boot_efi).map_err(|e| format!("read bootloader: {e}"))?,
+            kernel: stripped(&built.kernel_elf)?,
+            initrd: make_initrd(built)?,
+            cfg,
+        })
+    }
+}
+
+/// One GPT disk the way an installed system has it (ADR-0027): partition 1 an EFI
+/// system partition with a FAT32 volume labelled `SPACEOS` -- holding `esp`, the
+/// boot files, when given -- and partition 2 a copy of the data volume in `volume`.
+/// Both GPT copies, both checksums: firmware and host tools read it as a valid disk.
+fn make_gpt_disk(volume: &Path, esp: Option<&EspFiles>, out: &Path) -> Result<(), String> {
     const SECTOR: u64 = 512;
     const ENTRIES: u64 = 128;
     const ENTRY_SIZE: u64 = 128;
@@ -562,14 +604,36 @@ fn make_data_disk_gpt(volume: &Path, out: &Path) -> Result<(), String> {
         fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat32).volume_label(*b"SPACEOS    "),
     )
     .map_err(|e| format!("format the EFI system partition: {e}"))?;
+    if let Some(e) = esp {
+        write_esp_files(&mut part, &e.boot, &e.kernel, &e.initrd, &e.cfg)?;
+    }
     part.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} (GPT: EFI system partition, {} MiB; data volume, {} MiB)",
+        "== disk {} (GPT: EFI system partition, {} MiB{}; data volume, {} MiB)",
         out.display(),
         ESP_SIZE >> 20,
+        if esp.is_some() { ", bootable" } else { ", empty" },
         (data_sectors * SECTOR) >> 20
     );
     Ok(())
+}
+
+/// Write `files` -- `(path, contents)`, each directory already there -- onto the
+/// FAT32 data disk image `disk`.
+fn put_disk_files(disk: &Path, files: &[(&str, &str)]) -> Result<(), String> {
+    let f = fs::OpenOptions::new().read(true).write(true).open(disk).map_err(|e| e.to_string())?;
+    let mut buf = fscommon::BufStream::new(f);
+    {
+        let fs = fatfs::FileSystem::new(&mut buf, fatfs::FsOptions::new()).map_err(|e| e.to_string())?;
+        for (path, contents) in files {
+            let (dir, name) = path.rsplit_once('/').ok_or_else(|| format!("{path}: no directory"))?;
+            let dir = fs.root_dir().open_dir(dir).map_err(|e| format!("{dir}: {e}"))?;
+            let mut file = dir.create_file(name).map_err(|e| format!("{path}: {e}"))?;
+            file.truncate().map_err(|e| e.to_string())?;
+            file.write_all(contents.as_bytes()).map_err(|e| format!("{path}: {e}"))?;
+        }
+    }
+    buf.flush().map_err(|e| e.to_string())
 }
 
 /// Files the agent workspace starts with. `expect.txt` is `input.txt` with the rule
@@ -862,9 +926,10 @@ struct Machine {
 enum DataDisk {
     /// The FAT32 volume fills the disk (what every scenario uses).
     Whole,
-    /// A GPT disk the way an installed system has one: an EFI system partition
-    /// first, the data volume in the second partition.
-    Gpt,
+    /// No data disk: the machine boots one GPT disk the way `cargo xtask
+    /// disk-image` makes it for installing, the EFI system partition first and the
+    /// data volume in partition 2 (ADR-0027).
+    Installed,
 }
 
 const LAB: Machine = Machine {
@@ -1053,26 +1118,29 @@ const MACHINES: &[Machine] = &[
         data_disk: DataDisk::Whole,
     },
     Machine {
-        name: "sata-gpt",
+        name: "installed-disk",
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
         memory: "8G",
-        // The data disk laid out like an installed system's: GPT, an EFI system
-        // partition holding a FAT32 volume of its own first, the data volume second.
-        // The label, not the order, picks the volume, and every request stays
-        // inside the partition.
-        block_device: "ide-hd,drive=spacedata,bus=ide.1",
+        // One disk and nothing else, as `cargo xtask disk-image` lays it out: GPT,
+        // the EFI system partition the firmware boots from, and the data volume in
+        // partition 2 of the same disk. The label, not the order, picks the volume,
+        // every request stays inside its partition, and the bootloader counts the
+        // boot on the data volume through the firmware's own FAT driver.
+        block_device: "",
         net_device: VIRTIO_NET,
         rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &[
-            "[kernel] block: AHCI 00:1f.2 port 1 (",
+            "spaceboot: press R within 1 s for recovery",
+            "spaceboot: 0 boot(s) since the system last came up",
+            "[kernel] block: AHCI 00:1f.2 port 0 (",
             "holds the data volume (GPT partition 2)",
-            "[kernel] vfs: FAT32 mounted from AHCI 00:1f.2 port 1",
+            "[kernel] vfs: FAT32 mounted from AHCI 00:1f.2 port 0",
             "[init] ALL TESTS PASSED",
         ],
-        data_disk: DataDisk::Gpt,
+        data_disk: DataDisk::Installed,
     },
     Machine {
         name: "e1000",
@@ -1481,6 +1549,23 @@ fn type_on_guest(
     guest_gone: &std::sync::atomic::AtomicBool,
 ) -> Result<(), String> {
     let mut mon = connect_monitor(monitor, guest_gone)?;
+    // COM2's pty is opened now, while the guest boots, and held until it is gone.
+    // QEMU looks for a reader on a pty about once a second and leaves the port
+    // unread until it sees one; a port opened for one short line and closed again
+    // can come and go between two looks, and the line never reaches the guest.
+    let serial_port = match typing {
+        Typing::Serial => {
+            let pty = monitor_pty(&mut mon)?;
+            Some(
+                fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&pty)
+                    .map_err(|e| format!("open {pty}: {e}"))?,
+            )
+        }
+        _ => None,
+    };
     wait_for_marker(log_path, ready_marker, guest_gone)?;
     match typing {
         Typing::None => Ok(()),
@@ -1504,17 +1589,15 @@ fn type_on_guest(
         }
         Typing::Serial => {
             use std::io::Write;
-            let pty = monitor_pty(&mut mon)?;
-            let mut port = fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&pty)
-                .map_err(|e| format!("open {pty}: {e}"))?;
+            let Some(mut port) = serial_port else { return Ok(()) };
             for line in lines {
                 port.write_all(line.as_bytes()).map_err(|e| format!("write: {e}"))?;
                 port.write_all(b"\r").map_err(|e| format!("write: {e}"))?;
                 port.flush().ok();
                 std::thread::sleep(Duration::from_millis(500));
+            }
+            while !guest_gone.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(100));
             }
             Ok(())
         }
@@ -1729,6 +1812,12 @@ fn key_name(ch: char) -> Result<String, String> {
 struct Scenario {
     name: &'static str,
     cmdline: &'static str,
+    /// Lines `spaceos.cfg` gets after `cmdline=`: the recovery settings of ADR-0027.
+    boot_cfg: &'static str,
+    /// Files put on the data disk before the first boot -- `(path, contents)`, the
+    /// directory already there -- in a copy of its own that no other scenario sees:
+    /// a boot count, a damaged store.
+    disk_files: &'static [(&'static str, &'static str)],
     expect_exit: i32,
     must_contain: &'static [&'static str],
     /// Markers this scenario alone must produce, on top of `must_contain`.
@@ -1884,6 +1973,8 @@ const SCENARIOS: &[Scenario] = &[
         // The default, said out loud: the K02 test reads the line back and checks
         // that the program it names is the one running.
         cmdline: "init=bin/init",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] selftest: heap ok",
@@ -1973,6 +2064,8 @@ const SCENARIOS: &[Scenario] = &[
         // mid-transfer -- and the machine's memory back where the first pass left it,
         // to the frame and the byte. `cargo xtask stress` is the long version.
         cmdline: "stress=2",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[stress] stability run: 2 passes of the acceptance suite",
@@ -1996,6 +2089,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "panic-diagnosis",
         cmdline: "selftest=panic",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_PANIC,
         must_contain: &[
             "!!! KERNEL PANIC !!!",
@@ -2016,6 +2111,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "kernel-fault-diagnosis",
         cmdline: "selftest=kfault",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_PANIC,
         must_contain: &[
             "!!! CPU EXCEPTION IN KERNEL MODE: page fault !!!",
@@ -2035,6 +2132,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
         cmdline: "selftest=stack",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_PANIC,
         must_contain: &["!!! CPU EXCEPTION IN KERNEL MODE: double fault !!!", "!!! KERNEL PANIC !!!"],
         must_contain_extra: &[],
@@ -2050,6 +2149,8 @@ const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "storage-reboot",
         cmdline: "",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] virtio-blk: ready",
@@ -2076,6 +2177,8 @@ const SCENARIOS: &[Scenario] = &[
         // A first process that ends without asking for shutdown leaves nothing to
         // schedule. That must read as a diagnosis, not as a hang.
         cmdline: "init=bin/hello",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_FAILURE,
         must_contain: &[
             "[kernel] init spawned as pid 1 from bin/hello",
@@ -2096,6 +2199,8 @@ const SCENARIOS: &[Scenario] = &[
         name: "init-missing-diagnosis",
         // A misspelled init names the program that actually failed.
         cmdline: "init=bin/not_a_program",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_PANIC,
         must_contain: &["cannot start \"bin/not_a_program\" from initrd: not found", "!!! KERNEL PANIC !!!"],
         must_contain_extra: &[],
@@ -2113,6 +2218,8 @@ const SCENARIOS: &[Scenario] = &[
         // The same image, booted into a session instead of the acceptance run, and
         // driven from the emulated keyboard: scan codes, IRQ 1, the kernel decoder.
         cmdline: "init=bin/spaceterm",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: TERMINAL_MARKERS,
         // No second UART exists in this scenario, so every keystroke came from the
@@ -2134,6 +2241,8 @@ const SCENARIOS: &[Scenario] = &[
         // workspaces and closed, an inference worker crashing and another stopped --
         // with screenshots kept as `build/logs/desktop-*.png`.
         cmdline: "init=bin/spacedesk",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] display: leased to pid 1 'bin/spacedesk'",
@@ -2184,6 +2293,8 @@ const SCENARIOS: &[Scenario] = &[
         // The same session over a serial console: COM2, IRQ 3. A headless machine
         // has no keyboard, and this is the path it uses.
         cmdline: "init=bin/spaceterm",
+        boot_cfg: "",
+        disk_files: &[],
         expect_exit: EXIT_SUCCESS,
         must_contain: TERMINAL_MARKERS,
         must_contain_extra: &["[kernel] console input: keyboard (IRQ1) and COM2 serial (IRQ3)"],
@@ -2192,6 +2303,128 @@ const SCENARIOS: &[Scenario] = &[
         typing: Typing::Serial,
         final_boot_markers: &[],
         type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "recovery-key",
+        // The operator presses R at the boot menu (ADR-0027): the bootloader starts
+        // the recovery console instead of the normal command line, and the console
+        // checks the volume and answers without a model, a network or AI.
+        cmdline: "init=bin/init",
+        boot_cfg: "recovery_wait_ms=5000\n",
+        disk_files: &[],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "spaceboot: press R within 5 s for recovery",
+            "spaceboot: recovery (operator)",
+            "[recovery] started because the operator asked for it at the boot menu",
+            "[recovery] ready",
+            "[recovery] cpus: 4",
+            "[recovery] check model: ok: /spaceos/model.slm",
+            "[recovery] check packages: ok",
+            "[recovery] check done: 0 problem(s)",
+            "entries in /spaceos",
+            "[recovery] powering off",
+            "[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0",
+        ],
+        must_contain_extra: &[],
+        // The normal command line never ran.
+        must_not_contain: &["KERNEL PANIC", "unknown command", "[init] Space OS init running"],
+        runs: 1,
+        typing: Typing::Keyboard,
+        final_boot_markers: &[],
+        type_lines: &["!key r", "!wait [recovery] ready", "status", "check", "files", "poweroff"],
+        ready_marker: "spaceboot: press R within",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "recovery-auto",
+        // Three boots in a row that never came up, as the bootloader counts them on
+        // the data volume: the fourth goes to recovery by itself, says why, and
+        // `boot normal` puts the count back.
+        cmdline: "init=bin/init",
+        boot_cfg: "boot_count=on\n",
+        disk_files: &[
+            ("SPACEOS/VAR/BOOTS.TXT", "tries=3\n"),
+            // A package store that does not read back: `check` must name it and
+            // `repair packages` must set it right.
+            ("SPACEOS/VAR/PKGSTORE.DAT", "not a package store\n"),
+        ],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "spaceboot: 3 boot(s) since the system last came up",
+            "spaceboot: 3 boots in a row did not come up; starting recovery",
+            "spaceboot: recovery (failed-boots)",
+            "[recovery] started because the boots before this one did not come up",
+            "[recovery] boots since the system last came up: 4",
+            "[recovery] check packages: PROBLEM: /spaceos/var/pkgstore.dat: 20 bytes that are not a package store",
+            "[recovery] check boots: 4 boot(s) did not come up",
+            "[recovery] check done: 1 problem(s)",
+            "[recovery] packages: /spaceos/var/pkgstore.dat emptied; the service starts clean next time",
+            "[recovery] boot count cleared; the next boot is a normal one",
+            "[recovery] check packages: ok: the package store is empty",
+            "[recovery] check boots: ok",
+            "[recovery] check done: 0 problem(s)",
+            "[recovery] powering off",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "unknown command", "[init] Space OS init running"],
+        runs: 1,
+        typing: Typing::Serial,
+        final_boot_markers: &[],
+        type_lines: &["status", "check", "repair packages", "boot normal", "check", "poweroff"],
+        ready_marker: "[recovery] ready",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "boot-count",
+        // Boot counting on, starting from two boots that did not come up. Each boot
+        // of the terminal comes up and clears the count, so the second starts from
+        // zero: a system that comes up is never sent to recovery.
+        cmdline: "init=bin/spaceterm",
+        boot_cfg: "boot_count=on\n",
+        disk_files: &[("SPACEOS/VAR/BOOTS.TXT", "tries=2\n")],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "boot(s) since the system last came up",
+            "[term] the system is up; the boot count is back to 0",
+            "[term] session ended",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "spaceboot: recovery", "starting recovery"],
+        runs: 2,
+        typing: Typing::Serial,
+        final_boot_markers: &["spaceboot: 0 boot(s) since the system last came up"],
+        type_lines: &["quit"],
+        ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "acpi-poweroff",
+        // The path a PC takes when the session asks to shut down: no debug-exit
+        // device (`shutdown=acpi` skips it), so the kernel switches the machine off
+        // through ACPI S5 from the FADT and the DSDT's \_S5 -- and QEMU, switched off,
+        // exits with 0 rather than the debug-exit 33.
+        cmdline: "init=bin/spaceterm shutdown=acpi",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: 0,
+        must_contain: &[
+            "[kernel] power: ACPI S5 through PM1a_CNT",
+            "[term] session ended",
+            "[kernel] switching off through ACPI S5",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["KERNEL PANIC", "could not be switched off", "no ACPI S5"],
+        runs: 1,
+        typing: Typing::Serial,
+        final_boot_markers: &[],
+        type_lines: &["quit"],
         ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
         lab_must_not_contain: &[],
@@ -2258,7 +2491,17 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
     for s in SCENARIOS.iter().filter(|s| only.is_none_or(|n| n == s.name)) {
         ran += 1;
         let image = root().join(format!("build/esp-{}.img", s.name));
-        make_image(&built, s.cmdline, &image)?;
+        make_image_cfg(&built, s.cmdline, s.boot_cfg, &image)?;
+        // A scenario that starts from a boot count gets a disk of its own: what its
+        // boots write there must not reach the scenarios after it.
+        let scenario_data = if s.disk_files.is_empty() {
+            data_image.clone()
+        } else {
+            let copy = root().join(format!("build/data-{}.img", s.name));
+            fs::copy(&data_image, &copy).map_err(|e| format!("copy the data disk: {e}"))?;
+            put_disk_files(&copy, s.disk_files)?;
+            copy
+        };
         println!("== scenario {} (cmdline {:?}, {} boot(s))", s.name, s.cmdline, s.runs);
         for run_index in 1..=s.runs {
             let log_path = if s.runs == 1 {
@@ -2269,7 +2512,7 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
             let run = run_qemu_capture_typing(
                 &LAB,
                 &image,
-                &data_image,
+                &scenario_data,
                 &log_path,
                 &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
                 s.typing,
@@ -2337,10 +2580,12 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
     make_image(&built, "", &image)?;
     let data_image = root().join("build/data.img");
     make_data_disk(&data_image)?;
-    let gpt_image = root().join("build/data-gpt.img");
+    let installed_image = root().join("build/spaceos-disk-compat.img");
     let selected = || MACHINES.iter().filter(|m| only.is_none_or(|n| n == m.name));
-    if selected().any(|m| m.data_disk == DataDisk::Gpt) {
-        make_data_disk_gpt(&data_image, &gpt_image)?;
+    if selected().any(|m| m.data_disk == DataDisk::Installed) {
+        // The installed layout, running the acceptance suite instead of the desktop.
+        let esp = EspFiles::new(&built, boot_config("", "recovery_wait_ms=1000\nboot_count=on\n"))?;
+        make_gpt_disk(&data_image, Some(&esp), &installed_image)?;
     }
 
     let mut failures = 0;
@@ -2354,14 +2599,20 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
             m.cpu,
             m.smp,
             m.memory,
-            if m.block_device.is_empty() { "no block device" } else { m.block_device },
+            if m.data_disk == DataDisk::Installed {
+                "one installed GPT disk"
+            } else if m.block_device.is_empty() {
+                "no block device"
+            } else {
+                m.block_device
+            },
             if m.extra.is_empty() { String::new() } else { format!(" {}", m.extra.join(" ")) }
         );
         let log_path = logs.join(format!("{}.log", m.name));
         let run = run_qemu_capture_on(
             m,
-            &image,
-            if m.data_disk == DataDisk::Gpt { &gpt_image } else { &data_image },
+            if m.data_disk == DataDisk::Installed { &installed_image } else { &image },
+            &data_image,
             &log_path,
             &["[kernel] shutdown requested", "spacekernel: halted after panic", "[init] TESTS FAILED"],
         )?;
@@ -2853,9 +3104,29 @@ fn cmd_unit() -> Result<(), String> {
     sh(cargo().args(["test", "-p", "spaceabi", "-p", "xtask"]))
 }
 
+/// One disk to install from or onto (ADR-0027): write it to a USB stick or a disk
+/// with `dd`, and the machine boots the desktop, with recovery one key away and
+/// boots counted.
+fn cmd_disk_image(release: bool, out: &Path) -> Result<(), String> {
+    let built = build(release)?;
+    let data = root().join("build/data.img");
+    make_data_disk(&data)?;
+    let cfg = boot_config(
+        "init=bin/spacedesk",
+        "recovery=init=bin/spacerecovery\nrecovery_wait_ms=2000\nboot_count=on\n",
+    );
+    let esp = EspFiles::new(&built, cfg)?;
+    make_gpt_disk(&data, Some(&esp), out)?;
+    println!(
+        "== write it with: sudo dd if={} of=/dev/sdX bs=4M conv=fsync (every byte of sdX is replaced)",
+        out.display()
+    );
+    Ok(())
+}
+
 fn usage() -> ! {
     eprintln!(
-        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|stress [--minutes N]|unit|tcpcheck FILE|clippy|fmt|fmt-check|ci> [--debug]"
+        "usage: cargo xtask <build|run [--gui] [--cmdline S]|test|compat|soak [--boots N]|stress [--minutes N]|disk-image [--out FILE]|unit|tcpcheck FILE|clippy|fmt|fmt-check|ci> [--debug]"
     );
     std::process::exit(2)
 }
@@ -2886,6 +3157,15 @@ fn main() {
             cmd_run(gui, serial_input, &cmdline, release)
         }
         "test" => cmd_test(release, only.as_deref()),
+        "disk-image" => {
+            let out = args
+                .iter()
+                .position(|a| a == "--out")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root().join("build/spaceos-disk.img"));
+            cmd_disk_image(release, &out)
+        }
         "compat" => cmd_compat(release, only.as_deref()),
         "soak" => {
             let boots = args
@@ -2957,7 +3237,7 @@ mod tests {
         let volume: Vec<u8> = (0..3 * 1024 * 1024 + 512).map(|i: u32| (i % 251) as u8).collect();
         let (vol_path, disk_path) = (dir.join("volume.img"), dir.join("disk.img"));
         fs::write(&vol_path, &volume).unwrap();
-        make_data_disk_gpt(&vol_path, &disk_path).unwrap();
+        make_gpt_disk(&vol_path, None, &disk_path).unwrap();
         let disk = fs::read(&disk_path).unwrap();
         fs::remove_dir_all(&dir).unwrap();
 

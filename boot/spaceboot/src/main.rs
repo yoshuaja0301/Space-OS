@@ -1,7 +1,8 @@
 //! `spaceboot` – the Space OS UEFI bootloader.
 //!
 //! Responsibilities (see docs/adr/0002-uefi-bootloader.md):
-//! 1. load `\EFI\SPACEOS\spacekernel.elf`, `initrd.tar` and `spaceos.cfg` from the ESP;
+//! 1. load `\EFI\SPACEOS\spacekernel.elf`, `initrd.tar` and `spaceos.cfg` from the ESP,
+//!    and choose between a normal boot and recovery (see `recovery`, ADR-0027);
 //! 2. place the kernel image, initrd, command line, boot stack and boot info in
 //!    memory typed `MemKind::KERNEL` so the kernel never reclaims them by accident;
 //! 3. build page tables: kernel at its link address, physical memory linear map at
@@ -16,6 +17,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
+
+mod recovery;
 
 use alloc::vec::Vec;
 use core::arch::asm;
@@ -151,16 +154,6 @@ fn stash(data: &[u8]) -> Result<PhysRange, &'static str> {
     Ok(PhysRange { phys, len: data.len() as u64 })
 }
 
-fn parse_cmdline(cfg: &[u8]) -> &[u8] {
-    for line in cfg.split(|&b| b == b'\n') {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        if let Some(v) = line.strip_prefix(b"cmdline=") {
-            return v;
-        }
-    }
-    &[]
-}
-
 fn framebuffer_info() -> FramebufferInfo {
     let Ok(handle) = boot::get_handle_for_protocol::<GraphicsOutput>() else {
         return FramebufferInfo::default();
@@ -258,7 +251,7 @@ fn run() -> Result<(), &'static str> {
     // ---- 2. place kernel-owned data ---------------------------------------
     let kernel = load_kernel(&kernel_data)?;
     let initrd = stash(&initrd_data)?;
-    let cmdline = stash(parse_cmdline(&cfg_data))?;
+    let cmdline = stash(&recovery::choose(&recovery::parse_config(&cfg_data)))?;
     let stack_phys = alloc_kernel_pages(BOOT_STACK_SIZE / PAGE as usize)?;
     let bootinfo_phys = alloc_kernel_pages(1)?;
     let memmap_phys = alloc_kernel_pages(MEMMAP_PAGES)?;

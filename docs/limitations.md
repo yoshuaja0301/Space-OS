@@ -105,9 +105,16 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Payload maksimum 64 KiB dan paket tidak punya struktur internal (bukan arsip): "memasang" berarti menyimpan payload terverifikasi, bukan membongkar berkas.
 - Tidak ada dependensi antar paket, batas versi minimum, hook pra/pasca instalasi, atau rotasi kunci.
 
+## Recovery dan pemasangan (ADR-0027)
+
+- Memasang = menulis image `cargo xtask disk-image` dengan `dd` dari sistem lain; belum ada installer yang berjalan di dalam Space OS (butuh tulis ke disk di luar volume data, yang ditolak lapisan `block`).
+- Recovery tidak bisa memperbaiki bootloader, kernel atau initrd yang rusak: semuanya di ESP, yang tidak terjangkau dari dalam sistem.
+- Hitungan boot ditulis firmware lewat driver FAT-nya sendiri; firmware tanpa driver untuk disk data berarti boot tidak dihitung (dan log mengatakannya).
+- `poweroff` mematikan daya lewat ACPI S5 bila DSDT menulis `\_S5` sebagai paket (tanpa interpreter AML, tanpa `_PTS`); mesin yang tidak begitu berhenti di CPU, dan log boot mengatakannya. Belum ada `reboot`.
+
 ## Kompatibilitas
 
-- Matriks `cargo xtask compat` (ADR-0010) mencakup lima belas konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, disk data di SATA (AHCI), di NVMe, dan di partisi 2 disk GPT, tanpa disk, kartu jaringan e1000 (82540EM) dan e1000e (82574L), kartu tanpa driver (rtl8139), tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- Matriks `cargo xtask compat` (ADR-0010) mencakup lima belas konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, disk data di SATA (AHCI) dan di NVMe, satu disk GPT terpasang (ESP + volume data), tanpa disk, kartu jaringan e1000 (82540EM) dan e1000e (82574L), kartu tanpa driver (rtl8139), tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
 - **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk, SATA (AHCI) dan NVMe, kartu jaringan selain virtio-net dan Intel e1000 (82540EM/82545EM/82574L; mesin `rtl8139-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 

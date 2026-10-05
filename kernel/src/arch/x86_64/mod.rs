@@ -7,6 +7,7 @@ pub mod idt;
 pub mod percpu;
 pub mod pic;
 pub mod pit;
+pub mod power;
 pub mod ps2;
 pub mod rtc;
 pub mod serial;

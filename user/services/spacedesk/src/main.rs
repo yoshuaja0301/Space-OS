@@ -1308,6 +1308,13 @@ pub extern "C" fn space_main() -> i32 {
     if standalone {
         d.launch(app::TERMINAL, false).ok();
         println!("[desk] desktop ready; Super+Enter opens a terminal, Ctrl+Alt+Delete shuts down");
+        // A desktop on the screen is the system being up: boots that did not get
+        // this far are no longer counted against it (ADR-0027).
+        match libspace::boot::mark_up(root) {
+            Ok(true) => println!("[desk] the system is up; the boot count is back to 0"),
+            Ok(false) => {}
+            Err(e) => println!("[desk] cannot clear the boot count: {e}"),
+        }
     }
     d.run();
     if standalone {

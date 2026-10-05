@@ -16,6 +16,10 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `init-missing-diagnosis` | `init=bin/not_a_program` | `init=` yang salah ketik harus menyebut program yang benar-benar gagal: `cannot start "bin/not_a_program" from initrd: not found`, lalu panic; exit 127 |
 | `terminal` | `init=bin/spaceterm` | image yang **sama**, di-boot ke sesi interaktif dan dikendalikan dari **keyboard**: harness menekan tombol lewat monitor QEMU (`sendkey`), jadi jalurnya scan code → IRQ 1 → decoder kernel. Mesin ini tidak punya COM2 sama sekali (log wajib memuat `no COM2 UART`), jadi tiap ketikan pasti datang dari keyboard. Diketik `help`, `status`, `ls /spaceos`, `run hang`, `status`, `stop`, `status`, `quit`; exit 33 |
 | `terminal-serial` | `init=bin/spaceterm` | sesi yang sama lewat **konsol serial**: COM2 sebagai pty, harness menulis byte ke sana (IRQ 3). Log wajib memuat `keyboard (IRQ1) and COM2 serial (IRQ3)`. Perintah dan harapan sama dengan `terminal` |
+| `recovery-key` | `init=bin/init` + `recovery_wait_ms=5000` | operator menekan **R** di menu boot (monitor QEMU `sendkey`, keyboard PS/2 firmware): `spaceboot: recovery (operator)`, `bin/spacerecovery` berjalan sebagai pid 1 alih-alih `init`, dan mengetik `status`, `check`, `files`, `poweroff` lewat keyboard harus dijawab — `check model: ok` (SHA-256 terhadap manifest), `check done: 0 problem(s)`; exit 33 (ADR-0027) |
+| `recovery-auto` | `init=bin/init` + `boot_count=on`, disk data dengan `tries=3` | tiga boot berturut-turut yang tidak naik: bootloader memulai recovery **sendiri** (`3 boots in a row did not come up; starting recovery`), recovery menyebut alasannya dan hitungannya (4), `boot normal` mengembalikannya ke 0 dan `check` sesudahnya bersih; diketik lewat COM2; exit 33 |
+| `boot-count` | `init=bin/spaceterm` + `boot_count=on`, disk data dengan `tries=2` | dua boot sesi terminal: setiap boot yang naik mengembalikan hitungan ke 0 (`the system is up; the boot count is back to 0`), jadi boot kedua mulai dari `0 boot(s) since the system last came up` dan tidak pernah masuk recovery |
+| `acpi-poweroff` | `init=bin/spaceterm shutdown=acpi` | jalan yang diambil PC: tanpa perangkat debug-exit, kernel mematikan mesin lewat ACPI S5 (`[kernel] power: ACPI S5 through PM1a_CNT …` saat boot, `switching off through ACPI S5` saat `quit`), dan QEMU yang dimatikan keluar dengan 0, bukan 33 |
 | `desktop` | `init=bin/spacedesk` | image yang sama di-boot ke **desktop** (ADR-0020) dan dikendalikan dari keyboard lewat monitor QEMU: Super+Enter membuka terminal dan `ls /spaceos` diketik; Super+E membuka file manager dan panah menelusurinya; Super+A membuka Agent Center, `2` menjalankan worker yang crash (`crashed (page fault)`), Alt+Tab ke terminal dan `status` diketik **setelah** crash harus dijawab; `3` menjalankan worker yang macet dan `s` (Stop) harus menghentikannya; `5` menjalankan **model sungguhan** sampai token pertama, `s` harus menghentikannya di antara dua langkah (`[ai] stopped on request`, `[shell] Stop: worker 'infer' ended between two steps`), dan terminal harus menjawab `ls /spaceos/docs` sesudahnya; lalu ubah ukuran, pindah, minimize, workspace 2 dan kembali, kontras tinggi, Alt+F4; Super+Space membuka **Command Center**, `channel` + Enter harus menempatkan `IPC.TXT` teratas, Ctrl+B menyusun context bundle, Ctrl+O membuka file manager dengan `IPC.TXT` terpilih; dan Ctrl+Alt+Delete mematikan mesin. Log wajib memuat `display: leased to pid 1 'bin/spacedesk'` dan setiap langkah itu; screenshot di `build/logs/desktop-*.png`; exit 33 |
 
 ## Matriks kompatibilitas `cargo xtask compat` (ADR-0010)
@@ -34,7 +38,7 @@ Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
 | `no-disk` | tanpa disk data (disk boot tetap di AHCI) | `virtio-blk: no device present`, `block: no disk holds a volume labelled SPACEDATA`, `vfs: no data volume`, `[init] storage: none`, `[init] SKIP A01` |
 | `sata-data` | disk data di port 1 AHCI bawaan q35, disk boot di port 0 | `block: AHCI 00:1f.2 port 0 (…): MBR with 1 partition(s), none labelled SPACEDATA; not used`, `… port 1 (…) holds the data volume (the whole disk)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 1` |
 | `nvme-data` | disk data sebagai namespace 1 pengendali NVMe | `1 usable namespace(s) among IDs 1-16`, `holds the data volume (the whole disk)`, `vfs: FAT32 mounted from NVMe` |
-| `sata-gpt` | disk data GPT seperti disk terpasang: ESP ber-FAT32 `SPACEOS` di partisi 1, volume data di partisi 2 | `holds the data volume (GPT partition 2)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 1` |
+| `installed-disk` | **satu** disk GPT buatan `cargo xtask disk-image` (ADR-0027), tanpa disk lain: firmware boot dari ESP di partisi 1, volume data di partisi 2 | `press R within 1 s for recovery`, `0 boot(s) since the system last came up` (bootloader menghitung boot lewat driver FAT firmware), `holds the data volume (GPT partition 2)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 0` |
 | `no-vga` | `-vga none` | `framebuffer: none usable; serial console only` |
 | `vmware-vga` | `-vga vmware` | `framebuffer:` |
 | `e1000` | kartu Intel 82540EM (bawaan banyak hypervisor) alih-alih virtio-net | `virtio-net: no device present`, `e1000: … (device 100e) ready, mac 52:54:00:12:34:56, link up`, `[init] PASS NET: ICMP echo to the gateway comes back intact` |
@@ -165,7 +169,10 @@ serial kedua. OVMF memakai setiap port serial yang ditemukannya sebagai konsol,
 dan backpressure chardev socket membuat tulisan konsol firmware gagal sehingga
 bootloader panik berulang sebelum kernel sempat jalan. Yang dipakai karena itu
 monitor QEMU (untuk keyboard) dan chardev **pty** (untuk COM2); keduanya tidak
-mengganggu konsol firmware.
+mengganggu konsol firmware. Pty dibuka saat guest boot dan ditahan sampai guest selesai:
+QEMU mencari pembaca di pty kira-kira sekali per detik, dan pty yang hanya dibuka selama
+satu baris pendek bisa datang dan pergi di antara dua pemeriksaan — barisnya hilang
+(ADR-0027).
 
 ### Uji G01 (agent dan Tool Broker)
 

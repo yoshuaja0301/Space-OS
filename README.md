@@ -24,7 +24,7 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | Komponen | Direktori | Target | Peran |
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
-| `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, page table higher-half, memory map, GOP, lompat ke kernel |
+| `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, pilih boot normal atau recovery (tombol R, hitungan boot di volume data; ADR-0027), page table higher-half, memory map, GOP, lompat ke kernel |
 | `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS per CPU, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif untuk semua CPU (AP dari MADT ACPI, timer local APIC, IPI; ADR-0024), ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk, AHCI (SATA) dan NVMe dengan volume data dari labelnya (ADR-0025) + FAT32 baca-tulis, virtio-net dan Intel e1000 (satu lease frame, ADR-0026), RTC, sumber entropi (virtio-rng/RDRAND, tanpa cadangan lemah), unit FPU/vektor dimatikan, konsol framebuffer + masukan keyboard/serial |
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!`, klien jaringan (`Session`, `TcpStream`) |
 | `spacenet` | `user/services/spacenet` | `x86_64-unknown-none` | Layanan jaringan: DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP; program lain hanya lewat sesi dengan allowlist `host:port` (ADR-0016) |
@@ -33,6 +33,7 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacecompute` | `user/services/spacecompute` | `x86_64-unknown-none` | Layanan Space Compute ABI v0 di user space, backend CPU |
 | `spaceai` | `user/services/spaceai` | `x86_64-unknown-none` | Runtime AI: memuat SpaceLM v0 dari disk, verifikasi checksum, generate token lewat Compute ABI |
 | `spacedesk` + `deskapps` | `user/services/spacedesk`, `user/services/deskapps` | `x86_64-unknown-none` | Desktop (U01, ADR-0020): server tampilan yang memegang layar lewat lease kernel, menyusun jendela dari memori klien (dibaca saja), dock, workspace dan semua manajemen jendela dari keyboard, API otomasi; aplikasinya terminal, file manager, Agent Center (model sungguhan, progres, Stop kooperatif; ADR-0021) dan Command Center (pencarian SpaceLink dengan asal setiap hasil; ADR-0022) |
+| `spacerecovery` | `user/services/spacerecovery` | `x86_64-unknown-none` | Konsol recovery (ADR-0027): dipilih bootloader saat operator menekan R atau setelah tiga boot yang tidak naik; memeriksa model terhadap manifest, store paket, revokasi dan hitungan boot, mengosongkan berkas yang rusak, membuka sesi — tanpa model, jaringan atau AI |
 | `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03), satu berkas yang berubah diindeks ulang tanpa full rescan (ADR-0023) |
@@ -46,7 +47,7 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
-cargo xtask test                           # build semua target, buat image, 11 skenario boot di QEMU
+cargo xtask test                           # build semua target, buat image, 15 skenario boot di QEMU
 cargo xtask compat                         # image yang sama di 15 konfigurasi mesin (ADR-0010)
 cargo xtask unit                           # uji unit host (codec DNS, tata letak pesan, server DNS lab)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
@@ -55,6 +56,7 @@ cargo xtask run --serial-input --cmdline "init=bin/spaceterm"  # sama, tanpa jen
 cargo xtask run --gui --cmdline "init=bin/spacedesk"          # desktop grafis (Super+Enter terminal, Super+A Agent Center, Super+Space cari, Alt+Tab, Ctrl+Alt+Delete mati)
 cargo xtask soak --boots 100               # K01: 100 cold boot berturut-turut
 cargo xtask stress --minutes 480           # PRD §9: suite berulang 8 jam dalam satu boot, hasil di build/stress/
+cargo xtask disk-image                     # satu disk GPT untuk dipasang (ESP + volume data): dd ke disk/stik USB (ADR-0027)
 ```
 
 Keluaran acceptance (dipotong):

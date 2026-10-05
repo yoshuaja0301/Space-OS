@@ -132,6 +132,7 @@ extern "C" fn kmain_on_guarded_stack() -> ! {
     // The other processors join last: everything they use exists by now, and the
     // self-tests above ran with nobody else around.
     arch::smp::init(bi.rsdp);
+    arch::power::init(bi.rsdp);
 
     match proc::spawn_init() {
         Ok((p, name)) => println!("[kernel] init spawned as pid {} from {name}", p.pid),

@@ -976,8 +976,13 @@ fn sys_shutdown(root: Handle, code: u32) -> Result<usize, Error> {
         s.uptime_ms, s.context_switches
     );
     arch::disable_interrupts();
-    arch::qemu_exit(if code == 0 { qemu_exit::SUCCESS } else { qemu_exit::FAILURE });
-    println!("[kernel] no debug-exit device; halting");
+    // Under test, QEMU's debug-exit device ends the run with the code; on a PC it
+    // does nothing. `shutdown=acpi` skips it, to test the path a PC takes.
+    if crate::cmdline::get("shutdown") != Some("acpi") {
+        arch::qemu_exit(if code == 0 { qemu_exit::SUCCESS } else { qemu_exit::FAILURE });
+    }
+    arch::power::poweroff();
+    println!("[kernel] the machine could not be switched off; halting");
     arch::halt_forever();
 }
 

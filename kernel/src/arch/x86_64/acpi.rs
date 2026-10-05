@@ -1,4 +1,5 @@
-//! Just enough ACPI to find the processors: RSDP → XSDT (or RSDT) → MADT.
+//! Just enough ACPI to find the processors (RSDP → XSDT or RSDT → MADT) and how to
+//! switch the machine off (the FADT and the DSDT's `\_S5`, used by `power`).
 //!
 //! The MADT lists every local APIC the firmware knows. Only those marked enabled are
 //! CPUs that exist now ("online capable" ones are sockets for hot-plug). Tables are
@@ -40,11 +41,11 @@ fn checksum_ok(b: &[u8]) -> bool {
     b.iter().fold(0u8, |a, x| a.wrapping_add(*x)) == 0
 }
 
-fn u32_at(b: &[u8], at: usize) -> u32 {
+pub fn u32_at(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
 }
 
-fn u64_at(b: &[u8], at: usize) -> u64 {
+pub fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from(u32_at(b, at)) | (u64::from(u32_at(b, at + 4)) << 32)
 }
 
@@ -59,8 +60,8 @@ fn table(pa: u64) -> Option<&'static [u8]> {
     checksum_ok(t).then_some(t)
 }
 
-/// The processors, or why they could not be read.
-pub fn processors(rsdp_pa: u64) -> Result<Processors, &'static str> {
+/// The system description table with signature `sig`, found through the RSDP.
+pub fn find(rsdp_pa: u64, sig: &[u8; 4]) -> Result<&'static [u8], &'static str> {
     if rsdp_pa == 0 {
         return Err("the firmware gave no ACPI tables");
     }
@@ -75,12 +76,22 @@ pub fn processors(rsdp_pa: u64) -> Result<Processors, &'static str> {
         _ => (u64::from(u32_at(rsdp, 16)), 4),
     };
     let root = table(root).ok_or("the root system description table is not readable")?;
-    let madt = root[36..]
+    root[36..]
         .chunks_exact(entry_size)
         .map(|e| if entry_size == 8 { u64_at(e, 0) } else { u64::from(u32_at(e, 0)) })
         .filter_map(table)
-        .find(|t| &t[..4] == b"APIC")
-        .ok_or("no MADT")?;
+        .find(|t| &t[..4] == sig)
+        .ok_or("no such table")
+}
+
+/// A whole table at physical `pa` (one that another table points to, like the DSDT).
+pub fn table_at(pa: u64) -> Option<&'static [u8]> {
+    table(pa)
+}
+
+/// The processors, or why they could not be read.
+pub fn processors(rsdp_pa: u64) -> Result<Processors, &'static str> {
+    let madt = find(rsdp_pa, b"APIC").map_err(|e| if e == "no such table" { "no MADT" } else { e })?;
     let mut apic_ids = Vec::new();
     let mut at = 44;
     while at + 2 <= madt.len() {
