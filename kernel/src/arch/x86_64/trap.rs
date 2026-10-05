@@ -219,7 +219,7 @@ fn handle_irq(frame: &mut TrapFrame) {
             pic::eoi(irq);
             // The network device is polled: a frame that arrived since the last tick
             // wakes its waiters here, before the tick decides who runs next.
-            crate::dev::virtio_net::poll_tick();
+            crate::dev::nic::poll_tick();
             sched::timer_tick();
         }
         IRQ_KEYBOARD => {

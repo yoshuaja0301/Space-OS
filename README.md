@@ -25,7 +25,7 @@ drivernya belum ditulis, dan alasannya ada di sana.
 |---|---|---|---|
 | `spaceabi` | `abi/spaceabi` | no_std | Kontrak bersama: protokol boot, nomor syscall, error, hak handle, parser ELF64/ustar |
 | `spaceboot` | `boot/spaceboot` | `x86_64-unknown-uefi` | Bootloader UEFI: muat kernel + initrd, page table higher-half, memory map, GOP, lompat ke kernel |
-| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS per CPU, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif untuk semua CPU (AP dari MADT ACPI, timer local APIC, IPI; ADR-0024), ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk, AHCI (SATA) dan NVMe dengan volume data dari labelnya (ADR-0025) + FAT32 baca-tulis, virtio-net (lease frame), RTC, sumber entropi (virtio-rng/RDRAND, tanpa cadangan lemah), unit FPU/vektor dimatikan, konsol framebuffer + masukan keyboard/serial |
+| `spacekernel` | `kernel` | `x86_64-unknown-none` | Microkernel: GDT/IDT/TSS per CPU, frame allocator, paging per proses, heap, kernel stack berguard, scheduler preemptif untuk semua CPU (AP dari MADT ACPI, timer local APIC, IPI; ADR-0024), ring 3, `syscall/sysret`, channel IPC, `wait_any` bertimeout, tabel capability, kuota, crash log, PCI + virtio-blk, AHCI (SATA) dan NVMe dengan volume data dari labelnya (ADR-0025) + FAT32 baca-tulis, virtio-net dan Intel e1000 (satu lease frame, ADR-0026), RTC, sumber entropi (virtio-rng/RDRAND, tanpa cadangan lemah), unit FPU/vektor dimatikan, konsol framebuffer + masukan keyboard/serial |
 | `libspace` | `user/libspace` | `x86_64-unknown-none` | Runtime user: `_start`, wrapper syscall, heap, `println!`, klien jaringan (`Session`, `TcpStream`) |
 | `spacenet` | `user/services/spacenet` | `x86_64-unknown-none` | Layanan jaringan: DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP; program lain hanya lewat sesi dengan allowlist `host:port` (ADR-0016) |
 | `spacetls` | `user/spacetls` | `x86_64-unknown-none` | Pustaka klien TLS 1.3: rustls (no_std) + RustCrypto di jalur perangkat lunak, kunci dari `SYS_RANDOM`, waktu dari RTC, tanpa root CA bawaan (ADR-0017) |
@@ -47,7 +47,7 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
 cargo xtask test                           # build semua target, buat image, 11 skenario boot di QEMU
-cargo xtask compat                         # image yang sama di 13 konfigurasi mesin (ADR-0010)
+cargo xtask compat                         # image yang sama di 15 konfigurasi mesin (ADR-0010)
 cargo xtask unit                           # uji unit host (codec DNS, tata letak pesan, server DNS lab)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
 cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU

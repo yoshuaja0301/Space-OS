@@ -29,3 +29,8 @@ pub fn until(ms: u64, mut ready: impl FnMut() -> bool) -> bool {
         core::hint::spin_loop();
     }
 }
+
+/// Wait at least `ms` milliseconds, for a device that must be left alone that long.
+pub fn pause(ms: u64) {
+    until(ms, || false);
+}

@@ -94,7 +94,7 @@ yang dilaporkan, bukan digagalkan (ADR-0019).
 
 Lima belas uji `NET` di skenario `acceptance` (enam belas sejak ADR-0018: koneksi yang ditutup
 saat peer masih mengirim harus di-reset), dilewati pada mesin tanpa kartu
-(`compat` `e1000-only`):
+(`compat` `e1000-only`; sejak ADR-0026 kartu itu punya driver, dan peran ini dipegang `rtl8139-only`):
 
 - driver: hak `NET` dan lease eksklusif; MAC/link/MTU; ARP dan ICMP echo ke gateway yang dibuat
   tangan (32, 512, dan 1472 byte muatan — frame 1514 byte penuh); frame yang tiba **saat

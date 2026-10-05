@@ -107,13 +107,13 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Kompatibilitas
 
-- Matriks `cargo xtask compat` (ADR-0010) mencakup tiga belas konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, disk data di SATA (AHCI), di NVMe, dan di partisi 2 disk GPT, tanpa disk, kartu jaringan e1000 saja, tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
-- **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk, SATA (AHCI) dan NVMe, kartu jaringan selain virtio-net (mesin `e1000-only` melewati uji jaringan), dan filesystem selain FAT32.
+- Matriks `cargo xtask compat` (ADR-0010) mencakup lima belas konfigurasi QEMU: q35 dan i440fx, 1–4 vCPU (semuanya dipakai, ADR-0024), 2–8 GiB, `qemu64` dan `max`, virtio-blk modern/transisional/antrean kecil, disk data di SATA (AHCI), di NVMe, dan di partisi 2 disk GPT, tanpa disk, kartu jaringan e1000 (82540EM) dan e1000e (82574L), kartu tanpa driver (rtl8139), tanpa VGA, dan VGA vmware. Semua mem-boot image yang sama.
+- **Di luar cakupan**: perangkat keras fisik, IOAPIC/MSI (IRQ hanya ke CPU boot), boot legacy BIOS (hanya UEFI), firmware dengan 5-level paging (ditolak dengan pesan), disk selain virtio-blk, SATA (AHCI) dan NVMe, kartu jaringan selain virtio-net dan Intel e1000 (82540EM/82545EM/82574L; mesin `rtl8139-only` melewati uji jaringan), dan filesystem selain FAT32.
 - Mesin tanpa disk melewati uji D01/A01 dan melaporkannya sebagai *skipped*; hitungannya terpisah dari yang lulus agar tidak terbaca seolah-olah dijalankan.
 
 ## Jaringan
 
-- Driver virtio-net ada **di dalam kernel** dan hanya memindahkan frame; TCP/IP ada di satu proses user space (`spacenet`, smoltcp — pustaka yang di-port, ADR-0016). Satu kartu, satu lease: pemegang lease adalah satu-satunya yang bisa memakai jaringan.
+- Driver jaringan (virtio-net dan Intel e1000, ADR-0026) ada **di dalam kernel** dan hanya memindahkan frame; TCP/IP ada di satu proses user space (`spacenet`, smoltcp — pustaka yang di-port, ADR-0016). Satu kartu, satu lease: pemegang lease adalah satu-satunya yang bisa memakai jaringan.
 - Polling pada tick 1 ms, tanpa interupsi dan tanpa MSI-X: latensi menerima hingga satu tick, dan throughput terbatas oleh 32 buffer penerima dan satu frame per syscall.
 - **IPv4 saja**; tidak ada IPv6. Klien TCP saja: tidak ada socket yang mendengarkan, tidak ada UDP untuk program lain. DNS hanya lewat TCP, tanpa cache; DNS lewat UDP belum ada.
 - smoltcp membatasi permintaan ARP **satu per detik untuk seluruh antarmuka**: koneksi pertama ke host yang belum dikenal bisa tertunda hingga satu detik bila host lain baru dicari.

@@ -21,8 +21,9 @@ Status memakai label PRD §4: **planned** (belum dikerjakan), **experimental** (
 ## Kompatibilitas (PRD §6 "berjalan pada profil yang didukung")
 
 Bukan persyaratan bernomor, tetapi syarat agar klaim di atas berarti di luar satu
-profil. `cargo xtask compat` mem-boot image yang sama pada tiga belas konfigurasi
-QEMU (ADR-0010) — termasuk disk data di SATA, di NVMe, dan di partisi GPT (ADR-0025); hasil sesi ini ada di `docs/evidence/compat-summary.txt`. Mesin
+profil. `cargo xtask compat` mem-boot image yang sama pada lima belas konfigurasi
+QEMU (ADR-0010) — termasuk disk data di SATA, di NVMe, dan di partisi GPT (ADR-0025), dan kartu
+jaringan Intel e1000/e1000e (ADR-0026); hasil sesi ini ada di `docs/evidence/compat-summary.txt`. Mesin
 tanpa perangkat keras yang dibutuhkan melewati uji terkait dan mencatatnya sebagai
 *skipped*, sehingga hitungan lulus tidak pernah membesar karena uji yang tidak
 dijalankan. Perangkat keras fisik tetap di luar cakupan (H01/H02).

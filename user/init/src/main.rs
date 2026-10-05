@@ -194,26 +194,50 @@ fn blocked_kill_cycle(mode: &str, pass: Option<Handle>) -> Result<(), String> {
 
 /// Run `cycle` `n` times and require that no frame and no kernel-heap byte is lost.
 fn no_leak_over(n: u32, label: &str, mut cycle: impl FnMut() -> Result<(), String>) -> Result<(), String> {
+    /// Baselines tried before memory that keeps going *down* counts as a failure.
+    const BASELINES: u32 = 3;
     for _ in 0..3 {
         cycle()?; // warm up
     }
-    let before = settled_stats()?;
-    for i in 0..n {
-        cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
-    }
-    let after = stats_back_to(&before)?;
-    println!(
-        "[init] {label}: frames free {} -> {}, heap used {} -> {}, live processes {}",
-        before.frames_free, after.frames_free, before.heap_used, after.heap_used, after.processes_live
-    );
-    if after.frames_free != before.frames_free || after.heap_used != before.heap_used {
-        return Err(alloc::format!(
-            "leak over {n} cycles: frames {} -> {}, heap {} -> {}",
-            before.frames_free,
-            after.frames_free,
-            before.heap_used,
-            after.heap_used
-        ));
+    let mut before = settled_stats()?;
+    for attempt in 1..=BASELINES {
+        for i in 0..n {
+            cycle().map_err(|e| alloc::format!("cycle {i}: {e}"))?;
+        }
+        let after = stats_back_to(&before)?;
+        println!(
+            "[init] {label}: frames free {} -> {}, heap used {} -> {}, live processes {}",
+            before.frames_free, after.frames_free, before.heap_used, after.heap_used, after.processes_live
+        );
+        if same_memory(&after, &before) {
+            return Ok(());
+        }
+        // Less in use than at the baseline: something still on its way when the
+        // baseline was read (a message queued for this process, a peer finishing
+        // on another CPU) has been freed since. Not a leak, and not a measurement
+        // either -- measure again from here. A leak only ever grows, so it fails
+        // on the spot, whichever baseline it is measured against.
+        let released = after.frames_free >= before.frames_free && after.heap_used <= before.heap_used;
+        if !released {
+            return Err(alloc::format!(
+                "leak over {n} cycles: frames {} -> {}, heap {} -> {}",
+                before.frames_free,
+                after.frames_free,
+                before.heap_used,
+                after.heap_used
+            ));
+        }
+        if attempt == BASELINES {
+            return Err(alloc::format!(
+                "memory never held still over {BASELINES} baselines of {n} cycles: frames {} -> {}, heap {} -> {}",
+                before.frames_free,
+                after.frames_free,
+                before.heap_used,
+                after.heap_used
+            ));
+        }
+        println!("[init] {label}: the baseline still held memory in flight; measuring again from here");
+        before = after;
     }
     Ok(())
 }
@@ -665,7 +689,7 @@ pub extern "C" fn space_main() -> i32 {
     };
     println!(
         "[init] network: {}",
-        if nic { "virtio-net present" } else { "none; network tests will be skipped" }
+        if nic { "a network card is present" } else { "none; network tests will be skipped" }
     );
     // A screen, likewise: taking it is how to find out, and it goes straight back.
     let display = match sys::display_open(ROOT) {

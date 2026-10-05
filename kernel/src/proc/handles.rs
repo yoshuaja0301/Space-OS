@@ -67,7 +67,7 @@ pub enum Object {
     File(Arc<OpenFile>),
     Memory(Arc<MemoryObject>),
     /// The lease on the network device; the device is released with the last one.
-    Nic(Arc<crate::dev::virtio_net::NicLease>),
+    Nic(Arc<crate::dev::nic::NicLease>),
     Root,
 }
 

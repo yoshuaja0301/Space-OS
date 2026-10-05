@@ -1075,7 +1075,46 @@ const MACHINES: &[Machine] = &[
         data_disk: DataDisk::Gpt,
     },
     Machine {
-        name: "e1000-only",
+        name: "e1000",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        // The Intel 82540EM most hypervisors give a guest by default, instead of
+        // virtio-net: the same lease, the same network tests, another driver.
+        net_device: "e1000,netdev=spacenet,romfile=",
+        rng_device: VIRTIO_RNG,
+        extra: &[],
+        must_contain: &[
+            "[kernel] virtio-net: no device present",
+            "[kernel] e1000: ",
+            "(device 100e) ready, mac 52:54:00:12:34:56, link up",
+            "[init] PASS NET: ICMP echo to the gateway comes back intact",
+            "[init] ALL TESTS PASSED",
+        ],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "e1000e",
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        // Its PCIe successor, the 82574L.
+        net_device: "e1000e,netdev=spacenet,romfile=",
+        rng_device: VIRTIO_RNG,
+        extra: &[],
+        must_contain: &[
+            "(device 10d3) ready, mac 52:54:00:12:34:56, link up",
+            "[init] PASS NET: ICMP echo to the gateway comes back intact",
+            "[init] ALL TESTS PASSED",
+        ],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "rtl8139-only",
         machine: "q35,accel=tcg",
         cpu: "qemu64",
         smp: "4",
@@ -1083,7 +1122,7 @@ const MACHINES: &[Machine] = &[
         block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
         // A network card the kernel has no driver for. It must be left alone, said
         // so, and the network tests skipped -- not failed, not hung.
-        net_device: "e1000,netdev=spacenet,romfile=",
+        net_device: "rtl8139,netdev=spacenet,romfile=",
         rng_device: VIRTIO_RNG,
         extra: &[],
         must_contain: &[

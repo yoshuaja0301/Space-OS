@@ -297,7 +297,7 @@ fn sys_net_open(root: Handle) -> Result<usize, Error> {
     if !p.handles.lock().has_free_slot() {
         return Err(Error::TooManyHandles);
     }
-    let lease = crate::dev::virtio_net::lease()?;
+    let lease = crate::dev::nic::lease()?;
     // A failed insert drops the entry, and with it the lease.
     let entry = HandleEntry { object: Object::Nic(lease), rights: rights::NIC_ALL };
     Ok(p.handles.lock().insert(entry)? as usize)
@@ -306,7 +306,7 @@ fn sys_net_open(root: Handle) -> Result<usize, Error> {
 fn sys_net_info(h: Handle, out: u64) -> Result<usize, Error> {
     require_nic(h, rights::READ)?;
     user_bytes(out, core::mem::size_of::<spaceabi::syscall::NetInfo>() as u64, true)?;
-    let info = crate::dev::virtio_net::info()?;
+    let info = crate::dev::nic::info()?;
     write_user(out, info)?;
     Ok(0)
 }
@@ -323,7 +323,7 @@ fn sys_net_send(h: Handle, ptr: u64, len: u64) -> Result<usize, Error> {
     let src = user_bytes(ptr, len, false)?;
     let mut frame = [0u8; FRAME_MAX];
     frame[..len as usize].copy_from_slice(src);
-    crate::dev::virtio_net::send(&frame[..len as usize])?;
+    crate::dev::nic::send(&frame[..len as usize])?;
     Ok(len as usize)
 }
 
@@ -336,7 +336,7 @@ fn sys_net_recv(h: Handle, ptr: u64, cap: u64) -> Result<usize, Error> {
     }
     user_bytes(ptr, FRAME_MAX as u64, true)?;
     let mut frame = [0u8; FRAME_MAX];
-    let n = crate::dev::virtio_net::recv(&mut frame)?;
+    let n = crate::dev::nic::recv(&mut frame)?;
     let dst = user_bytes(ptr, n as u64, true)?;
     dst.copy_from_slice(&frame[..n]);
     Ok(n)
@@ -350,7 +350,7 @@ enum Waitable {
     Process(Arc<Process>),
     /// Ready when a frame has arrived. Holding the lease keeps the device ours
     /// for the duration of the wait.
-    Nic(#[allow(dead_code)] Arc<crate::dev::virtio_net::NicLease>),
+    Nic(#[allow(dead_code)] Arc<crate::dev::nic::NicLease>),
 }
 
 impl Waitable {
@@ -358,7 +358,7 @@ impl Waitable {
         match self {
             Waitable::Channel(ep) => ep.readable(),
             Waitable::Process(p) => p.status.lock().is_some(),
-            Waitable::Nic(_) => crate::dev::virtio_net::rx_ready(),
+            Waitable::Nic(_) => crate::dev::nic::rx_ready(),
         }
     }
 
@@ -366,7 +366,7 @@ impl Waitable {
         match self {
             Waitable::Channel(ep) => ep.recv_waiters(),
             Waitable::Process(p) => &p.exit_waiters,
-            Waitable::Nic(_) => crate::dev::virtio_net::waiters(),
+            Waitable::Nic(_) => crate::dev::nic::waiters(),
         }
     }
 }

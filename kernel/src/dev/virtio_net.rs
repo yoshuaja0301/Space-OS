@@ -2,9 +2,8 @@
 //!
 //! The kernel moves Ethernet frames and nothing else: ARP, IP, TCP and everything
 //! above belong to the network service in user space (PRD §2, "layanan kompleks
-//! ditempatkan pada user-space"). One lease on the device exists at a time; whoever
-//! holds it receives every frame and may transmit any frame, which is why leasing
-//! needs its own root right (`NET`).
+//! ditempatkan pada user-space"). The device is reached only through the one lease
+//! `nic` hands out.
 //!
 //! Like the block driver, this one never takes an interrupt. Completions are found
 //! by looking at the used rings: the transmit ring when a frame is sent, the receive
@@ -13,17 +12,15 @@
 //! triggered PCI interrupt lines shared with devices nobody services -- a line that
 //! stays asserted is an interrupt storm, and a storm is a hung machine.
 
-use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use spaceabi::error::Error;
 use spaceabi::syscall::{FRAME_MAX, FRAME_MIN, NetInfo};
 
+use crate::dev::nic::fmt_mac;
 use crate::dev::pci;
 use crate::dev::virtio::{DESC_F_WRITE, DmaPage, SplitQueue, Transport, VIRTIO_VENDOR, mmio_read};
 use crate::mm::PAGE_SIZE;
-use crate::sched::WaitQueue;
 use crate::sync::SpinLock;
 
 /// Transitional (0x1000) and modern (0x1041) virtio-net device ids.
@@ -87,10 +84,6 @@ struct VirtioNet {
 unsafe impl Send for VirtioNet {}
 
 static NET: SpinLock<Option<VirtioNet>> = SpinLock::new(None);
-/// Threads waiting for a frame (`SYS_WAIT_ANY` on a device lease).
-static WAITERS: WaitQueue = WaitQueue::new();
-/// Set while a lease exists.
-static LEASED: AtomicBool = AtomicBool::new(false);
 
 pub fn init() {
     match probe() {
@@ -211,10 +204,6 @@ fn probe() -> Result<Option<alloc::string::String>, Error> {
     Ok(Some(msg))
 }
 
-pub fn fmt_mac(m: &[u8; 6]) -> alloc::string::String {
-    alloc::format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5])
-}
-
 impl VirtioNet {
     fn link_up(&self) -> bool {
         if !self.has_status {
@@ -275,26 +264,8 @@ pub fn present() -> bool {
     NET.lock().is_some()
 }
 
-/// A lease on the device. Dropping the last reference releases it.
-pub struct NicLease {
-    _private: (),
-}
-
-impl Drop for NicLease {
-    fn drop(&mut self) {
-        LEASED.store(false, Ordering::Release);
-    }
-}
-
-/// Take the device. Frames that arrived for a previous holder are discarded: a new
-/// owner must not read traffic that was addressed to the old one's conversations.
-pub fn lease() -> Result<Arc<NicLease>, Error> {
-    if !present() {
-        return Err(Error::NotFound);
-    }
-    if LEASED.swap(true, Ordering::AcqRel) {
-        return Err(Error::Busy);
-    }
+/// Throw away every frame that has arrived (a new lease starts empty).
+pub fn drain() {
     if let Some(dev) = NET.lock().as_mut() {
         let mut scratch = [0u8; FRAME_MAX];
         while dev.take_frame(&mut scratch).is_some() {
@@ -302,7 +273,6 @@ pub fn lease() -> Result<Arc<NicLease>, Error> {
             dev.rx_dropped += 1;
         }
     }
-    Ok(Arc::new(NicLease { _private: () }))
 }
 
 pub fn info() -> Result<NetInfo, Error> {
@@ -362,21 +332,12 @@ pub fn rx_ready() -> bool {
     NET.lock().as_ref().is_some_and(|d| d.rx.has_used())
 }
 
-/// Queue of threads waiting for a frame.
-pub fn waiters() -> &'static WaitQueue {
-    &WAITERS
-}
-
-/// Timer-tick hook (interrupts disabled): wake frame waiters when one has arrived.
-pub fn poll_tick() {
-    // `try_lock`: never spin in interrupt context. With one CPU and spinlocks that
-    // disable interrupts the lock is always free here, but a busy lock only costs
-    // one tick of latency, whereas spinning on it would cost the machine.
-    let ready = match NET.try_lock() {
+/// [`rx_ready`] for the timer tick: never spins on the lock, and a busy lock
+/// reads as "nothing yet" -- it costs one tick of latency, where spinning in
+/// interrupt context could cost the machine.
+pub fn rx_ready_nowait() -> bool {
+    match NET.try_lock() {
         Some(g) => g.as_ref().is_some_and(|d| d.rx.has_used()),
         None => false,
-    };
-    if ready {
-        WAITERS.wake_all();
     }
 }

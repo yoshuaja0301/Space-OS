@@ -37,14 +37,17 @@ Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
 | `sata-gpt` | disk data GPT seperti disk terpasang: ESP ber-FAT32 `SPACEOS` di partisi 1, volume data di partisi 2 | `holds the data volume (GPT partition 2)`, `vfs: FAT32 mounted from AHCI 00:1f.2 port 1` |
 | `no-vga` | `-vga none` | `framebuffer: none usable; serial console only` |
 | `vmware-vga` | `-vga vmware` | `framebuffer:` |
-| `e1000-only` | kartu jaringan e1000 saja (tanpa virtio-net) | `virtio-net: no device present`, `[init] network: none; network tests will be skipped`, `[init] SKIP NET` |
+| `e1000` | kartu Intel 82540EM (bawaan banyak hypervisor) alih-alih virtio-net | `virtio-net: no device present`, `e1000: … (device 100e) ready, mac 52:54:00:12:34:56, link up`, `[init] PASS NET: ICMP echo to the gateway comes back intact` |
+| `e1000e` | kartu Intel 82574L (PCIe) | `(device 10d3) ready, mac 52:54:00:12:34:56, link up`, `[init] PASS NET: ICMP echo …` |
+| `rtl8139-only` | kartu jaringan tanpa driver (Realtek 8139) | `virtio-net: no device present`, `[init] network: none; network tests will be skipped`, `[init] SKIP NET` |
 
 Sumber entropi ikut bervariasi: `i440fx` tidak punya virtio-rng maupun RDRAND (`qemu64`), jadi
 harus mengatakan `[kernel] entropy: none` dan melewati uji TLS; `cpu-max` tidak punya virtio-rng
 tetapi punya RDRAND, dan harus lulus uji TLS dengan kunci dari situ; `no-disk` melewati uji TLS
 karena sertifikat otoritas lab ada di disk; `virtio-transitional` memakai virtio-rng transisional.
 
-Semua mesin lain membawa kartu virtio-net modern di jaringan lab (lihat di bawah);
+Semua mesin lain membawa kartu virtio-net modern di jaringan lab (lihat di bawah), kecuali
+`e1000` dan `e1000e` (kartu Intel, ADR-0026) dan `rtl8139-only` (kartu tanpa driver);
 `virtio-transitional` memakai kartu transisional dan harus tetap lulus ICMP echo.
 
 Dua mesin ini punya gigi yang terbukti: dengan driver virtio sebelum perbaikan
@@ -208,7 +211,7 @@ salah satunya.
 
 ### Uji NET (jaringan, ADR-0016)
 
-Semua dilewati (bukan digagalkan) pada mesin tanpa kartu virtio-net.
+Semua dilewati (bukan digagalkan) pada mesin tanpa kartu yang didukung (virtio-net atau Intel e1000).
 
 | ID | Uji | Program |
 |---|---|---|

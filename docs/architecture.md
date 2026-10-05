@@ -36,16 +36,18 @@ Setiap proses memiliki PML4 sendiri: half bawah privat, slot 256–511 disalin d
 ## Jaringan (tahap 3, ADR-0016)
 
 ```
-program ──sesi (allowlist)──► bin/spacenet ──SYS_NET_SEND/RECV──► virtio_net (kernel) ──► kartu
+program ──sesi (allowlist)──► bin/spacenet ──SYS_NET_SEND/RECV──► nic: virtio_net | e1000 (kernel) ──► kartu
    ▲                            DHCP, ARP, IPv4, TCP (smoltcp), DNS lewat TCP
    └──── satu channel per koneksi TCP ────┘
 ```
 
 Kernel hanya memindahkan frame Ethernet. `virtio_net` memakai transport virtio yang
 sama dengan `virtio_blk` (`dev/virtio.rs`), polling, dengan 32 buffer terima dan 32
-buffer kirim; INTx dimatikan dan tick timer yang membangunkan penunggu saat ring
-terima berisi. Kartu diwakili objek kernel **lease** yang hanya bisa dipegang satu
-proses (`SYS_NET_OPEN` di balik hak root `NET`). `SYS_WAIT_ANY` menunggu channel,
+buffer kirim; tanpa virtio-net, `e1000` (Intel 82540EM/82545EM/82574L, ADR-0026)
+memakai dua ring 32 deskriptor legacy dengan buffer 2 KiB. INTx dimatikan dan tick timer
+yang membangunkan penunggu saat ring terima berisi. Kartu — apa pun drivernya — diwakili
+objek kernel **lease** di lapisan `nic` yang hanya bisa dipegang satu proses
+(`SYS_NET_OPEN` di balik hak root `NET`). `SYS_WAIT_ANY` menunggu channel,
 proses, dan lease sekaligus, dengan batas waktu.
 
 `bin/spacenet` adalah satu-satunya pemegang lease dan satu-satunya yang berbicara
