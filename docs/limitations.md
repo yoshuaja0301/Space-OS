@@ -5,6 +5,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Kernel
 
 - **SMP tanpa IOAPIC** (ADR-0024): semua CPU yang tercantum *enabled* di MADT menjalankan thread (paling banyak 64), tetapi IRQ perangkat hanya sampai ke CPU boot lewat PIC; virtio dipoll oleh tick PIT. Satu run queue global tanpa afinitas atau penyeimbangan per-CPU. CPU yang tidak menjawab start-up IPI dibiarkan parkir dan dilaporkan.
+- **Kelas layanan tanpa prioritas di dalamnya** (ADR-0035): tiga kelas (interactive, normal, background) dengan round robin di setiap kelas; belum ada prioritas, deadline, atau pewarisan prioritas lewat IPC. CPU yang sendiri membangunkan thread yang lebih mendesak menyerahkan CPU-nya paling lambat di tick berikutnya (1 ms di CPU boot, 10 ms di CPU lain); kelas yang kelaparan mendapat satu quantum per 100 ms.
 - **Satu thread per proses**; tidak ada `thread_create`. Penjadwal SMP bersandar pada ini untuk hidup tanpa TLB shootdown (ADR-0024): thread ganda berarti shootdown lebih dulu.
 - **Pesan IPC ≤ 256 byte + 1 handle**; data besar memakai memory object (`VMO_CREATE`/`VMO_MAP`, tahap 4). Belum ada `VMO_UNMAP` khusus: pemetaan dilepas lewat `mem_unmap` dengan alamat dan panjang yang sama.
 - **Memory object tidak dapat diperbesar, dipotong, atau dipetakan sebagian**; satu objek dipetakan utuh pada alamat yang dipilih kernel.

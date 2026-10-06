@@ -35,7 +35,7 @@ use libspace::spaceabi::syscall::DirEntry;
 use libspace::spaceabi::syscall::PS2_INJECT_CHAR;
 use libspace::spaceabi::syscall::debug_op;
 use libspace::spaceabi::syscall::nr;
-use libspace::spaceabi::syscall::{ExitStatus, KernelStats, MAX_QUOTA_PAGES};
+use libspace::spaceabi::syscall::{ExitStatus, KernelStats, MAX_QUOTA_PAGES, sched_class};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
 
 const ROOT: Handle = handle::BOOTSTRAP;
@@ -648,6 +648,32 @@ fn stats() -> Result<KernelStats, String> {
     sys::kstats(ROOT).map_err(|e| alloc::format!("kstats: {e}"))
 }
 
+/// `n` copies of `bin/spin` in `class`: all of them, or none.
+fn spawn_spinners(n: u64, class: u32) -> Result<Vec<Handle>, String> {
+    let mut spinners = Vec::new();
+    for _ in 0..n {
+        match sys::spawn_in(ROOT, "bin/spin", CHILD_QUOTA, None, class) {
+            Ok(h) => spinners.push(h),
+            Err(e) => {
+                end_all(&spinners);
+                return Err(alloc::format!("spawn spinner: {e}"));
+            }
+        }
+    }
+    Ok(spinners)
+}
+
+/// Kill every process, then wait for each and close its handle.
+fn end_all(processes: &[Handle]) {
+    for &p in processes {
+        sys::kill(p).ok();
+    }
+    for &p in processes {
+        sys::wait(p).ok();
+        sys::handle_close(p).ok();
+    }
+}
+
 /// How long memory may take to come back after the last cycle of a leak test.
 const SETTLE_MS: u64 = 500;
 const SETTLE_STEP_MS: u64 = 2;
@@ -1020,6 +1046,153 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         } else {
             Err(alloc::format!("spin ended with {st:?}"))
         }
+    });
+
+    r.run("K02", "service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise", || {
+        let me = sys::self_info().map_err(|e| alloc::format!("self_info: {e}"))?.class;
+        if me != sched_class::INTERACTIVE {
+            return Err(alloc::format!("init runs in class {me}, expected interactive"));
+        }
+        match sys::spawn_in(ROOT, "bin/hello", CHILD_QUOTA, None, sched_class::BACKGROUND + 1) {
+            Err(Error::Invalid) => {}
+            Ok(h) => {
+                sys::wait(h).ok();
+                sys::handle_close(h).ok();
+                return Err(String::from("a class that does not exist was accepted"));
+            }
+            Err(e) => return Err(alloc::format!("a class that does not exist: {e}, expected Invalid")),
+        }
+        // The rest is checked from a process in the background class, which holds a
+        // root that may spawn (`bin/sched rules`).
+        let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+        let root = sys::handle_dup(ROOT, rights::SPAWN | rights::TRANSFER).map_err(|e| alloc::format!("dup root: {e}"))?;
+        let p = sys::spawn_in(ROOT, "bin/sched", CHILD_QUOTA, Some(theirs), sched_class::BACKGROUND)
+            .map_err(|e| alloc::format!("spawn sched: {e}"))?;
+        sys::send(mine, b"rules", Some(root)).map_err(|e| alloc::format!("send: {e}"))?;
+        let st = sys::wait(p).map_err(|e| alloc::format!("wait sched: {e}"))?;
+        sys::handle_close(p).ok();
+        sys::handle_close(mine).ok();
+        expect_exit("sched rules", st, 0)
+    });
+
+    r.run("K02", "service classes: an interactive round trip stays quick while background work fills every CPU", || {
+        // Two spinners for every CPU, all in the background class: without classes
+        // each round trip would wait behind them for whole quanta (10 ms each). With
+        // them, nearly every round trip takes less than one; the tail is the host
+        // descheduling a busy vCPU under emulation, so p95 is held, not the maximum.
+        const ROUNDS: usize = 200;
+        const WARMUP: usize = 10;
+        const P50_MS: u64 = 2;
+        const QUANTUM_MS: u64 = 10;
+        let cpus = stats()?.cpus_online.max(1);
+        let spinners = spawn_spinners(2 * cpus, sched_class::BACKGROUND)?;
+        let measured = (|| -> Result<Vec<u64>, String> {
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let echo = sys::spawn(ROOT, "bin/ipc_echo", CHILD_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn echo: {e}"))?;
+            let mut times = Vec::with_capacity(ROUNDS);
+            let mut buf = [0u8; 16];
+            let mut result = Ok(());
+            for i in 0..WARMUP + ROUNDS {
+                let t0 = sys::ticks_ms();
+                if let Err(e) = sys::send(mine, b"ping", None).and_then(|_| sys::recv(mine, &mut buf, false)) {
+                    result = Err(alloc::format!("round trip {i}: {e}"));
+                    break;
+                }
+                if i >= WARMUP {
+                    times.push(sys::ticks_ms() - t0);
+                }
+            }
+            // The echo service ends when its channel closes.
+            sys::handle_close(mine).ok();
+            sys::wait(echo).ok();
+            sys::handle_close(echo).ok();
+            result.map(|_| times)
+        })();
+        end_all(&spinners);
+        let mut times = measured?;
+        times.sort_unstable();
+        let at = |q: usize| times[(ROUNDS * q / 100).min(ROUNDS - 1)];
+        let (p50, p95, p99, max) = (at(50), at(95), at(99), times[ROUNDS - 1]);
+        println!(
+            "[init] classes: {ROUNDS} interactive round trips beside {} background spinners on {cpus} CPU(s): p50 {p50} ms, p95 {p95} ms, p99 {p99} ms, max {max} ms",
+            spinners.len()
+        );
+        if p50 > P50_MS || p95 >= QUANTUM_MS {
+            return Err(alloc::format!(
+                "p50 {p50} ms and p95 {p95} ms; expected at most {P50_MS} ms, and less than one quantum ({QUANTUM_MS} ms)"
+            ));
+        }
+        Ok(())
+    });
+
+    r.run("K02", "service classes: an interactive thread woken by the timer takes a CPU from background work at once", || {
+        // A round trip hands the CPU over itself: the sender blocks, and the most
+        // urgent ready thread runs where it ran. A sleeper woken by the timer has
+        // nobody to hand it a CPU while every CPU runs a background spinner: it takes
+        // one at once (a reschedule IPI, or the boot CPU's own tick), or it waits for
+        // the first quantum to end somewhere -- a few milliseconds, up to 10.
+        const SLEEPS: usize = 100;
+        const P90_MS: u64 = 2;
+        let cpus = stats()?.cpus_online.max(1);
+        let spinners = spawn_spinners(2 * cpus, sched_class::BACKGROUND)?;
+        let mut late = Vec::with_capacity(SLEEPS);
+        for i in 0..SLEEPS {
+            let want = 1 + (i % 4) as u64;
+            let t0 = sys::ticks_ms();
+            sys::sleep_ms(want);
+            late.push((sys::ticks_ms() - t0).saturating_sub(want));
+        }
+        end_all(&spinners);
+        late.sort_unstable();
+        let at = |q: usize| late[(SLEEPS * q / 100).min(SLEEPS - 1)];
+        let (p50, p90, max) = (at(50), at(90), late[SLEEPS - 1]);
+        println!(
+            "[init] classes: {SLEEPS} interactive sleeps of 1-4 ms beside {} background spinners on {cpus} CPU(s): woken late by p50 {p50} ms, p90 {p90} ms, max {max} ms",
+            spinners.len()
+        );
+        // Waiting for the first of four quanta to end is more than 4 ms late one
+        // time in ten; taking a CPU at once is late by the tick it woke on.
+        if p90 > P90_MS {
+            return Err(alloc::format!(
+                "woken late by p50 {p50} ms and p90 {p90} ms; expected p90 at most {P90_MS} ms"
+            ));
+        }
+        Ok(())
+    });
+
+    r.run("K02", "service classes: background work still runs while interactive work fills every CPU", || {
+        // Two interactive spinners for every CPU: a background program gets a turn
+        // only because a class that waited long enough goes next.
+        const LIMIT_MS: u64 = 3000;
+        let cpus = stats()?.cpus_online.max(1);
+        let spinners = spawn_spinners(2 * cpus, sched_class::INTERACTIVE)?;
+        let t0 = sys::ticks_ms();
+        let job = match sys::spawn_in(ROOT, "bin/hello", CHILD_QUOTA, None, sched_class::BACKGROUND) {
+            Ok(h) => h,
+            Err(e) => {
+                end_all(&spinners);
+                return Err(alloc::format!("spawn hello: {e}"));
+            }
+        };
+        let finished = sys::wait_any(&[job], LIMIT_MS);
+        let took = sys::ticks_ms() - t0;
+        end_all(&spinners);
+        if finished.is_err() {
+            end_all(&[job]);
+            return Err(alloc::format!(
+                "a background program did not finish within {LIMIT_MS} ms beside {} interactive spinners",
+                spinners.len()
+            ));
+        }
+        let st = sys::wait(job).map_err(|e| alloc::format!("wait hello: {e}"))?;
+        sys::handle_close(job).ok();
+        expect_exit("hello", st, 0)?;
+        println!(
+            "[init] classes: a background program finished in {took} ms beside {} interactive spinners on {cpus} CPU(s)",
+            spinners.len()
+        );
+        Ok(())
     });
 
     let cpus = stats().map(|s| s.cpus_online).unwrap_or(1);

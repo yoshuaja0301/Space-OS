@@ -30,6 +30,7 @@ members = [
     "user/spacetls",
     "user/tests/tlsprobe",
     "user/tests/churn",
+    "user/tests/sched",
     "user/services/spacedesk",
     "user/services/deskapps",
     "user/services/spacerecovery",

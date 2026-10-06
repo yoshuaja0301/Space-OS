@@ -11,7 +11,7 @@ use spaceabi::PAGE_SIZE;
 use spaceabi::elf::Elf;
 use spaceabi::error::Error;
 use spaceabi::handle::rights;
-use spaceabi::syscall::ExitStatus;
+use spaceabi::syscall::{ExitStatus, sched_class};
 use x86_64::structures::paging::PhysFrame;
 
 use self::handles::{HandleEntry, HandleTable, Object};
@@ -35,6 +35,8 @@ pub struct Process {
     pub cr3: PhysFrame,
     pub handles: SpinLock<HandleTable>,
     pub quota_pages: usize,
+    /// Service class (`sched_class`, ADR-0035); its thread is queued by it.
+    pub class: u32,
     /// How the process ended, published once nothing of it is left but this
     /// structure: `wait` returning means its memory, handles and kernel stack are
     /// already back.
@@ -59,11 +61,16 @@ pub fn live_count() -> usize {
 pub fn spawn_init() -> Result<(Arc<Process>, &'static str), Error> {
     let root = HandleEntry { object: Object::Root, rights: rights::ROOT_ALL };
     let name = crate::cmdline::get("init").unwrap_or("bin/init");
-    spawn(name, INIT_QUOTA_PAGES, Some(root)).map(|p| (p, name))
+    spawn(name, INIT_QUOTA_PAGES, Some(root), sched_class::INTERACTIVE).map(|p| (p, name))
 }
 
 /// Load `name` from the initrd into a fresh address space and schedule its main thread.
-pub fn spawn(name: &str, quota_pages: usize, bootstrap: Option<HandleEntry>) -> Result<Arc<Process>, Error> {
+pub fn spawn(
+    name: &str,
+    quota_pages: usize,
+    bootstrap: Option<HandleEntry>,
+    class: u32,
+) -> Result<Arc<Process>, Error> {
     if quota_pages == 0 || quota_pages > MAX_QUOTA_PAGES {
         return Err(Error::Invalid);
     }
@@ -127,6 +134,7 @@ pub fn spawn(name: &str, quota_pages: usize, bootstrap: Option<HandleEntry>) -> 
         cr3,
         handles: SpinLock::new(table),
         quota_pages,
+        class,
         status: SpinLock::new(None),
         final_status: SpinLock::new(None),
         exit_waiters: WaitQueue::new(),
@@ -137,8 +145,11 @@ pub fn spawn(name: &str, quota_pages: usize, bootstrap: Option<HandleEntry>) -> 
     *proc.thread.lock() = Some(Arc::downgrade(&thread));
     PROCESSES.lock().insert(pid, proc.clone());
     println!(
-        "[kernel] spawn pid {pid} '{name}': entry={:#x}, {} pages mapped, quota {} pages",
-        elf.entry, used, quota_pages
+        "[kernel] spawn pid {pid} '{name}': entry={:#x}, {} pages mapped, quota {} pages, {}",
+        elf.entry,
+        used,
+        quota_pages,
+        sched_class::name(class)
     );
     sched::add(thread);
     Ok(proc)

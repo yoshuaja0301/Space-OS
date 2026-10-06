@@ -1,9 +1,9 @@
 BdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 422664 bytes, initrd 4070912 bytes, config 59 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d9a4000, entry 0xffffffff80100000
-spaceboot: boot image 4070912 bytes, sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa
+spaceboot: kernel 422664 bytes, initrd 4109312 bytes, config 59 bytes
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d99a000, entry 0xffffffff8011b01c
+spaceboot: boot image 4109312 bytes, sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -14,17 +14,17 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 6 reservations, initrd 4070912 bytes, cmdline 0 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d9a4000..0x7da0b000 (412 KiB): kernel image
-[kernel]   reserved 0x7d5c2000..0x7d9a4000 (3976 KiB): boot image
-[kernel]   reserved 0x7d5b2000..0x7d5c2000 (64 KiB): boot stack
-[kernel]   reserved 0x7d5b1000..0x7d5b2000 (4 KiB): boot info
-[kernel]   reserved 0x7d5a1000..0x7d5b1000 (64 KiB): memory map
-[kernel]   reserved 0x7d579000..0x7d591000 (96 KiB): page tables
-[kernel] boot image: sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 6 reservations, initrd 4109312 bytes, cmdline 0 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d99a000..0x7da01000 (412 KiB): kernel image
+[kernel]   reserved 0x7d5ae000..0x7d99a000 (4016 KiB): boot image
+[kernel]   reserved 0x7d59e000..0x7d5ae000 (64 KiB): boot stack
+[kernel]   reserved 0x7d59d000..0x7d59e000 (4 KiB): boot info
+[kernel]   reserved 0x7d58d000..0x7d59d000 (64 KiB): memory map
+[kernel]   reserved 0x7d565000..0x7d57d000 (96 KiB): page tables
+[kernel] boot image: sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
-[kernel] frames: 2094299 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094289 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -32,8 +32,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] memory: 8180 MiB usable, 8164 MiB free after kernel init
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
-[kernel] initrd: 4070912 bytes, 31 files
-[kernel]   bin/init (525272 bytes)
+[kernel] initrd: 4109312 bytes, 32 files
+[kernel]   bin/init (537560 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/fpu (37520 bytes)
@@ -57,6 +57,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/tlsprobe (1074024 bytes)
 [kernel]   bin/spacecloud (1184632 bytes)
 [kernel]   bin/churn (25168 bytes)
+[kernel]   bin/sched (25160 bytes)
 [kernel]   bin/spacedesk (119536 bytes)
 [kernel]   bin/deskapps (127728 bytes)
 [kernel]   bin/spacerecovery (58056 bytes)
@@ -78,26 +79,26 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
-[kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791278980 s since the Unix epoch (UTC)
+[kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes (a class waits at most 100 ms)
+[kernel] rtc: 1791284209 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (617680 counts)
-[kernel] spawn pid 1 'bin/init': entry=0x45c3e0, 144 pages mapped, quota 2048 pages
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (625200 counts)
+[kernel] spawn pid 1 'bin/init': entry=0x45f1b0, 147 pages mapped, quota 2048 pages, interactive
 [kernel] init spawned as pid 1 from bin/init
 [kernel] entering idle loop; scheduler live
 [status] user-space alive: pid 1 (bin/init) made the first system call
-[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (144 used)
+[init] Space OS init running: pid 1, ABI v0, quota 2048 pages (147 used)
 [init] storage: none; disk-backed tests will be skipped
 [init] network: a network card is present
 [kernel] display: leased to pid 1 'bin/init'; the console goes on on the serial port
 [kernel] display: returned to the console
 [init] display: framebuffer present
 [init] --- K01: boot reached init in user space
-[init] kernel: 8163 MiB frames free of 8180, heap 9 KiB used, uptime 123 ms
+[init] kernel: 8163 MiB frames free of 8180, heap 13 KiB used, uptime 117 ms
 [init] PASS K01: boot reached init in user space
 [init] --- K02: hello world process exits 0
-[kernel] spawn pid 2 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 2 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages, interactive
 [hello] hello from user space, pid 2 (21 of 128 pages used)
 [kernel] pid 2 'bin/hello' exited with code 0
 [init] PASS K02: hello world process exits 0
@@ -106,124 +107,124 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: spawn beyond quota is rejected
 [init] PASS K02: spawn beyond quota is rejected
 [init] --- K02: write to kernel memory kills the process (page fault)
-[kernel] spawn pid 3 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 3 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 3 performing 'kernel_write'
 [kernel] pid 3 'bin/fault' killed: page fault at rip=0x40048e (error=0x7, addr=0xffff800000000000)
 [kernel] pid 3 'bin/fault' killed (page fault, addr 0xffff800000000000)
 [init] PASS K02: write to kernel memory kills the process (page fault)
 [init] --- K02: null read kills the process (page fault)
-[kernel] spawn pid 4 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 4 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 4 performing 'null_read'
 [kernel] pid 4 'bin/fault' killed: page fault at rip=0x400260 (error=0x4, addr=0x0)
 [kernel] pid 4 'bin/fault' killed (page fault, addr 0x0)
 [init] PASS K02: null read kills the process (page fault)
 [init] --- K02: executing the NX stack kills the process (page fault)
-[kernel] spawn pid 5 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 5 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 5 performing 'nx_exec'
 [kernel] pid 5 'bin/fault' killed: page fault at rip=0x7fffefffff98 (error=0x15, addr=0x7fffefffff98)
 [kernel] pid 5 'bin/fault' killed (page fault, addr 0x7fffefffff98)
 [init] PASS K02: executing the NX stack kills the process (page fault)
 [init] --- K02: divide by zero kills the process
-[kernel] spawn pid 6 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 6 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 6 performing 'div_zero'
 [kernel] pid 6 'bin/fault' killed: divide error at rip=0x4003e5 (error=0x0, addr=0x4003e5)
 [kernel] pid 6 'bin/fault' killed (divide error, addr 0x4003e5)
 [init] PASS K02: divide by zero kills the process
 [init] --- K02: undefined instruction kills the process
-[kernel] spawn pid 7 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 7 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 7 performing 'ud2'
 [kernel] pid 7 'bin/fault' killed: invalid opcode at rip=0x400480 (error=0x0, addr=0x400480)
 [kernel] pid 7 'bin/fault' killed (invalid opcode, addr 0x400480)
 [init] PASS K02: undefined instruction kills the process
 [init] --- K02: privileged instruction in ring 3 kills the process (#GP)
-[kernel] spawn pid 8 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 8 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 8 performing 'cli'
 [kernel] pid 8 'bin/fault' killed: general protection fault at rip=0x40018d (error=0x0, addr=0x40018d)
 [kernel] pid 8 'bin/fault' killed (general protection fault, addr 0x40018d)
 [init] PASS K02: privileged instruction in ring 3 kills the process (#GP)
 [init] --- C01: writing through a read-only memory-object mapping kills the process
-[kernel] spawn pid 9 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 9 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 9 performing 'ro_vmo_write'
 [kernel] pid 9 'bin/fault' killed: page fault at rip=0x40036f (error=0x7, addr=0x1000000000)
 [kernel] pid 9 'bin/fault' killed (page fault, addr 0x1000000000)
 [init] PASS C01: writing through a read-only memory-object mapping kills the process
 [init] --- K02: int3 in ring 3 kills the process (breakpoint)
-[kernel] spawn pid 10 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 10 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 10 performing 'int3'
 [kernel] pid 10 'bin/fault' killed: breakpoint at rip=0x4002c3 (error=0x0, addr=0x4002c3)
 [kernel] pid 10 'bin/fault' killed (breakpoint, addr 0x4002c3)
 [init] PASS K02: int3 in ring 3 kills the process (breakpoint)
 [init] --- K03: FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps
-[kernel] spawn pid 11 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[kernel] spawn pid 12 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[kernel] spawn pid 13 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[kernel] spawn pid 14 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[kernel] spawn pid 15 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[kernel] spawn pid 16 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
-[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 640 checks in 400 ms
-[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 665 checks in 400 ms
+[kernel] spawn pid 11 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 12 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 13 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 14 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 15 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 16 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
+[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 692 checks in 400 ms
 [kernel] pid 11 'bin/fpu' exited with code 0
-[kernel] pid 12 'bin/fpu' exited with code 0
+[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 684 checks in 400 ms
+[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 708 checks in 400 ms
 [fpu] pattern 4: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 668 checks in 400 ms
-[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 640 checks in 400 ms
-[kernel] pid 14 'bin/fpu' exited with code 0
-[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 656 checks in 400 ms
-[kernel] pid 16 'bin/fpu' exited with code 0
-[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 660 checks in 400 ms
 [kernel] pid 13 'bin/fpu' exited with code 0
+[kernel] pid 12 'bin/fpu' exited with code 0
+[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 676 checks in 400 ms
+[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 676 checks in 400 ms
+[kernel] pid 16 'bin/fpu' exited with code 0
 [kernel] pid 15 'bin/fpu' exited with code 0
+[kernel] pid 14 'bin/fpu' exited with code 0
 [init] PASS K03: FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps
 [init] --- K03: a new process starts with every FP/SIMD register in its initial state
-[kernel] spawn pid 17 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages
+[kernel] spawn pid 17 'bin/fpu': entry=0x401144, 25 pages mapped, quota 128 pages, interactive
 [fpu] fresh: x87, MXCSR and XMM0-15 in the initial state
 [kernel] pid 17 'bin/fpu' exited with code 0
 [init] PASS K03: a new process starts with every FP/SIMD register in its initial state
 [init] SKIP K01: an unmasked SSE exception kills only the process (SIMD floating point) (QEMU TCG never raises #XM: it sets the MXCSR flag and carries on)
 [init] --- K01: an unmasked x87 exception kills only the process (x87 floating point)
-[kernel] spawn pid 18 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 18 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 18 performing 'x87_fp'
 [kernel] pid 18 'bin/fault' killed: x87 floating point at rip=0x40023c (error=0x0, addr=0x40023c)
 [kernel] pid 18 'bin/fault' killed (x87 floating-point exception, addr 0x40023c)
 [init] PASS K01: an unmasked x87 exception kills only the process (x87 floating point)
 [init] --- K02: TF set before syscall: kernel survives the ring-0 #DB, process is terminated
-[kernel] spawn pid 19 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 19 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 19 performing 'tf_syscall'
 [kernel] pid 19 'bin/fault' killed: debug at rip=0x4002fa (error=0x0, addr=0x4002fa)
 [kernel] pid 19 'bin/fault' killed (debug trap, addr 0x4002fa)
 [init] PASS K02: TF set before syscall: kernel survives the ring-0 #DB, process is terminated
 [init] --- K02: jump to a kernel address kills the process (page fault)
-[kernel] spawn pid 20 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 20 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 20 performing 'kernel_rip_jump'
 [kernel] pid 20 'bin/fault' killed: page fault at rip=0xffffffff80100000 (error=0x15, addr=0xffffffff80100000)
 [kernel] pid 20 'bin/fault' killed (page fault, addr 0xffffffff80100000)
 [init] PASS K02: jump to a kernel address kills the process (page fault)
 [init] --- K02: jump to a non-canonical address kills the process (#GP on hardware, #PF on TCG)
-[kernel] spawn pid 21 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 21 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 21 performing 'noncanon_rip_jump'
 [kernel] pid 21 'bin/fault' killed: page fault at rip=0x800000000000 (error=0x15, addr=0x800000000000)
 [kernel] pid 21 'bin/fault' killed (page fault, addr 0x800000000000)
 [init] PASS K02: jump to a non-canonical address kills the process (#GP on hardware, #PF on TCG)
 [init] --- K02: syscall with a non-canonical user rsp returns normally
-[kernel] spawn pid 22 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 22 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 22 performing 'noncanon_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=742
+[fault] syscall with a hostile rsp returned ticks=685
 [kernel] pid 22 'bin/fault' exited with code 0
 [init] PASS K02: syscall with a non-canonical user rsp returns normally
 [init] --- K02: syscall with rsp pointing into the kernel returns normally
-[kernel] spawn pid 23 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 23 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 23 performing 'kernel_rsp_syscall'
-[fault] syscall with a hostile rsp returned ticks=756
+[fault] syscall with a hostile rsp returned ticks=701
 [kernel] pid 23 'bin/fault' exited with code 0
 [init] PASS K02: syscall with rsp pointing into the kernel returns normally
 [init] --- K02: malformed executables are rejected (bad entry, bad magic, truncated, huge segment)
 [init] PASS K02: malformed executables are rejected (bad entry, bad magic, truncated, huge segment)
 [init] --- K02: kernel pointer passed to a syscall is rejected, not dereferenced
-[kernel] spawn pid 24 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 24 'bin/fault': entry=0x400788, 22 pages mapped, quota 128 pages, interactive
 [fault] pid 24 performing 'kernel_syscall_ptr'
 [kernel] pid 24 'bin/fault' exited with code 0
 [init] PASS K02: kernel pointer passed to a syscall is rejected, not dereferenced
 [init] --- K02: syscall ABI negative tests (handles, rights, pointers)
-[kernel] spawn pid 25 'bin/abi_negative': entry=0x40489c, 29 pages mapped, quota 128 pages
+[kernel] spawn pid 25 'bin/abi_negative': entry=0x40489c, 29 pages mapped, quota 128 pages, interactive
 [abi] syscall negative tests
 [abi]   ok   unknown syscall: NoSys
 [abi]   ok   syscall number just past the table: NoSys
@@ -283,7 +284,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 25 'bin/abi_negative' exited with code 0
 [init] PASS K02: syscall ABI negative tests (handles, rights, pointers)
 [init] --- K02: IPC echo round trips and handle transfer
-[kernel] spawn pid 26 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 26 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
 [echo] received handle 1 with 'reply here', replying on it
 [echo] parent closed the channel after 3 messages; exiting
 [kernel] pid 26 'bin/ipc_echo' exited with code 0
@@ -291,461 +292,557 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: timer: sleep(50 ms) advances the clock
 [init] PASS K02: timer: sleep(50 ms) advances the clock
 [init] --- K02: runaway process is preempted and can be killed
-[kernel] spawn pid 27 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 27 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
 [spin] spinning forever without syscalls
 [kernel] pid 27 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K02: runaway process is preempted and can be killed
+[init] --- K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
+[kernel] spawn pid 28 'bin/sched': entry=0x400778, 22 pages mapped, quota 128 pages, background
+[kernel] spawn pid 29 'bin/sched': entry=0x400778, 22 pages mapped, quota 64 pages, background
+[kernel] pid 29 'bin/sched' exited with code 3
+[kernel] spawn pid 30 'bin/sched': entry=0x400778, 22 pages mapped, quota 64 pages, background
+[kernel] pid 30 'bin/sched' exited with code 3
+[sched] background: more urgent children Denied, class 4 Invalid, a child without a class runs in the background
+[kernel] pid 28 'bin/sched' exited with code 0
+[init] PASS K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
+[init] --- K02: service classes: an interactive round trip stays quick while background work fills every CPU
+[kernel] spawn pid 31 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 32 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 33 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 34 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[kernel] spawn pid 35 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[kernel] spawn pid 36 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 37 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 38 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 39 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[echo] parent closed the channel after 210 messages; exiting
+[kernel] pid 39 'bin/ipc_echo' exited with code 0
+[kernel] pid 36 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 35 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 32 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 38 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 33 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 37 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 34 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 31 'bin/spin' killed (killed, addr 0x0)
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+[init] PASS K02: service classes: an interactive round trip stays quick while background work fills every CPU
+[init] --- K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
+[kernel] spawn pid 40 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 41 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 42 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 43 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 44 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[kernel] spawn pid 45 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[kernel] spawn pid 46 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[kernel] spawn pid 47 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[kernel] pid 41 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 40 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 44 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 46 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 43 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 42 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 45 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 47 'bin/spin' killed (killed, addr 0x0)
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+[init] PASS K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
+[init] --- K02: service classes: background work still runs while interactive work fills every CPU
+[kernel] spawn pid 48 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 49 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[spin] spinning forever without syscalls
+[kernel] spawn pid 50 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[kernel] spawn pid 51 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 52 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[spin] spinning forever without syscalls
+[kernel] spawn pid 53 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[spin] spinning forever without syscalls
+[kernel] spawn pid 54 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 55 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 56 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages, background
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[spin] spinning forever without syscalls
+[hello] hello from user space, pid 56 (21 of 128 pages used)
+[kernel] pid 56 'bin/hello' exited with code 0
+[kernel] pid 48 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 51 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 53 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 50 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 55 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 49 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 52 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 54 'bin/spin' killed (killed, addr 0x0)
+[init] classes: a background program finished in 124 ms beside 8 interactive spinners on 4 CPU(s)
+[init] PASS K02: service classes: background work still runs while interactive work fills every CPU
 [init] --- K02: two processes run at the same time on different CPUs
-[kernel] spawn pid 28 'bin/pingpong': entry=0x400284, 21 pages mapped, quota 128 pages
-[kernel] pid 28 'bin/pingpong' exited with code 0
-[init] smp: 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+[kernel] spawn pid 57 'bin/pingpong': entry=0x400284, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 57 'bin/pingpong' exited with code 0
+[init] smp: 4 CPUs; 200 turns through shared memory, no system call, in 2 ms
 [init] PASS K02: two processes run at the same time on different CPUs
 [init] --- K03: memory quota is enforced and reusable
-[kernel] spawn pid 29 'bin/quota': entry=0x400798, 22 pages mapped, quota 100 pages
+[kernel] spawn pid 58 'bin/quota': entry=0x400798, 22 pages mapped, quota 100 pages, interactive
 [quota] quota 100 pages, 22 used before test
 [quota] mapped 4 chunks of 16 pages, then got Quota (expected 4 chunks)
 [quota] ok: quota enforced at 100 pages and fully reusable
-[kernel] pid 29 'bin/quota' exited with code 0
+[kernel] pid 58 'bin/quota' exited with code 0
 [init] PASS K03: memory quota is enforced and reusable
 [init] --- K03: a process that maps and unmaps 2 MiB 50 times ends up where it started
-[init] map/unmap 2 MiB: frames free 2089813 -> 2089813, heap used 10616 -> 10616, live processes 1
+[init] map/unmap 2 MiB: frames free 2089800 -> 2089800, heap used 14720 -> 14720, live processes 1
 [init] PASS K03: a process that maps and unmaps 2 MiB 50 times ends up where it started
 [init] --- K03: 50 spawn/exit cycles leak no frames and no kernel heap
-[kernel] spawn pid 30 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 30 'bin/worker' exited with code 0
-[kernel] spawn pid 31 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 31 'bin/worker' exited with code 0
-[kernel] spawn pid 32 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 32 'bin/worker' exited with code 0
-[kernel] spawn pid 33 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 33 'bin/worker' exited with code 0
-[kernel] spawn pid 34 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 34 'bin/worker' exited with code 0
-[kernel] spawn pid 35 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 35 'bin/worker' exited with code 0
-[kernel] spawn pid 36 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 36 'bin/worker' exited with code 0
-[kernel] spawn pid 37 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 37 'bin/worker' exited with code 0
-[kernel] spawn pid 38 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 38 'bin/worker' exited with code 0
-[kernel] spawn pid 39 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 39 'bin/worker' exited with code 0
-[kernel] spawn pid 40 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 40 'bin/worker' exited with code 0
-[kernel] spawn pid 41 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 41 'bin/worker' exited with code 0
-[kernel] spawn pid 42 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 42 'bin/worker' exited with code 0
-[kernel] spawn pid 43 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 43 'bin/worker' exited with code 0
-[kernel] spawn pid 44 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 44 'bin/worker' exited with code 0
-[kernel] spawn pid 45 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 45 'bin/worker' exited with code 0
-[kernel] spawn pid 46 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 46 'bin/worker' exited with code 0
-[kernel] spawn pid 47 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 47 'bin/worker' exited with code 0
-[kernel] spawn pid 48 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 48 'bin/worker' exited with code 0
-[kernel] spawn pid 49 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 49 'bin/worker' exited with code 0
-[kernel] spawn pid 50 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 50 'bin/worker' exited with code 0
-[kernel] spawn pid 51 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 51 'bin/worker' exited with code 0
-[kernel] spawn pid 52 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 52 'bin/worker' exited with code 0
-[kernel] spawn pid 53 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 53 'bin/worker' exited with code 0
-[kernel] spawn pid 54 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 54 'bin/worker' exited with code 0
-[kernel] spawn pid 55 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 55 'bin/worker' exited with code 0
-[kernel] spawn pid 56 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 56 'bin/worker' exited with code 0
-[kernel] spawn pid 57 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 57 'bin/worker' exited with code 0
-[kernel] spawn pid 58 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
-[kernel] pid 58 'bin/worker' exited with code 0
-[kernel] spawn pid 59 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 59 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 59 'bin/worker' exited with code 0
-[kernel] spawn pid 60 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 60 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 60 'bin/worker' exited with code 0
-[kernel] spawn pid 61 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 61 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 61 'bin/worker' exited with code 0
-[kernel] spawn pid 62 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 62 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 62 'bin/worker' exited with code 0
-[kernel] spawn pid 63 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 63 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 63 'bin/worker' exited with code 0
-[kernel] spawn pid 64 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 64 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 64 'bin/worker' exited with code 0
-[kernel] spawn pid 65 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 65 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 65 'bin/worker' exited with code 0
-[kernel] spawn pid 66 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 66 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 66 'bin/worker' exited with code 0
-[kernel] spawn pid 67 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 67 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 67 'bin/worker' exited with code 0
-[kernel] spawn pid 68 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 68 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 68 'bin/worker' exited with code 0
-[kernel] spawn pid 69 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 69 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 69 'bin/worker' exited with code 0
-[kernel] spawn pid 70 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 70 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 70 'bin/worker' exited with code 0
-[kernel] spawn pid 71 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 71 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 71 'bin/worker' exited with code 0
-[kernel] spawn pid 72 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 72 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 72 'bin/worker' exited with code 0
-[kernel] spawn pid 73 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 73 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 73 'bin/worker' exited with code 0
-[kernel] spawn pid 74 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 74 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 74 'bin/worker' exited with code 0
-[kernel] spawn pid 75 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 75 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 75 'bin/worker' exited with code 0
-[kernel] spawn pid 76 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 76 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 76 'bin/worker' exited with code 0
-[kernel] spawn pid 77 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 77 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 77 'bin/worker' exited with code 0
-[kernel] spawn pid 78 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 78 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 78 'bin/worker' exited with code 0
-[kernel] spawn pid 79 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 79 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 79 'bin/worker' exited with code 0
-[kernel] spawn pid 80 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 80 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 80 'bin/worker' exited with code 0
-[kernel] spawn pid 81 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 81 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 81 'bin/worker' exited with code 0
-[kernel] spawn pid 82 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 82 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 82 'bin/worker' exited with code 0
-[kernel] spawn pid 83 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 83 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 83 'bin/worker' exited with code 0
-[kernel] spawn pid 84 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages
+[kernel] spawn pid 84 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
 [kernel] pid 84 'bin/worker' exited with code 0
-[init] frames free before=2089813 after=2089813 ; heap used before=10616 after=10616 ; switches=1806
+[kernel] spawn pid 85 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 85 'bin/worker' exited with code 0
+[kernel] spawn pid 86 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 86 'bin/worker' exited with code 0
+[kernel] spawn pid 87 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 87 'bin/worker' exited with code 0
+[kernel] spawn pid 88 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 88 'bin/worker' exited with code 0
+[kernel] spawn pid 89 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 89 'bin/worker' exited with code 0
+[kernel] spawn pid 90 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 90 'bin/worker' exited with code 0
+[kernel] spawn pid 91 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 91 'bin/worker' exited with code 0
+[kernel] spawn pid 92 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 92 'bin/worker' exited with code 0
+[kernel] spawn pid 93 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 93 'bin/worker' exited with code 0
+[kernel] spawn pid 94 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 94 'bin/worker' exited with code 0
+[kernel] spawn pid 95 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 95 'bin/worker' exited with code 0
+[kernel] spawn pid 96 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 96 'bin/worker' exited with code 0
+[kernel] spawn pid 97 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 97 'bin/worker' exited with code 0
+[kernel] spawn pid 98 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 98 'bin/worker' exited with code 0
+[kernel] spawn pid 99 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 99 'bin/worker' exited with code 0
+[kernel] spawn pid 100 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 100 'bin/worker' exited with code 0
+[kernel] spawn pid 101 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 101 'bin/worker' exited with code 0
+[kernel] spawn pid 102 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 102 'bin/worker' exited with code 0
+[kernel] spawn pid 103 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 103 'bin/worker' exited with code 0
+[kernel] spawn pid 104 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 104 'bin/worker' exited with code 0
+[kernel] spawn pid 105 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 105 'bin/worker' exited with code 0
+[kernel] spawn pid 106 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 106 'bin/worker' exited with code 0
+[kernel] spawn pid 107 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 107 'bin/worker' exited with code 0
+[kernel] spawn pid 108 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 108 'bin/worker' exited with code 0
+[kernel] spawn pid 109 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 109 'bin/worker' exited with code 0
+[kernel] spawn pid 110 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 110 'bin/worker' exited with code 0
+[kernel] spawn pid 111 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 111 'bin/worker' exited with code 0
+[kernel] spawn pid 112 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 112 'bin/worker' exited with code 0
+[kernel] spawn pid 113 'bin/worker': entry=0x40052c, 23 pages mapped, quota 128 pages, interactive
+[kernel] pid 113 'bin/worker' exited with code 0
+[init] frames free before=2089800 after=2089800 ; heap used before=14720 after=14720 ; switches=2977
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
-[kernel] spawn pid 85 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 85 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 86 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 86 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 87 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 87 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 88 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 88 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 89 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 89 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 90 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 90 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 91 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 91 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 92 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 92 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 93 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 93 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 94 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 94 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 95 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 95 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 96 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 96 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 97 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 97 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 98 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 98 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 99 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 99 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 100 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 100 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 101 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 101 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 102 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 102 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 103 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 103 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 104 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 104 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 105 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 105 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 106 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 106 'bin/ipc_echo' killed (killed, addr 0x0)
-[kernel] spawn pid 107 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
-[kernel] pid 107 'bin/ipc_echo' killed (killed, addr 0x0)
-[init] frames free before=2089813 after=2089813 ; heap used before=10616 after=10616
+[kernel] spawn pid 114 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 114 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 115 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 115 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 116 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 116 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 117 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 117 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 118 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 118 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 119 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 119 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 120 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 120 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 121 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 121 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 122 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 122 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 123 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 123 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 124 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 124 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 125 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 125 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 126 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 126 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 127 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 127 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 128 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 128 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 129 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 129 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 130 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 130 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 131 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 131 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 132 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 132 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 133 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 133 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 134 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 134 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 135 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 135 'bin/ipc_echo' killed (killed, addr 0x0)
+[kernel] spawn pid 136 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
+[kernel] pid 136 'bin/ipc_echo' killed (killed, addr 0x0)
+[init] frames free before=2089800 after=2089800 ; heap used before=14720 after=14720
 [init] PASS K03: 20 kill-while-blocked cycles leak no frames and no kernel heap
 [init] --- K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
-[kernel] spawn pid 108 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 108 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 109 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 109 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 110 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 110 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 111 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 111 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 112 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 112 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 113 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 113 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 114 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 114 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 115 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 115 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 116 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 116 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 117 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 117 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 118 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 118 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 119 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 119 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 120 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 120 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 121 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 121 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 122 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 122 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 123 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 123 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 124 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 124 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 125 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 125 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 126 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 126 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 127 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 127 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 128 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 128 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 129 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 129 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 130 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 130 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while sleeping: frames free 2089813 -> 2089813, heap used 10616 -> 10616, live processes 1
+[kernel] spawn pid 137 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 137 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 138 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 138 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 139 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 139 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 140 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 140 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 141 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 141 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 142 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 142 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 143 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 143 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 144 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 144 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 145 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 145 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 146 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 146 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 147 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 147 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 148 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 148 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 149 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 149 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 150 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 150 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 151 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 151 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 152 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 152 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 153 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 153 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 154 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 154 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 155 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 155 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 156 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 156 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 157 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 157 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 158 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 158 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 159 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 159 'bin/blocker' killed (killed, addr 0x0)
+[init] kill while sleeping: frames free 2089800 -> 2089800, heap used 14720 -> 14720, live processes 1
 [init] PASS K03: 20 kill-while-sleeping cycles release the thread at once, not at wake-up
 [init] --- K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
-[kernel] spawn pid 131 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 131 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 132 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 132 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 133 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 133 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 134 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 134 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 135 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 135 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 136 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 136 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 137 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 137 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 138 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 138 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 139 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 139 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 140 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 140 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 141 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 141 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 142 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 142 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 143 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 143 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 144 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 144 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 145 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 145 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 146 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 146 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 147 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 147 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 148 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 148 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 149 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 149 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 150 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 150 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 151 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 151 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 152 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 152 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 153 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 153 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in recv: frames free 2089813 -> 2089813, heap used 10616 -> 10616, live processes 1
+[kernel] spawn pid 160 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 160 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 161 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 161 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 162 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 162 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 163 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 163 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 164 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 164 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 165 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 165 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 166 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 166 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 167 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 167 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 168 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 168 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 169 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 169 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 170 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 170 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 171 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 171 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 172 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 172 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 173 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 173 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 174 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 174 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 175 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 175 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 176 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 176 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 177 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 177 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 178 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 178 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 179 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 179 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 180 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 180 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 181 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 181 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 182 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 182 'bin/blocker' killed (killed, addr 0x0)
+[init] kill while in recv: frames free 2089800 -> 2089800, heap used 14720 -> 14720, live processes 1
 [init] PASS K03: 20 kill-while-blocked-in-recv cycles leak nothing (peer stays open)
 [init] --- K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
-[kernel] spawn pid 154 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages
-[kernel] spawn pid 155 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 183 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 184 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
 [spin] spinning forever without syscalls
-[kernel] pid 155 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 156 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 156 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 157 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 157 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 158 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 158 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 159 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 159 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 160 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 160 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 161 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 161 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 162 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 162 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 163 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 163 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 164 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 164 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 165 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 165 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 166 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 166 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 167 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 167 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 168 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 168 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 169 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 169 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 170 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 170 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 171 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 171 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 172 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 172 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 173 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 173 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 174 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 174 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 175 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 175 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 176 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 176 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 177 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 177 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait: frames free 2089777 -> 2089777, heap used 11720 -> 11720, live processes 2
-[kernel] pid 154 'bin/spin' killed (killed, addr 0x0)
+[kernel] pid 184 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 185 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 185 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 186 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 186 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 187 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 187 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 188 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 188 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 189 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 189 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 190 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 190 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 191 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 191 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 192 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 192 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 193 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 193 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 194 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 194 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 195 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 195 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 196 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 196 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 197 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 197 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 198 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 198 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 199 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 199 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 200 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 200 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 201 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 201 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 202 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 202 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 203 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 203 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 204 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 204 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 205 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 205 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 206 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 206 'bin/blocker' killed (killed, addr 0x0)
+[init] kill while in wait: frames free 2089764 -> 2089764, heap used 15832 -> 15832, live processes 2
+[kernel] pid 183 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-waiting cycles leak nothing although the target keeps running
 [init] --- K02: a full handle table refuses spawn instead of orphaning the child
-[kernel] spawn pid 178 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages
-[hello] hello from user space, pid 178 (21 of 128 pages used)
-[kernel] pid 178 'bin/hello' exited with code 0
+[kernel] spawn pid 207 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages, interactive
+[hello] hello from user space, pid 207 (21 of 128 pages used)
+[kernel] pid 207 'bin/hello' exited with code 0
 [init] PASS K02: a full handle table refuses spawn instead of orphaning the child
 [init] --- K02: wait_any: an idle channel times out after the timeout, not before
 [init] PASS K02: wait_any: an idle channel times out after the timeout, not before
 [init] --- K02: wait_any: reports which handle is ready, and a zero timeout only looks
 [init] PASS K02: wait_any: reports which handle is ready, and a zero timeout only looks
 [init] --- K02: wait_any: another process's message wakes the waiter
-[kernel] spawn pid 179 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 208 'bin/ipc_echo': entry=0x4004e8, 21 pages mapped, quota 128 pages, interactive
 [echo] parent closed the channel after 1 messages; exiting
-[kernel] pid 179 'bin/ipc_echo' exited with code 0
+[kernel] pid 208 'bin/ipc_echo' exited with code 0
 [init] PASS K02: wait_any: another process's message wakes the waiter
 [init] --- K02: wait_any: a process exit and a closed peer both wake the waiter
-[kernel] spawn pid 180 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages
-[hello] hello from user space, pid 180 (21 of 128 pages used)
-[kernel] pid 180 'bin/hello' exited with code 0
+[kernel] spawn pid 209 'bin/hello': entry=0x4001b8, 21 pages mapped, quota 128 pages, interactive
+[hello] hello from user space, pid 209 (21 of 128 pages used)
+[kernel] pid 209 'bin/hello' exited with code 0
 [init] PASS K02: wait_any: a process exit and a closed peer both wake the waiter
 [init] --- K02: wait_any: bad sets are refused (empty, too large, bad handle, wrong kind, bad pointer)
 [init] PASS K02: wait_any: bad sets are refused (empty, too large, bad handle, wrong kind, bad pointer)
 [init] --- K03: 20 kill-while-in-wait_any cycles leak nothing (two queues, no timeout)
-[kernel] spawn pid 181 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages
-[kernel] spawn pid 182 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
+[kernel] spawn pid 210 'bin/spin': entry=0x400040, 21 pages mapped, quota 128 pages, interactive
 [spin] spinning forever without syscalls
-[kernel] pid 182 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 183 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 183 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 184 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 184 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 185 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 185 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 186 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 186 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 187 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 187 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 188 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 188 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 189 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 189 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 190 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 190 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 191 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 191 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 192 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 192 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 193 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 193 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 194 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 194 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 195 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 195 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 196 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 196 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 197 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 197 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 198 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 198 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 199 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 199 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 200 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 200 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 201 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 201 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 202 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 202 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 203 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 203 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 204 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 204 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait_any: frames free 2089777 -> 2089777, heap used 19400 -> 19400, live processes 2
-[kernel] pid 181 'bin/spin' killed (killed, addr 0x0)
+[kernel] spawn pid 211 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 211 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 212 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 212 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 213 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 213 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 214 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 214 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 215 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 215 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 216 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 216 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 217 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 217 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 218 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 218 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 219 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 219 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 220 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 220 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 221 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 221 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 222 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 222 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 223 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 223 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 224 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 224 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 225 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 225 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 226 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 226 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 227 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 227 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 228 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 228 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 229 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 229 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 230 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 230 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 231 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 231 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 232 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 232 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 233 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 233 'bin/blocker' killed (killed, addr 0x0)
+[init] kill while in wait_any: frames free 2089764 -> 2089764, heap used 23512 -> 23512, live processes 2
+[kernel] pid 210 'bin/spin' killed (killed, addr 0x0)
 [init] PASS K03: 20 kill-while-in-wait_any cycles leak nothing (two queues, no timeout)
 [init] --- K03: 20 kill-while-in-wait_any cycles release the timer entry at once
-[kernel] spawn pid 205 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 205 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 206 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 206 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 207 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 207 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 208 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 208 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 209 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 209 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 210 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 210 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 211 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 211 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 212 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 212 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 213 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 213 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 214 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 214 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 215 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 215 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 216 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 216 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 217 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 217 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 218 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 218 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 219 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 219 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 220 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 220 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 221 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 221 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 222 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 222 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 223 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 223 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 224 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 224 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 225 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 225 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 226 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 226 'bin/blocker' killed (killed, addr 0x0)
-[kernel] spawn pid 227 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 227 'bin/blocker' killed (killed, addr 0x0)
-[init] kill while in wait_any with timeout: frames free 2089813 -> 2089813, heap used 18296 -> 18296, live processes 1
+[kernel] spawn pid 234 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 234 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 235 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 235 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 236 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 236 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 237 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 237 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 238 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 238 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 239 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 239 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 240 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 240 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 241 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 241 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 242 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 242 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 243 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 243 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 244 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 244 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 245 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 245 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 246 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 246 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 247 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 247 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 248 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 248 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 249 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 249 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 250 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 250 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 251 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 251 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 252 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 252 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 253 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 253 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 254 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 254 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 255 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 255 'bin/blocker' killed (killed, addr 0x0)
+[kernel] spawn pid 256 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 256 'bin/blocker' killed (killed, addr 0x0)
+[init] kill while in wait_any with timeout: frames free 2089800 -> 2089800, heap used 22400 -> 22400, live processes 1
 [init] PASS K03: 20 kill-while-in-wait_any cycles release the timer entry at once
 [init] --- K02: clock: wall-clock time is plausible and advances with the tick
-[init] clock: 1791278983 s since the Unix epoch
+[init] clock: 1791284212 s since the Unix epoch
 [init] PASS K02: clock: wall-clock time is plausible and advances with the tick
 [init] --- K02: the kernel command line reads back whole, and only with the STATS right
 [init] kernel command line: ""
@@ -754,7 +851,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] --- K02: random: requests are checked, and refused outright without a source
 [init] PASS K02: random: requests are checked, and refused outright without a source
 [init] --- K02: random: 4 KiB look like noise, and no draw repeats
-[init] random: 4096 bytes, chi-square 254 over 255 degrees of freedom, 16266 of 32768 bits set
+[init] random: 4096 bytes, chi-square 233 over 255 degrees of freedom, 16391 of 32768 bits set
 [init] PASS K02: random: 4 KiB look like noise, and no draw repeats
 [init] --- NET: the network lease needs the NET right and is exclusive
 [init] PASS NET: the network lease needs the NET right and is exclusive
@@ -765,24 +862,24 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] network: 10.0.2.2 is at 52:55:0a:00:02:02 (1 ms)
 [init] PASS NET: ARP: the gateway answers who-has 10.0.2.2
 [init] --- NET: ICMP echo to the gateway comes back intact
-[init] network: echo 1 (32 byte payload) back in 2 ms
+[init] network: echo 1 (32 byte payload) back in 1 ms
 [init] network: echo 2 (512 byte payload) back in 1 ms
 [init] network: echo 3 (1472 byte payload) back in 1 ms
 [init] network: 5 frames received, 5 sent, 0 dropped
 [init] PASS NET: ICMP echo to the gateway comes back intact
 [init] --- NET: a frame arriving while the receiver sleeps wakes it
-[kernel] spawn pid 228 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages
-[kernel] pid 228 'bin/blocker' exited with code 0
-[init] network: asleep 304 ms; the frame left 300 ms into the sleep and woke the receiver 4 ms later
+[kernel] spawn pid 257 'bin/blocker': entry=0x400a78, 22 pages mapped, quota 128 pages, interactive
+[kernel] pid 257 'bin/blocker' exited with code 0
+[init] network: asleep 303 ms; the frame left 300 ms into the sleep and woke the receiver 3 ms later
 [init] PASS NET: a frame arriving while the receiver sleeps wakes it
 [init] --- NET: malformed transmit and receive requests are refused
 [init] PASS NET: malformed transmit and receive requests are refused
 [init] --- NET: the network service gets an address by DHCP and describes it
-[kernel] spawn pid 229 'bin/spacenet': entry=0x411004, 45 pages mapped, quota 256 pages
+[kernel] spawn pid 258 'bin/spacenet': entry=0x411004, 45 pages mapped, quota 256 pages, interactive
 [net] Space OS network service, ABI v0
 [net] attached: mac 52:54:00:12:34:56, link up; asking DHCP for an address
 [net] DHCP: address 10.0.2.15/24, router none, DNS server none
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 15 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 10 ms
 [net] DNS: using 10.0.2.53:53 (over TCP)
 [net] session 1 opened; nothing is allowed yet
 [net] session 1: allow echo.lab.test, port 7
@@ -794,19 +891,19 @@ spacekernel 0.1.0: Space OS kernel booting
 [net] session 1: allow nosuch.lab.test, any port
 [init] PASS NET: the network service gets an address by DHCP and describes it
 [init] --- NET: names resolve through the lab DNS server; unknown names do not
-[net] DNS: echo.lab.test is 10.0.2.101 (14 ms)
-[init] network: echo.lab.test is 10.0.2.101 (21 ms)
-[net] DNS: alias.lab.test is 10.0.2.101 (7 ms)
-[init] network: alias.lab.test is 10.0.2.101 (9 ms)
+[net] DNS: echo.lab.test is 10.0.2.101 (13 ms)
+[init] network: echo.lab.test is 10.0.2.101 (26 ms)
+[net] DNS: alias.lab.test is 10.0.2.101 (8 ms)
+[init] network: alias.lab.test is 10.0.2.101 (11 ms)
 [net] DNS: ECHO.Lab.Test is 10.0.2.101 (8 ms)
 [init] network: ECHO.Lab.Test is 10.0.2.101 (10 ms)
 [net] DNS: nosuch.lab.test: not found
 [init] PASS NET: names resolve through the lab DNS server; unknown names do not
 [init] --- NET: 64 KiB go to the echo service and come back intact over TCP
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1012 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1013 ms
 [net] session 1: echo.lab.test:7 closed: 65536 bytes out, 65536 in
-[init] network: 65536 bytes to the echo service and back in 1033 ms
+[init] network: 65536 bytes to the echo service and back in 1036 ms
 [init] PASS NET: 64 KiB go to the echo service and come back intact over TCP
 [init] --- NET: destinations off the allowlist are refused before a frame leaves
 [net] session 1: refused to connect to api.cloud.test port 80: not on its allowlist
@@ -816,97 +913,97 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] network: 4 refusals counted (0 -> 4); no frame sent meanwhile
 [init] PASS NET: destinations off the allowlist are refused before a frame leaves
 [init] --- NET: a connection nobody answers times out
-[net] DNS: blackhole.lab.test is 10.0.2.77 (9 ms)
+[net] DNS: blackhole.lab.test is 10.0.2.77 (13 ms)
 [net] session 1: blackhole.lab.test:80: timed out after 500 ms
-[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 504 ms
+[init] network: blackhole.lab.test:80 gave Err(TimedOut) after 503 ms
 [init] PASS NET: a connection nobody answers times out
 [init] --- NET: a port nobody listens on refuses the connection
-[net] DNS: closed.lab.test is 10.0.2.101 (14 ms)
-[net] session 1: closed.lab.test:8: connection refused after 21 ms
-[init] network: closed.lab.test:8 gave Err(Refused) after 24 ms
+[net] DNS: closed.lab.test is 10.0.2.101 (9 ms)
+[net] session 1: closed.lab.test:8: connection refused after 11 ms
+[init] network: closed.lab.test:8 gave Err(Refused) after 14 ms
 [init] PASS NET: a port nobody listens on refuses the connection
 [init] --- NET: a connection the peer resets is reported as reset
-[net] DNS: reset.lab.test is 10.0.2.102 (10 ms)
+[net] DNS: reset.lab.test is 10.0.2.102 (12 ms)
 [net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1015 ms
-[net] session 1: reset.lab.test:9: connection reset after 1323 ms
-[init] network: the resetting service answered Err(Reset) after 303 ms
+[net] session 1: reset.lab.test:9: connection reset after 1324 ms
+[init] network: the resetting service answered Err(Reset) after 305 ms
 [init] PASS NET: a connection the peer resets is reported as reset
 [init] --- NET: closing a connection the peer is still sending on resets it, so the peer stops
-[net] DNS: chargen.lab.test is 10.0.2.101 (12 ms)
-[net] session 1: connected to chargen.lab.test:19 (10.0.2.101) in 23 ms
+[net] DNS: chargen.lab.test is 10.0.2.101 (11 ms)
+[net] session 1: connected to chargen.lab.test:19 (10.0.2.101) in 19 ms
 [init] network: read 2056 bytes of a stream that keeps coming, then closed it
 [init] PASS NET: closing a connection the peer is still sending on resets it, so the peer stops
 [init] --- NET: 20 connections open and close without leaking kernel memory
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 14 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
+[net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 9 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (6 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 8 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 15 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (6 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 9 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (6 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 8 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 14 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 15 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
+[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (14 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 20 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 15 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
-[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (7 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 9 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 14 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (9 ms)
+[net] DNS: echo.lab.test is 10.0.2.101 (16 ms)
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 19 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[net] DNS: echo.lab.test is 10.0.2.101 (8 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (12 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 14 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
-[init] network connections: frames free 2089591 -> 2089591, heap used 21208 -> 21208, live processes 2
+[net] DNS: echo.lab.test is 10.0.2.101 (14 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 26 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (13 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 28 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (13 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 22 ms
+[net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
+[init] network connections: frames free 2089578 -> 2089578, heap used 25320 -> 25320, live processes 2
 [init] PASS NET: 20 connections open and close without leaking kernel memory
 [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no disk, which holds the lab authority's certificate)
 [init] SKIP TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it (no disk, which holds the lab authority's certificate)
@@ -928,14 +1025,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] SKIP I01: local-only work is refused before a frame leaves (no disk, which holds the lab authority's certificate)
 [init] SKIP I01: the adapter quits cleanly, and the broker's audit holds every tool call (no disk, which holds the lab authority's certificate)
 [init] --- NET: killing the service fails its clients and frees the device; a new one serves and quits
-[net] DNS: echo.lab.test is 10.0.2.101 (10 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 20 ms
-[kernel] pid 229 'bin/spacenet' killed (killed, addr 0x0)
-[kernel] spawn pid 230 'bin/spacenet': entry=0x411004, 45 pages mapped, quota 256 pages
+[net] DNS: echo.lab.test is 10.0.2.101 (15 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 18 ms
+[kernel] pid 258 'bin/spacenet' killed (killed, addr 0x0)
+[kernel] spawn pid 259 'bin/spacenet': entry=0x411004, 45 pages mapped, quota 256 pages, interactive
 [net] Space OS network service, ABI v0
 [net] attached: mac 52:54:00:12:34:56, link up; asking DHCP for an address
 [net] DHCP: address 10.0.2.15/24, router none, DNS server none
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 24 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 15 ms
 [net] DNS: using 10.0.2.53:53 (over TCP)
 [net] session 1 opened; nothing is allowed yet
 [net] session 1: allow echo.lab.test, port 7
@@ -945,179 +1042,179 @@ spacekernel 0.1.0: Space OS kernel booting
 [net] session 1: allow blackhole.lab.test, port 80
 [net] session 1: allow closed.lab.test, port 8
 [net] session 1: allow nosuch.lab.test, any port
-[net] DNS: echo.lab.test is 10.0.2.101 (22 ms)
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1031 ms
+[net] DNS: echo.lab.test is 10.0.2.101 (13 ms)
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1020 ms
 [net] session 1: echo.lab.test:7 closed: 4 bytes out, 4 in
 [net] closing: 1 connections opened, 0 refused, 1 names resolved; 13 frames in, 14 out, 0 dropped
-[kernel] pid 230 'bin/spacenet' exited with code 0
+[kernel] pid 259 'bin/spacenet' exited with code 0
 [init] PASS NET: killing the service fails its clients and frees the device; a new one serves and quits
 [init] --- D01: SHA-256 in the guest matches the published test vectors
 [init] PASS D01: SHA-256 in the guest matches the published test vectors
 [init] SKIP D01: model file read from the guest disk matches the manifest checksum (no disk on this machine)
 [init] SKIP D01: file API rejects bad paths, missing rights and bad buffers (no disk on this machine)
 [init] --- C01: Compute ABI: version negotiation, device query and queue lifetime
-[kernel] spawn pid 231 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] spawn pid 260 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] rejecting ABI v99 (this service speaks v0)
 [init] compute device: CPU backend, ABI v0, buffers up to 64 MiB
 [compute] shutdown requested; exiting
-[kernel] pid 231 'bin/spacecompute' exited with code 0
+[kernel] pid 260 'bin/spacecompute' exited with code 0
 [init] PASS C01: Compute ABI: version negotiation, device query and queue lifetime
 [init] --- C01: Compute ABI: shared buffers, operations, bounds, unsupported ops
-[kernel] spawn pid 232 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] spawn pid 261 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
-[kernel] pid 232 'bin/spacecompute' exited with code 0
+[kernel] pid 261 'bin/spacecompute' exited with code 0
 [init] PASS C01: Compute ABI: shared buffers, operations, bounds, unsupported ops
 [init] --- C01: Compute ABI: a long operation times out, resumes and can be cancelled
-[kernel] spawn pid 233 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] spawn pid 262 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
-[kernel] pid 233 'bin/spacecompute' exited with code 0
+[kernel] pid 262 'bin/spacecompute' exited with code 0
 [init] PASS C01: Compute ABI: a long operation times out, resumes and can be cancelled
 [init] --- C01: a mapped memory object outlives the close of its last handle
 [init] PASS C01: a mapped memory object outlives the close of its last handle
 [init] --- C01: compute service teardown returns every frame it allocated
-[kernel] spawn pid 234 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] spawn pid 263 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
-[kernel] pid 234 'bin/spacecompute' exited with code 0
-[kernel] spawn pid 235 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] pid 263 'bin/spacecompute' exited with code 0
+[kernel] spawn pid 264 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
-[kernel] pid 235 'bin/spacecompute' exited with code 0
-[kernel] spawn pid 236 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
+[kernel] pid 264 'bin/spacecompute' exited with code 0
+[kernel] spawn pid 265 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, interactive
 [compute] Space Compute service, ABI v0, CPU backend
 [compute] shutdown requested; exiting
-[kernel] pid 236 'bin/spacecompute' exited with code 0
-[init] compute cycles: frames free 2089813 -> 2089813, heap used 18328 -> 18328
+[kernel] pid 265 'bin/spacecompute' exited with code 0
+[init] compute cycles: frames free 2089800 -> 2089800, heap used 22432 -> 22432
 [init] PASS C01: compute service teardown returns every frame it allocated
 [init] --- B04: a session says the OS is usable exactly when it can read files and run and stop programs
-[kernel] spawn pid 237 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 266 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 192 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
 [status] OS not usable: cannot read files: listing /spaceos: not found
 [shell] session closed after 3 commands
-[kernel] pid 237 'bin/spaceshell' exited with code 0
+[kernel] pid 266 'bin/spaceshell' exited with code 0
 [init] B04: no file system on this machine, and the session says it is not usable
 [init] PASS B04: a session says the OS is usable exactly when it can read files and run and stop programs
 [init] SKIP A01: native inference: a small model generates 128 tokens matching the pinned baseline (no disk on this machine)
 [init] --- U01: session service survives a crashed worker and keeps serving Stop and the file manager
-[kernel] spawn pid 238 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 267 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 192 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] terminal ready on the console; type 'help'
-space> [kernel] spawn pid 239 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+space> [kernel] spawn pid 268 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'crash'
 [worker] job 'crash' starting
 [shell] session: worker running (crash), commands served 3
 [worker] job 'crash' is about to fault
-[kernel] pid 239 'bin/uiworker' killed: page fault at rip=0x400233 (error=0x4, addr=0x0)
-[kernel] pid 239 'bin/uiworker' killed (page fault, addr 0x0)
+[kernel] pid 268 'bin/uiworker' killed: page fault at rip=0x400233 (error=0x4, addr=0x0)
+[kernel] pid 268 'bin/uiworker' killed (page fault, addr 0x0)
 [shell] worker 'crash' was killed: page fault (fault at 0x0); the session is unaffected
-[shell] session: worker crashed (crash), commands served 5
-[kernel] spawn pid 240 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+[shell] session: worker crashed (crash), commands served 4
+[kernel] spawn pid 269 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'hang'
 [worker] job 'hang' starting
-[shell] session: worker running (hang), commands served 8
+[shell] session: worker running (hang), commands served 7
 [worker] job 'hang' is wedged and never calls the kernel again
-[kernel] pid 240 'bin/uiworker' killed (killed, addr 0x0)
+[kernel] pid 269 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
-[shell] session: worker stopped (hang), commands served 11
-[shell] Stop: worker 'hang' was killed after 9 ms
-[kernel] spawn pid 241 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+[shell] session: worker stopped (hang), commands served 10
+[shell] Stop: worker 'hang' was killed after 7 ms
+[kernel] spawn pid 270 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'slow'
 [worker] job 'slow' starting
-[shell] session: worker running (slow), commands served 13
+[shell] session: worker running (slow), commands served 12
 [worker] job 'slow' is sleeping
-[kernel] pid 241 'bin/uiworker' killed (killed, addr 0x0)
+[kernel] pid 270 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'slow' ended: stopped
-[shell] session: worker stopped (slow), commands served 14
+[shell] session: worker stopped (slow), commands served 13
 [shell] Stop: worker 'slow' was killed after 4 ms
-[kernel] spawn pid 242 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 271 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'ok'
+[shell] session: worker running (ok), commands served 15
 [worker] job 'ok' starting
-[shell] session: worker running (ok), commands served 16
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
-[kernel] pid 242 'bin/uiworker' exited with code 0
+[kernel] pid 271 'bin/uiworker' exited with code 0
 [shell] worker 'ok' ended: done
-[shell] session: worker done (ok), commands served 18
-[init] session served 21 commands and outlived 4 workers
-[shell] session closed after 22 commands
-[kernel] pid 238 'bin/spaceshell' exited with code 0
+[shell] session: worker done (ok), commands served 17
+[init] session served 20 commands and outlived 4 workers
+[shell] session closed after 21 commands
+[kernel] pid 267 'bin/spaceshell' exited with code 0
 [init] PASS U01: session service survives a crashed worker and keeps serving Stop and the file manager
 [init] SKIP A02: a damaged model is refused in a session, for what is wrong with it, and the session answers on (no disk on this machine)
 [init] --- A02: a worker that runs out of its memory is refused, dies alone, and the session answers on
-[kernel] spawn pid 243 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 272 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 192 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
-[kernel] spawn pid 244 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 273 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'oom'
 [worker] job 'oom' starting
 [shell] session: worker running (oom), commands served 2
 [worker] job 'oom' took 428 KiB, then the kernel said: quota exceeded
 [user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
 out of memory after 428 KiB
-[kernel] pid 244 'bin/uiworker' exited with code 101
+[kernel] pid 273 'bin/uiworker' exited with code 101
 [shell] worker 'oom' ended: done
-[shell] session: worker done (oom), commands served 4
-[kernel] spawn pid 245 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+[shell] session: worker done (oom), commands served 3
+[kernel] spawn pid 274 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'ok'
-[shell] session: worker running (ok), commands served 7
 [worker] job 'ok' starting
+[shell] session: worker running (ok), commands served 6
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
-[kernel] pid 245 'bin/uiworker' exited with code 0
+[kernel] pid 274 'bin/uiworker' exited with code 0
 [shell] worker 'ok' ended: done
-[shell] session: worker done (ok), commands served 10
-[shell] session closed after 12 commands
-[kernel] pid 243 'bin/spaceshell' exited with code 0
+[shell] session: worker done (ok), commands served 7
+[shell] session closed after 9 commands
+[kernel] pid 272 'bin/spaceshell' exited with code 0
 [init] PASS A02: a worker that runs out of its memory is refused, dies alone, and the session answers on
 [init] --- A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
-[kernel] spawn pid 246 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 275 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 192 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
-[kernel] spawn pid 247 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 1048576 pages
-[kernel] spawn pid 248 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 1048576 pages
-[kernel] spawn pid 249 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 58117 pages
+[kernel] spawn pid 276 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 1048576 pages, interactive
+[kernel] spawn pid 277 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 1048576 pages, interactive
+[kernel] spawn pid 278 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 58104 pages, interactive
 [worker] job 'hog' starting
 [worker] job 'hog' starting
 [worker] job 'hog' starting
-[worker] job 'hog' took 232384 KiB, then the kernel said: quota exceeded
-[worker] job 'hog' took 4029060 KiB, then the kernel said: out of memory
-[worker] job 'hog' took 4080692 KiB, then the kernel said: out of memory
-[kernel] pid 248 'bin/uiworker' killed (killed, addr 0x0)
-[kernel] pid 247 'bin/uiworker' killed (killed, addr 0x0)
-[kernel] pid 249 'bin/uiworker' killed (killed, addr 0x0)
-[init] A02: 3 worker(s) took 8163 MiB in 14445 ms and left 0 frames free; the session answered, a new program was refused, and all 2089733 frames came back
+[worker] job 'hog' took 232332 KiB, then the kernel said: quota exceeded
+[worker] job 'hog' took 4111708 KiB, then the kernel said: out of memory
+[worker] job 'hog' took 3997984 KiB, then the kernel said: out of memory
+[kernel] pid 276 'bin/uiworker' killed (killed, addr 0x0)
+[kernel] pid 277 'bin/uiworker' killed (killed, addr 0x0)
+[kernel] pid 278 'bin/uiworker' killed (killed, addr 0x0)
+[init] A02: 3 worker(s) took 8162 MiB in 14394 ms and left 0 frames free; the session answered, a new program was refused, and all 2089720 frames came back
 [shell] session closed after 3 commands
-[kernel] pid 246 'bin/spaceshell' exited with code 0
+[kernel] pid 275 'bin/spaceshell' exited with code 0
 [init] PASS A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
 [init] --- U01: a session cannot exceed the capabilities it was given
-[kernel] spawn pid 250 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 279 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 192 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] terminal ready on the console; type 'help'
-space> [kernel] spawn pid 251 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
+space> [kernel] spawn pid 280 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
 [shell] started worker 'ok'
 [worker] job 'ok' starting
 [shell] session: worker running (ok), commands served 3
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
-[kernel] pid 251 'bin/uiworker' exited with code 0
+[kernel] pid 280 'bin/uiworker' exited with code 0
 [shell] worker 'ok' ended: done
 [shell] session: worker done (ok), commands served 4
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 
 [shell] input was lost; the line was discarded
 space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ[shell] session closed after 9 commands
-[kernel] pid 250 'bin/spaceshell' exited with code 0
+[kernel] pid 279 'bin/spaceshell' exited with code 0
 [init] PASS U01: a session cannot exceed the capabilities it was given
 [init] SKIP U01: the model writes text in a session, Stop ends it between two compute steps, and the session answers on (no disk on this machine)
 [init] --- U01: console input is a capability of its own and never blocks
@@ -1128,23 +1225,23 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
 [init] --- U01: the desktop takes the screen, and one display server at a time
-[kernel] spawn pid 252 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages
-[kernel] display: leased to pid 252 'bin/spacedesk'; the console goes on on the serial port
+[kernel] spawn pid 281 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages, interactive
+[kernel] display: leased to pid 281 'bin/spacedesk'; the console goes on on the serial port
 [desk] Space OS desktop on a 1280x800 screen (BGRX)
 [init] desktop: 1280x800 screen leased to the desktop; a second lease is refused
 [desk] closed after 1 frames
-[kernel] pid 252 'bin/spacedesk' exited with code 0
+[kernel] pid 281 'bin/spacedesk' exited with code 0
 [kernel] display: returned to the console
 [kernel] display: leased to pid 1 'bin/init'; the console goes on on the serial port
 [kernel] display: returned to the console
 [init] PASS U01: the desktop takes the screen, and one display server at a time
 [init] --- U01: windows take the keyboard, move, resize, minimize, change workspace and close from the keyboard
-[kernel] spawn pid 253 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages
-[kernel] display: leased to pid 253 'bin/spacedesk'; the console goes on on the serial port
+[kernel] spawn pid 282 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages, interactive
+[kernel] display: leased to pid 282 'bin/spacedesk'; the console goes on on the serial port
 [desk] Space OS desktop on a 1280x800 screen (BGRX)
-[kernel] spawn pid 254 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
+[kernel] spawn pid 283 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages, interactive
 [desk] starting terminal
-[kernel] spawn pid 255 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 256 pages
+[kernel] spawn pid 284 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 256 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
@@ -1152,7 +1249,7 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [deskterm] Space OS terminal; type 'help'
 [desk] window 1 'Terminal' (terminal) opened at 20,70, 720x400
 [desk] focus: 'Terminal' (window 1)
-[kernel] spawn pid 256 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
+[kernel] spawn pid 285 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages, interactive
 [desk] starting files
 [deskfiles] /: not found
 [desk] window 2 'Files' (files) opened at 780,70, 460x360
@@ -1177,48 +1274,48 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [desk] focus: 'Files' (window 2)
 [desk] shortcut Alt+Tab
 [desk] asked 'Files' to close
-[kernel] pid 256 'bin/deskapps' exited with code 0
 [desk] shortcut Alt+F4
+[kernel] pid 285 'bin/deskapps' exited with code 0
 [desk] window 2 'Files' closed: the app closed its window
 [desk] focus: 'Terminal' (window 1)
-[init] desktop: focus, move, resize, minimize, workspaces and close all worked; 2 frames presented
+[init] desktop: focus, move, resize, minimize, workspaces and close all worked; 3 frames presented
 [shell] session closed after 2 commands
-[kernel] pid 255 'bin/spaceshell' exited with code 0
-[kernel] pid 254 'bin/deskapps' exited with code 0
+[kernel] pid 284 'bin/spaceshell' exited with code 0
+[kernel] pid 283 'bin/deskapps' exited with code 0
 [desk] window 1 'Terminal' closed: the app closed its window
 [desk] closed after 3 frames
-[kernel] pid 253 'bin/spacedesk' exited with code 0
+[kernel] pid 282 'bin/spacedesk' exited with code 0
 [kernel] display: returned to the console
 [init] PASS U01: windows take the keyboard, move, resize, minimize, change workspace and close from the keyboard
 [init] SKIP U01: the desktop, terminal, file manager and Stop keep working while inference workers crash (no framebuffer or no disk on this machine)
 [init] SKIP U01: the model writes text in the Agent Center, Stop ends it between two steps, and the terminal answers (no framebuffer or no disk on this machine)
 [init] SKIP L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files (no framebuffer or no disk on this machine)
 [init] --- U01: a desktop that is killed gives the screen back, and a new one starts
-[kernel] spawn pid 257 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages
-[kernel] display: leased to pid 257 'bin/spacedesk'; the console goes on on the serial port
+[kernel] spawn pid 286 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages, interactive
+[kernel] display: leased to pid 286 'bin/spacedesk'; the console goes on on the serial port
 [desk] Space OS desktop on a 1280x800 screen (BGRX)
-[kernel] spawn pid 258 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
+[kernel] spawn pid 287 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages, interactive
 [desk] starting terminal
-[kernel] spawn pid 259 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 256 pages
+[kernel] spawn pid 288 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 256 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
 [deskterm] Space OS terminal; type 'help'
 [desk] window 1 'Terminal' (terminal) opened at 20,70, 720x400
-[kernel] pid 257 'bin/spacedesk' killed (killed, addr 0x0)
+[kernel] pid 286 'bin/spacedesk' killed (killed, addr 0x0)
 [kernel] display: returned to the console
 [kernel] display: leased to pid 1 'bin/init'; the console goes on on the serial port
 [shell] session closed after 2 commands
-[kernel] pid 259 'bin/spaceshell' exited with code 0
+[kernel] pid 288 'bin/spaceshell' exited with code 0
 [kernel] display: returned to the console
-[kernel] pid 258 'bin/deskapps' exited with code 0
-[kernel] spawn pid 260 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages
-[kernel] display: leased to pid 260 'bin/spacedesk'; the console goes on on the serial port
+[kernel] spawn pid 289 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 1400 pages, interactive
+[kernel] pid 287 'bin/deskapps' exited with code 0
+[kernel] display: leased to pid 289 'bin/spacedesk'; the console goes on on the serial port
 [desk] Space OS desktop on a 1280x800 screen (BGRX)
-[kernel] spawn pid 261 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
+[kernel] spawn pid 290 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages, interactive
 [desk] starting terminal
-[kernel] spawn pid 262 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 256 pages
+[kernel] spawn pid 291 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 256 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
@@ -1227,11 +1324,11 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [desk] window 1 'Terminal' (terminal) opened at 20,70, 720x400
 [desk] focus: 'Terminal' (window 1)
 [shell] session closed after 2 commands
-[kernel] pid 262 'bin/spaceshell' exited with code 0
-[kernel] pid 261 'bin/deskapps' exited with code 0
+[kernel] pid 291 'bin/spaceshell' exited with code 0
+[kernel] pid 290 'bin/deskapps' exited with code 0
 [desk] window 1 'Terminal' closed: the app closed its window
 [desk] closed after 2 frames
-[kernel] pid 260 'bin/spacedesk' exited with code 0
+[kernel] pid 289 'bin/spacedesk' exited with code 0
 [kernel] display: returned to the console
 [init] desktop: killed with a window open, the screen came back, and a new desktop started
 [init] PASS U01: a desktop that is killed gives the screen back, and a new one starts
@@ -1241,7 +1338,7 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] SKIP U01: the file manager lists the guest volume (no disk on this machine)
 [init] SKIP G01: agent reads, patches and checks inside its workspace (no disk on this machine)
 [init] --- G01: every way out of the workspace is refused and recorded
-[kernel] spawn pid 263 'bin/spacebroker': entry=0x4039fc, 29 pages mapped, quota 256 pages
+[kernel] spawn pid 292 'bin/spacebroker': entry=0x4039fc, 29 pages mapped, quota 256 pages, interactive
 [broker] Space OS Tool Broker, ABI v0, workspace /spaceos/ws
 [broker] operator attached, ABI v0
 [broker] serving an agent
@@ -1263,16 +1360,16 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [broker] agent reported done
 [init] audit after the escape attempts: 17 entries, 3 allowed, 14 refused
 [broker] closing: 17 tool calls, 14 refused
-[kernel] pid 263 'bin/spacebroker' exited with code 0
+[kernel] pid 292 'bin/spacebroker' exited with code 0
 [init] PASS G01: every way out of the workspace is refused and recorded
 [init] --- G01: the broker outlives an agent that disappears
-[kernel] spawn pid 264 'bin/spacebroker': entry=0x4039fc, 29 pages mapped, quota 256 pages
+[kernel] spawn pid 293 'bin/spacebroker': entry=0x4039fc, 29 pages mapped, quota 256 pages, interactive
 [broker] Space OS Tool Broker, ABI v0, workspace /spaceos/ws
 [broker] operator attached, ABI v0
 [broker] serving an agent
 [broker] agent is gone; the workspace is unchanged from here on
 [broker] closing: 1 tool calls, 0 refused
-[kernel] pid 264 'bin/spacebroker' exited with code 0
+[kernel] pid 293 'bin/spacebroker' exited with code 0
 [init] PASS G01: the broker outlives an agent that disappears
 [init] SKIP L01: corpus is indexed and queries return ranked chunks with verifiable provenance (no disk on this machine)
 [init] SKIP L02: a revoked document leaves every result and does not return on re-index (no disk on this machine)
@@ -1325,5 +1422,5 @@ space> IJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC
 [init] skipped: P01 packages install only when they authenticate, and a refusal changes nothing: no disk on this machine
 [init] skipped: P01 an install outlives the process that performed it: no disk on this machine
 [init] skipped: P01 rollback returns the previous version, and only as far as the history goes: no disk on this machine
-[init] ALL TESTS PASSED (82/82, 41 skipped)
-[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 25347 ms, 19708 context switches)
+[init] ALL TESTS PASSED (86/86, 41 skipped)
+[kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 25364 ms, 20591 context switches)

@@ -3,25 +3,25 @@
 Diambil dari build/logs (cargo xtask test, compat, arm64) dan cargo xtask unit.
 
 ## Serah terima yang diterima (acceptance, x86-64)
-spaceboot: boot image 4070912 bytes, sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa
+spaceboot: boot image 4109312 bytes, sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 [status] kernel alive
-[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4070912 bytes, cmdline 13 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d50e000..0x7d575000 (412 KiB): kernel image
-[kernel]   reserved 0x7d12c000..0x7d50e000 (3976 KiB): boot image
-[kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): command line
-[kernel]   reserved 0x7d11c000..0x7d12c000 (64 KiB): boot stack
-[kernel]   reserved 0x7d11b000..0x7d11c000 (4 KiB): boot info
-[kernel]   reserved 0x7d10b000..0x7d11b000 (64 KiB): memory map
-[kernel]   reserved 0x7d0e5000..0x7d0fd000 (96 KiB): page tables
-[kernel] boot image: sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4109312 bytes, cmdline 13 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d504000..0x7d56b000 (412 KiB): kernel image
+[kernel]   reserved 0x7d109000..0x7d4f5000 (4016 KiB): boot image
+[kernel]   reserved 0x7d108000..0x7d109000 (4 KiB): command line
+[kernel]   reserved 0x7d0f8000..0x7d108000 (64 KiB): boot stack
+[kernel]   reserved 0x7d0f7000..0x7d0f8000 (4 KiB): boot info
+[kernel]   reserved 0x7d0e7000..0x7d0f7000 (64 KiB): memory map
+[kernel]   reserved 0x7d0c1000..0x7d0d9000 (96 KiB): page tables
+[kernel] boot image: sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
 [kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
 
 ## Serah terima yang diterima (arm64-acceptance)
-[kernel] boot info v3 accepted: 720 bytes, 26 memory regions, 7 reservations, initrd 3305984 bytes, cmdline 30 bytes, rsdp 0x13c760018
-[kernel] boot image: sha256 2d66d67a0f2f9f295b6cdd8d9512bd472206a7d765a265b64ee9eedffb4059b6 as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 26 memory regions, 7 reservations, initrd 3339776 bytes, cmdline 30 bytes, rsdp 0x13c760018
+[kernel] boot image: sha256 a3196be51c61c7482e98e84e5c032c61f05b3d157433181f4515a57c290dc802 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
 [kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
@@ -29,7 +29,7 @@ spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 ## Kerusakan yang ditolak: satu field per boot (bootinfo_fault=, cargo xtask test dan arm64)
 == arm64-bootinfo-reservation
    bootloader: bootinfo_fault=reservation: handing the kernel two reservations over the same pages
-   kernel    : BootInfo rejected: reservation (entry 1) = 0x13c38f000: overlaps another reservation
+   kernel    : BootInfo rejected: reservation (entry 1) = 0x13c387000: overlaps another reservation
    status    : kernel alive
 == bootinfo-cmdline_utf8
    bootloader: bootinfo_fault=cmdline_utf8: handing the kernel a command line that is not UTF-8
@@ -49,15 +49,15 @@ spaceboot: entropy: 32 bytes from the firmware's RNG protocol
    status    : kernel alive
 == bootinfo-initrd
    bootloader: bootinfo_fault=initrd: handing the kernel a boot image as long as the linear map
-   kernel    : BootInfo rejected: initrd = 0x7d11c000: outside the linear map
+   kernel    : BootInfo rejected: initrd = 0x7d118000: outside the linear map
    status    : kernel alive
 == bootinfo-initrd_hash
    bootloader: bootinfo_fault=initrd_hash: handing the kernel a boot image whose digest has one byte flipped
-   kernel    : BootInfo rejected: initrd: the boot image hashes to aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa, not to the 5506c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa the bootloader measured
+   kernel    : BootInfo rejected: initrd: the boot image hashes to ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503, not to the 00b38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503 the bootloader measured
    status    : kernel alive
 == bootinfo-kernel_image
    bootloader: bootinfo_fault=kernel_image: handing the kernel a kernel image moved past itself
-   kernel    : BootInfo rejected: kernel_image = 0x7d565000: not inside the kernel image's reservation
+   kernel    : BootInfo rejected: kernel_image = 0x7d55b000: not inside the kernel image's reservation
    status    : kernel alive
 == bootinfo-magic
    bootloader: bootinfo_fault=magic: handing the kernel a magic number one bit off
@@ -77,7 +77,7 @@ spaceboot: entropy: 32 bytes from the firmware's RNG protocol
    status    : kernel alive
 == bootinfo-reservation
    bootloader: bootinfo_fault=reservation: handing the kernel two reservations over the same pages
-   kernel    : BootInfo rejected: reservation (entry 1) = 0x7d50e000: overlaps another reservation
+   kernel    : BootInfo rejected: reservation (entry 1) = 0x7d504000: overlaps another reservation
    status    : kernel alive
 == bootinfo-size
    bootloader: bootinfo_fault=size: handing the kernel a size 8 bytes short
@@ -135,8 +135,8 @@ usb                    AI ready
 no-disk:               [status] OS not usable: cannot read files: listing /spaceos: not found
 
 ## OS usable: bukti dari sesi (terminal, acceptance)
-[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 34 ms
-[status] AI ready: the model is verified and loaded on the CPU backend and answered after 423 ms
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 32 ms
+[status] AI ready: the model is verified and loaded on the CPU backend and answered after 377 ms
 [init] PASS B04: a session says the OS is usable exactly when it can read files and run and stop programs
 
 ## Entropi firmware saja (entropy-boot-only): dicampur, tidak pernah dihitung
@@ -147,19 +147,19 @@ spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 [init] PASS K02: random: requests are checked, and refused outright without a source
 [init] SKIP K02: random: 4 KiB look like noise, and no draw repeats (no entropy source)
 [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no entropy source)
-[init] ALL TESTS PASSED (102/102, 21 skipped)
+[init] ALL TESTS PASSED (106/106, 21 skipped)
 
 ## Validator di host (cargo xtask unit)
 test boot::tests::entropy_and_the_boot_slot_are_checked ... ok
 test boot::tests::identity_is_checked_first ... ok
 test boot::tests::images_and_hand_over_state_are_checked ... ok
+test boot::tests::reservations_are_checked ... ok
 test boot::tests::the_command_line_is_text ... ok
 test boot::tests::the_fixture_is_accepted ... ok
 test boot::tests::the_linear_map_is_checked ... ok
 test boot::tests::the_memory_map_entries_are_checked ... ok
-test boot::tests::the_platform_is_checked ... ok
 test boot::tests::the_memory_map_header_is_checked ... ok
-test boot::tests::reservations_are_checked ... ok
+test boot::tests::the_platform_is_checked ... ok
 test boot::tests::random_damage_is_refused_or_harmless ... ok
 
 ## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)

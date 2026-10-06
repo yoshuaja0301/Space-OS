@@ -24,7 +24,7 @@ use libspace::spaceabi::handle::rights;
 use libspace::spaceabi::shell::{
     ABI_VERSION, Command, JobReport, Progress, Reply, cmd, job, worker, worker_state,
 };
-use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry, ExitStatus, kill_reason};
+use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry, ExitStatus, kill_reason, sched_class};
 use libspace::{Handle, exit_kind, handle, println, sys};
 
 /// Quota for a test job: code, stack and a little heap.
@@ -253,7 +253,8 @@ impl Shell {
         }
         let root = self.root.ok_or(Error::Denied)?;
         let (mine, theirs) = sys::channel_create()?;
-        let p = match sys::spawn(root, "bin/uiworker", WORKER_QUOTA, Some(theirs)) {
+        let p = match sys::spawn_in(root, "bin/uiworker", WORKER_QUOTA, Some(theirs), sched_class::BACKGROUND)
+        {
             Ok(p) => p,
             Err(e) => {
                 sys::handle_close(mine).ok();
@@ -319,16 +320,20 @@ impl Shell {
         // (ADR-0033), so the failure paths close everything that may still be here.
         let fs = sys::handle_dup(root, rights::FS | rights::TRANSFER)?;
         let (client, server) = sys::channel_create().inspect_err(|_| close(&[fs]))?;
-        let compute = sys::spawn(root, "bin/spacecompute", COMPUTE_QUOTA, Some(server))
-            .inspect_err(|_| close(&[fs, client, server]))?;
+        // The job and its compute service run in the background class: the session
+        // that started them, and whoever is typing at it, come first (ADR-0035).
+        let compute =
+            sys::spawn_in(root, "bin/spacecompute", COMPUTE_QUOTA, Some(server), sched_class::BACKGROUND)
+                .inspect_err(|_| close(&[fs, client, server]))?;
         let (mine, theirs) = sys::channel_create().inspect_err(|_| {
             end(compute);
             close(&[fs, client]);
         })?;
-        let ai = sys::spawn(root, "bin/spaceai", INFER_QUOTA, Some(theirs)).inspect_err(|_| {
-            end(compute);
-            close(&[fs, client, mine, theirs]);
-        })?;
+        let ai = sys::spawn_in(root, "bin/spaceai", INFER_QUOTA, Some(theirs), sched_class::BACKGROUND)
+            .inspect_err(|_| {
+                end(compute);
+                close(&[fs, client, mine, theirs]);
+            })?;
         // The session first: from its very first message the worker knows it reports
         // here and can be asked to stop.
         let sent = sys::send(mine, worker::SESSION, None)

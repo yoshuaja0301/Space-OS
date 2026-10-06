@@ -1,8 +1,14 @@
-//! Preemptive round-robin scheduler for every CPU (ADR-0024).
+//! Preemptive scheduler for every CPU (ADR-0024), with service classes (ADR-0035).
 //!
-//! One run queue serves all CPUs; each CPU has its own idle thread, its own current
-//! thread and its own quantum. The boot CPU's PIT keeps the time (ticks, sleepers);
-//! the other CPUs' local APIC timers only end quanta.
+//! One run queue per service class serves all CPUs; each CPU has its own idle
+//! thread, its own current thread and its own quantum. The boot CPU's PIT keeps the
+//! time (ticks, sleepers); the other CPUs' local APIC timers only end quanta.
+//!
+//! The most urgent class with a thread ready goes first: interactive, then normal,
+//! then background, round robin within a class. A thread queued in a more urgent
+//! class than some CPU is running gets that CPU at once (a reschedule IPI), not at
+//! the end of its quantum. A class whose threads have waited [`STARVE_TICKS`] while
+//! more urgent ones ran gets the next pick, so nothing waits forever.
 //!
 //! Invariants:
 //! * `schedule()` is entered and left with interrupts disabled;
@@ -48,6 +54,14 @@ const AP_QUANTUM_TICKS: u32 = 1;
 /// CPUs, any moment -- and a heap that never comes back to where it was reads as a
 /// leak in the stability run (ADR-0019).
 const QUEUE_ROOM: usize = 256;
+/// Run queues, one per service class, most urgent first: `sched_class` 1, 2, 3.
+const CLASSES: usize = 3;
+/// What an idle CPU counts as: less urgent than any thread.
+const IDLE_CLASS: u8 = CLASSES as u8;
+/// How long a class may wait while more urgent ones run before it gets the next pick
+/// (100 ms): enough for background work to move under a busy desktop, too rare to be
+/// felt there.
+const STARVE_TICKS: u64 = TICK_HZ as u64 / 10;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +87,9 @@ pub struct Thread {
     /// FP/SIMD registers while the thread is off the CPU (`crate::fpu`); none for
     /// idle threads, which run only kernel code.
     fpu: Option<FpuArea>,
+    /// Its run queue: the process's service class, 0 for interactive
+    /// ([`IDLE_CLASS`] for an idle thread).
+    class: u8,
 }
 
 // SAFETY: `saved_rsp` is written by the CPU switching away from the thread and read
@@ -87,6 +104,7 @@ impl Thread {
         let fpu = FpuArea::new()?;
         let ks = KernelStack::new()?;
         let top = ks.top;
+        let class = (process.class.clamp(1, CLASSES as u32) - 1) as u8;
         // SAFETY: `top` is the top of a freshly mapped kernel stack.
         let rsp0 = unsafe { context::prepare_initial_stack(top, user_thread_trampoline) };
         Ok(Arc::new(Thread {
@@ -99,6 +117,7 @@ impl Thread {
             on_cpu: AtomicBool::new(false),
             user_entry: (rip, rsp),
             fpu: Some(fpu),
+            class,
         }))
     }
 
@@ -114,6 +133,7 @@ impl Thread {
             on_cpu: AtomicBool::new(true),
             user_entry: (0, 0),
             fpu: None,
+            class: IDLE_CLASS,
         })
     }
 
@@ -146,6 +166,9 @@ struct CpuSlot {
     /// The thread this CPU switched away from, until `finish_switch` has dealt with it.
     prev: UnsafeCell<Option<Arc<Thread>>>,
     quantum_left: UnsafeCell<u32>,
+    /// The thread here got the CPU because its class had waited too long: it keeps
+    /// it for its whole quantum, whatever more urgent work is queued meanwhile.
+    starved_turn: UnsafeCell<bool>,
 }
 
 // SAFETY: see the type's documentation.
@@ -158,6 +181,7 @@ impl CpuSlot {
             idle: UnsafeCell::new(None),
             prev: UnsafeCell::new(None),
             quantum_left: UnsafeCell::new(QUANTUM_TICKS),
+            starved_turn: UnsafeCell::new(false),
         }
     }
 }
@@ -170,14 +194,62 @@ fn slot() -> &'static CpuSlot {
 }
 
 struct Scheduler {
-    run_queue: VecDeque<Arc<Thread>>,
+    run_queues: [VecDeque<Arc<Thread>>; CLASSES],
+    /// Per class: the tick it last got a CPU, or its first thread arrived. A class
+    /// with threads waiting [`STARVE_TICKS`] past it goes next.
+    served_at: [u64; CLASSES],
+    /// The last [`Scheduler::pick`] chose a class that had waited too long over a
+    /// more urgent one.
+    starved_pick: bool,
     sleepers: Vec<(u64, Arc<Thread>)>,
     switches: u64,
     live_threads: u64,
 }
 
+impl Scheduler {
+    /// Queue a runnable thread behind the others of its class.
+    fn queue(&mut self, t: Arc<Thread>) {
+        let c = usize::from(t.class);
+        if self.run_queues[c].is_empty() {
+            self.served_at[c] = now_ticks();
+        }
+        self.run_queues[c].push_back(t);
+    }
+
+    /// The most urgent class with a thread queued.
+    fn most_urgent(&self) -> Option<usize> {
+        self.run_queues.iter().position(|q| !q.is_empty())
+    }
+
+    /// The next thread for a CPU whose current thread is still runnable in class
+    /// `running` (`None` when it blocked, ended, or is the idle thread). `None` back
+    /// means: keep running it.
+    fn pick(&mut self, running: Option<usize>) -> Option<Arc<Thread>> {
+        let queued = self.most_urgent()?;
+        let urgent = running.map_or(queued, |r| r.min(queued));
+        let now = now_ticks();
+        // A less urgent class that has waited too long goes first; the least urgent
+        // of those, since everything above it has had its turn.
+        let class = (urgent + 1..CLASSES)
+            .rev()
+            .find(|&c| {
+                !self.run_queues[c].is_empty() && now.saturating_sub(self.served_at[c]) >= STARVE_TICKS
+            })
+            .unwrap_or(urgent);
+        self.starved_pick = class != urgent;
+        // Round robin within the class; `None` when only the running thread is in it.
+        let next = self.run_queues[class].pop_front();
+        if next.is_some() || Some(class) == running {
+            self.served_at[class] = now;
+        }
+        next
+    }
+}
+
 static SCHED: SpinLock<Scheduler> = SpinLock::new(Scheduler {
-    run_queue: VecDeque::new(),
+    run_queues: [VecDeque::new(), VecDeque::new(), VecDeque::new()],
+    served_at: [0; CLASSES],
+    starved_pick: false,
     sleepers: Vec::new(),
     switches: 0,
     live_threads: 0,
@@ -190,6 +262,9 @@ static TICKS: AtomicU64 = AtomicU64::new(0);
 static IDLE_CPUS: AtomicU64 = AtomicU64::new(0);
 /// Bit `i` set once CPU `i` schedules.
 static ONLINE_CPUS: AtomicU64 = AtomicU64::new(0);
+/// The class of what each CPU runs ([`IDLE_CLASS`] while idle): where a more urgent
+/// thread can take a CPU. Written under the scheduler lock, read without it.
+static CPU_CLASS: [AtomicU8; MAX_CPUS] = [const { AtomicU8::new(IDLE_CLASS) }; MAX_CPUS];
 
 fn quantum_for(cpu: usize) -> u32 {
     if cpu == 0 { QUANTUM_TICKS } else { AP_QUANTUM_TICKS }
@@ -211,6 +286,7 @@ fn adopt_idle(stack_top: u64) {
         let _g = SCHED.lock();
         IDLE_CPUS.fetch_or(1 << cpu, Ordering::Relaxed);
         ONLINE_CPUS.fetch_or(1 << cpu, Ordering::Relaxed);
+        CPU_CLASS[cpu].store(IDLE_CLASS, Ordering::Relaxed);
     });
 }
 
@@ -219,11 +295,18 @@ pub fn init(idle_stack_top: u64) {
     {
         let mut s = SCHED.lock();
         // Without the room they grow on demand, as they always could.
-        let _ = s.run_queue.try_reserve(QUEUE_ROOM);
+        for q in s.run_queues.iter_mut() {
+            let _ = q.try_reserve(QUEUE_ROOM);
+        }
         let _ = s.sleepers.try_reserve(QUEUE_ROOM);
     }
     adopt_idle(idle_stack_top);
-    println!("[kernel] scheduler: {} Hz tick, {} ms quantum", TICK_HZ, QUANTUM_TICKS * 1000 / TICK_HZ);
+    println!(
+        "[kernel] scheduler: {} Hz tick, {} ms quantum, {CLASSES} service classes (a class waits at most {} ms)",
+        TICK_HZ,
+        QUANTUM_TICKS * 1000 / TICK_HZ,
+        STARVE_TICKS * 1000 / u64::from(TICK_HZ)
+    );
 }
 
 /// An application processor joins: its starting context becomes its idle thread.
@@ -236,23 +319,38 @@ pub fn online_cpus() -> u32 {
     ONLINE_CPUS.load(Ordering::Relaxed).count_ones()
 }
 
-/// Tell one idle CPU other than this one that the run queue has work.
-fn kick_idle_cpu() {
+/// A thread of `class` was just queued: get a CPU other than this one to take it.
+/// An idle one if there is one; else the one running the least urgent thread, if
+/// that is less urgent. (This CPU sees to itself at its next tick.)
+fn kick_for(class: u8) {
     let me = percpu::index();
     let idle = IDLE_CPUS.load(Ordering::Relaxed) & !(1u64 << me);
     if idle != 0 {
         arch::smp::kick(idle.trailing_zeros() as usize);
+        return;
+    }
+    let online = ONLINE_CPUS.load(Ordering::Relaxed) & !(1u64 << me);
+    let mut target: Option<(usize, u8)> = None;
+    for cpu in (0..MAX_CPUS).filter(|&c| online & (1u64 << c) != 0) {
+        let running = CPU_CLASS[cpu].load(Ordering::Relaxed);
+        if running > class && target.is_none_or(|(_, t)| running > t) {
+            target = Some((cpu, running));
+        }
+    }
+    if let Some((cpu, _)) = target {
+        arch::smp::kick(cpu);
     }
 }
 
 pub fn add(thread: Arc<Thread>) {
+    let class = thread.class;
     {
         let mut s = SCHED.lock();
         thread.set_state(ThreadState::Ready);
-        s.run_queue.push_back(thread);
+        s.queue(thread);
         s.live_threads += 1;
     }
-    kick_idle_cpu();
+    kick_for(class);
 }
 
 pub fn current() -> Arc<Thread> {
@@ -297,16 +395,24 @@ pub fn schedule() {
         let mut s = SCHED.lock();
         let prev_state = prev.state();
         let prev_runnable = matches!(prev_state, ThreadState::Running | ThreadState::Ready);
-        let next = match s.run_queue.pop_front() {
+        let running = (prev_runnable && !prev_is_idle).then_some(usize::from(prev.class));
+        let next = match s.pick(running) {
             Some(t) => t,
             None if prev_runnable => {
-                // Nothing else to run: keep going (a thread woken while it was about
-                // to block is simply running again).
+                // Nothing else to run, or nothing as urgent: keep going, for a new
+                // quantum (a thread woken while it was about to block is simply
+                // running again).
                 prev.set_state(ThreadState::Running);
+                // SAFETY: this CPU's slot, interrupts disabled.
+                unsafe {
+                    *me.quantum_left.get() = quantum_for(cpu);
+                    *me.starved_turn.get() = false;
+                }
                 return;
             }
             None => idle.clone(),
         };
+        let starved = s.starved_pick && !Arc::ptr_eq(&next, &idle);
         if prev_runnable && !prev_is_idle {
             // Queued again by `finish_switch`, once this CPU is off its stack.
             prev.set_state(ThreadState::Ready);
@@ -318,6 +424,7 @@ pub fn schedule() {
         } else {
             IDLE_CPUS.fetch_and(!(1 << cpu), Ordering::Relaxed);
         }
+        CPU_CLASS[cpu].store(next.class, Ordering::Relaxed);
         s.switches += 1;
         drop(s);
         prev_slot = prev.saved_rsp.get();
@@ -331,6 +438,7 @@ pub fn schedule() {
         // SAFETY: this CPU's slot, interrupts disabled.
         unsafe {
             *me.quantum_left.get() = quantum_for(cpu);
+            *me.starved_turn.get() = starved;
             *me.prev.get() = Some(prev);
             *me.current.get() = Some(next);
         }
@@ -367,7 +475,7 @@ pub fn schedule() {
 pub fn finish_switch() {
     // SAFETY: this CPU's slot, interrupts disabled (right after a switch).
     let Some(prev) = (unsafe { (*slot().prev.get()).take() }) else { return };
-    let mut queued = false;
+    let mut queued = None;
     let left = {
         let mut s = SCHED.lock();
         prev.on_cpu.store(false, Ordering::Relaxed);
@@ -375,8 +483,8 @@ pub fn finish_switch() {
             // Preempted, or woken while this CPU was leaving it. An idle thread is
             // never `Ready`, so it never ends up here.
             ThreadState::Ready => {
-                s.run_queue.push_back(prev);
-                queued = true;
+                queued = Some(prev.class);
+                s.queue(prev);
                 None
             }
             // Dropped outside the lock: this may be the last reference, and freeing
@@ -393,8 +501,8 @@ pub fn finish_switch() {
             crate::proc::reaped(&p);
         }
     }
-    if queued {
-        kick_idle_cpu();
+    if let Some(class) = queued {
+        kick_for(class);
     }
 }
 
@@ -443,18 +551,18 @@ pub fn block() {
 }
 
 /// Make a blocked thread runnable (no-op for any other state). Under the scheduler
-/// lock; the caller says whether an idle CPU should be told.
-fn make_ready(s: &mut Scheduler, t: &Arc<Thread>) -> bool {
+/// lock; returns the class it was queued in, for the caller to find it a CPU.
+fn make_ready(s: &mut Scheduler, t: &Arc<Thread>) -> Option<u8> {
     if t.state() != ThreadState::Blocked {
-        return false;
+        return None;
     }
     t.set_state(ThreadState::Ready);
     if t.on_cpu.load(Ordering::Relaxed) {
         // Still on the CPU it was blocking on: that CPU queues it (or keeps running it).
-        return false;
+        return None;
     }
-    s.run_queue.push_back(t.clone());
-    true
+    s.queue(t.clone());
+    Some(t.class)
 }
 
 /// Wake a blocked thread (no-op for any other state).
@@ -467,8 +575,8 @@ pub fn wake(t: &Arc<Thread>) {
         s.sleepers.retain(|(_, st)| !Arc::ptr_eq(st, t));
         make_ready(&mut s, t)
     };
-    if queued {
-        kick_idle_cpu();
+    if let Some(class) = queued {
+        kick_for(class);
     }
 }
 
@@ -557,7 +665,8 @@ fn advance_ticks() -> u64 {
 /// the local APIC timer on the others.
 pub fn timer_tick() {
     let cpu = percpu::index();
-    let mut woke = false;
+    // The most urgent class a sleeper was woken into.
+    let mut woke: Option<u8> = None;
     let mut expired_refs: Vec<Arc<Thread>> = Vec::new();
     let need_resched = {
         let mut s = SCHED.lock();
@@ -567,7 +676,9 @@ pub fn timer_tick() {
             while i < s.sleepers.len() {
                 if s.sleepers[i].0 <= now {
                     let (_, t) = s.sleepers.swap_remove(i);
-                    woke |= make_ready(&mut s, &t);
+                    if let Some(c) = make_ready(&mut s, &t) {
+                        woke = Some(woke.map_or(c, |w| w.min(c)));
+                    }
                     if expired_refs.try_reserve(1).is_ok() {
                         expired_refs.push(t);
                     }
@@ -578,37 +689,42 @@ pub fn timer_tick() {
         }
         let me = slot();
         // SAFETY: this CPU's slot, interrupts disabled.
-        let (cur_is_idle, quantum_left) = unsafe {
+        let (cur_is_idle, cur_class, quantum_left, starved_turn) = unsafe {
             let q = &mut *me.quantum_left.get();
             *q = q.saturating_sub(1);
-            let idle = match (&*me.current.get(), &*me.idle.get()) {
-                (Some(c), Some(i)) => Arc::ptr_eq(c, i),
-                _ => true,
+            let (idle, class) = match (&*me.current.get(), &*me.idle.get()) {
+                (Some(c), Some(i)) => (Arc::ptr_eq(c, i), usize::from(c.class)),
+                _ => (true, usize::from(IDLE_CLASS)),
             };
-            (idle, *q)
+            (idle, class, *q, *me.starved_turn.get())
         };
-        !s.run_queue.is_empty() && (cur_is_idle || quantum_left == 0)
+        // Something queued, and: this CPU is idle, its quantum is over, or the queued
+        // thread is more urgent than the one it runs (unless that one is having the
+        // turn its class waited for).
+        s.most_urgent().is_some_and(|c| cur_is_idle || quantum_left == 0 || (c < cur_class && !starved_turn))
     };
     drop(expired_refs);
-    if woke {
-        kick_idle_cpu();
+    if let Some(class) = woke {
+        kick_for(class);
     }
     if need_resched {
         schedule();
     }
 }
 
-/// Another CPU queued work and this one was idle.
+/// Another CPU queued work: this one is idle, or runs something less urgent.
 pub fn reschedule_ipi() {
     // SAFETY: this CPU's slot, interrupts disabled (interrupt handler).
-    let idle = unsafe {
+    let (idle, class, starved_turn) = unsafe {
         let me = slot();
+        let starved_turn = *me.starved_turn.get();
         match (&*me.current.get(), &*me.idle.get()) {
-            (Some(c), Some(i)) => Arc::ptr_eq(c, i),
-            _ => false,
+            (Some(c), Some(i)) => (Arc::ptr_eq(c, i), usize::from(c.class), starved_turn),
+            _ => (false, usize::from(IDLE_CLASS), starved_turn),
         }
     };
-    if idle {
+    let preempt = !idle && !starved_turn && SCHED.lock().most_urgent().is_some_and(|c| c < class);
+    if idle || preempt {
         schedule();
     }
 }

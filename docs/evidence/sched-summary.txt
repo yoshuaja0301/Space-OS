@@ -1,0 +1,124 @@
+# Kelas layanan scheduler (K02, ADR-0035) — sesi verifikasi 2026-10-06
+
+Diambil dari build/logs (cargo xtask test, compat, arm64). Log lengkap: acceptance.log.
+
+## Acceptance (x86-64, 4 vCPU)
+[kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes (a class waits at most 100 ms)
+[kernel] spawn pid 1 'bin/init': entry=0x45f1b0, 147 pages mapped, quota 2048 pages, interactive
+[init] --- K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
+[sched] background: more urgent children Denied, class 4 Invalid, a child without a class runs in the background
+[init] PASS K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
+[init] --- K02: service classes: an interactive round trip stays quick while background work fills every CPU
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] PASS K02: service classes: an interactive round trip stays quick while background work fills every CPU
+[init] --- K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
+[init] PASS K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
+[init] --- K02: service classes: background work still runs while interactive work fills every CPU
+[init] classes: a background program finished in 145 ms beside 8 interactive spinners on 4 CPU(s)
+[init] PASS K02: service classes: background work still runs while interactive work fills every CPU
+
+## Sesi menjalankan pekerjaannya di kelas background
+[kernel] spawn pid 288 'bin/spaceai': entry=0x407e5c, 35 pages mapped, quota 512 pages, background
+[kernel] spawn pid 287 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, background
+[kernel] spawn pid 282 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
+
+## Setiap mesin: pesan interaktif di samping beban background, program background di samping beban interaktif
+cpu-max                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
+                         a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
+e1000                    200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
+e1000e                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 3 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
+                         a background program finished in 140 ms beside 8 interactive spinners on 4 CPU(s)
+i440fx                   200 interactive round trips beside 4 background spinners on 2 CPU(s): p50 0 ms, p95 0 ms, p99 2 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 4 background spinners on 2 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 129 ms beside 4 interactive spinners on 2 CPU(s)
+installed-disk           200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 131 ms beside 8 interactive spinners on 4 CPU(s)
+lab                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 0 ms
+                         a background program finished in 132 ms beside 8 interactive spinners on 4 CPU(s)
+no-disk                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+                         a background program finished in 124 ms beside 8 interactive spinners on 4 CPU(s)
+no-vga                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 114 ms beside 8 interactive spinners on 4 CPU(s)
+nvme-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
+                         a background program finished in 129 ms beside 8 interactive spinners on 4 CPU(s)
+q35-1cpu-2g              200 interactive round trips beside 2 background spinners on 1 CPU(s): p50 0 ms, p95 0 ms, p99 1 ms, max 1 ms
+                         100 interactive sleeps of 1-4 ms beside 2 background spinners on 1 CPU(s): woken late by p50 0 ms, p90 1 ms, max 3 ms
+                         a background program finished in 156 ms beside 2 interactive spinners on 1 CPU(s)
+rtl8139-only             200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
+                         a background program finished in 123 ms beside 8 interactive spinners on 4 CPU(s)
+sata-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 0 ms, p99 3 ms, max 5 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 134 ms beside 8 interactive spinners on 4 CPU(s)
+usb                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
+                         a background program finished in 141 ms beside 8 interactive spinners on 4 CPU(s)
+virtio-small-queue       200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 3 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
+                         a background program finished in 130 ms beside 8 interactive spinners on 4 CPU(s)
+virtio-transitional      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 0 ms, p99 1 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 23 ms
+                         a background program finished in 131 ms beside 8 interactive spinners on 4 CPU(s)
+vmware-vga               200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
+arm64-acceptance         200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 4 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+                         a background program finished in 125 ms beside 8 interactive spinners on 4 CPU(s)
+
+## Stress: setiap pass
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+[init] classes: a background program finished in 120 ms beside 8 interactive spinners on 4 CPU(s)
+[stress] pass 1: ok; 126/126 tests (1 skipped) in 59.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=59324
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 4 ms, max 4 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
+[init] classes: a background program finished in 124 ms beside 8 interactive spinners on 4 CPU(s)
+[stress] pass 2: ok; 126/126 tests (1 skipped) in 41.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=100524
+[stress] done: 2 passes in 1.7 min, 252 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== the run queue ignores the class: everything waits in one queue
+   FAIL boot 1/1 in 68.5s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 26 ms, p95 29 ms, p99 30 ms, max 32 ms
+[init] FAIL K02: service classes: an interactive round trip stays quick while background work fills every CPU: p50 26 ms and p95 29 ms; expected at most 2 ms, and less than one quantum (10 ms)
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 11 ms, p90 16 ms, max 22 ms
+[init] FAIL K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once: woken late by p50 11 ms and p90 16 ms; expected p90 at most 2 ms
+[init] classes: a background program finished in 1015 ms beside 8 interactive spinners on 4 CPU(s)
+=== a class that has waited too long is never given a turn
+   FAIL boot 1/1 in 66.7s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 0 ms, p99 3 ms, max 3 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+[init] FAIL K02: service classes: background work still runs while interactive work fills every CPU: a background program did not finish within 3000 ms beside 8 interactive spinners
+=== a more urgent thread waits for the end of the running thread's quantum
+   FAIL boot 1/1 in 63.1s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 2 ms, p90 5 ms, max 9 ms
+[init] FAIL K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once: woken late by p50 2 ms and p90 5 ms; expected p90 at most 2 ms
+[init] classes: a background program finished in 126 ms beside 8 interactive spinners on 4 CPU(s)
+=== a child may be more urgent than its parent
+   FAIL boot 1/1 in 62.3s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[sched] FAIL a child more urgent than its parent was started
+[init] FAIL K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise: sched rules ended with ExitStatus { kind: 0, code: 1, reason: 0, _pad: 0, fault_addr: 0 }, expected exit 0
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 1 ms, max 3 ms
+[init] classes: a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
+=== restored:  10 files changed, 430 insertions(+), 63 deletions(-)

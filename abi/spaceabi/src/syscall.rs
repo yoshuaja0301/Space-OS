@@ -214,7 +214,31 @@ pub struct SpawnArgs {
     pub quota_pages: u64,
     /// Handle moved into the child as its bootstrap handle 0, or INVALID.
     pub pass_handle: u32,
-    pub _pad: u32,
+    /// The child's service class ([`sched_class`]); `INHERIT` (0) gives it the
+    /// parent's. A class more urgent than the parent's own is `Denied`.
+    pub class: u32,
+}
+
+/// Service classes: who runs first when there is more to run than CPUs (PRD v0.2
+/// §8.2, ADR-0035). Most urgent first.
+pub mod sched_class {
+    /// Spawn only: the parent's own class.
+    pub const INHERIT: u32 = 0;
+    /// What a person is waiting on: the console, the desktop, a session.
+    pub const INTERACTIVE: u32 = 1;
+    /// Services and ordinary programs.
+    pub const NORMAL: u32 = 2;
+    /// Work nobody waits on from moment to moment: inference, indexing, load.
+    pub const BACKGROUND: u32 = 3;
+
+    pub fn name(class: u32) -> &'static str {
+        match class {
+            INTERACTIVE => "interactive",
+            NORMAL => "normal",
+            BACKGROUND => "background",
+            _ => "unknown",
+        }
+    }
 }
 
 /// The largest quota a process can be given, in pages (4 GiB): a larger one is
@@ -307,7 +331,8 @@ pub struct SelfInfo {
     pub quota_pages: u64,
     pub used_pages: u64,
     pub abi_version: u32,
-    pub _pad: u32,
+    /// This process's service class ([`sched_class`]).
+    pub class: u32,
 }
 
 /// Result of `SYS_KSTATS`.

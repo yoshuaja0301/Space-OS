@@ -138,12 +138,24 @@ pub fn handle_info(h: Handle) -> Result<HandleInfo, Error> {
 }
 
 pub fn spawn(root: Handle, name: &str, quota_pages: u64, pass: Option<Handle>) -> Result<Handle, Error> {
+    spawn_in(root, name, quota_pages, pass, spaceabi::syscall::sched_class::INHERIT)
+}
+
+/// [`spawn`] in a service class of its own ([`spaceabi::syscall::sched_class`]): never
+/// one more urgent than this process's.
+pub fn spawn_in(
+    root: Handle,
+    name: &str,
+    quota_pages: u64,
+    pass: Option<Handle>,
+    class: u32,
+) -> Result<Handle, Error> {
     let args = SpawnArgs {
         name: name.as_ptr() as u64,
         name_len: name.len() as u64,
         quota_pages,
         pass_handle: pass.unwrap_or(handle::INVALID),
-        _pad: 0,
+        class,
     };
     call(nr::SPAWN, [root as u64, &args as *const SpawnArgs as u64, 0, 0, 0, 0]).map(|v| v as Handle)
 }

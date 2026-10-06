@@ -53,6 +53,7 @@ const USER_PROGRAMS: &[&str] = &[
     "tlsprobe",
     "spacecloud",
     "churn",
+    "sched",
     "spacedesk",
     "deskapps",
     "spacerecovery",
@@ -2240,6 +2241,12 @@ const SCENARIOS: &[Scenario] = &[
             "[status] OS usable: read",
             "[status] AI ready:",
             "[init] PASS B04",
+            // Who runs first when there is more to run than CPUs (ADR-0035).
+            "[kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes",
+            "[init] PASS K02: service classes: a child is never more urgent than its parent",
+            "[init] PASS K02: service classes: an interactive round trip stays quick",
+            "[init] PASS K02: service classes: an interactive thread woken by the timer takes a CPU",
+            "[init] PASS K02: service classes: background work still runs",
             // A damaged model and workers that run out of memory never take the
             // console (A02, ADR-0034).
             "[init] PASS A02: a damaged model is refused in a session",
@@ -3018,6 +3025,7 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305",
             "[init] PASS NET:",
             "[init] PASS A02: workers that take every free frame are refused",
+            "[init] PASS K02: service classes: an interactive round trip stays quick",
             "[init] ALL TESTS PASSED",
         ],
         must_contain_extra: &[],

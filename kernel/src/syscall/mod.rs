@@ -11,7 +11,7 @@ use spaceabi::handle::{self, Handle, rights};
 use spaceabi::syscall::{
     DIR_ENTRIES_MAX, DirEntry, ExitStatus, FRAME_MAX, FRAME_MIN, FileStat, HandleInfo, KernelStats, MSG_MAX,
     PATH_MAX, RecvArgs, SelfInfo, SpawnArgs, WAIT_FOREVER, WAIT_MAX, debug_op, kill_reason, map_flags, nr,
-    qemu_exit, recv_flags, wait_flags,
+    qemu_exit, recv_flags, sched_class, wait_flags,
 };
 
 use crate::arch;
@@ -878,6 +878,14 @@ fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
     let args: SpawnArgs = read_user(args_ptr)?;
     let name = read_user_str(args.name, args.name_len, MAX_NAME)?;
     let p = current();
+    // A child is never more urgent than its parent (ADR-0035). Checked before the
+    // bootstrap handle is taken, so a refused class consumes nothing.
+    let class = match args.class {
+        sched_class::INHERIT => p.class,
+        c if c > sched_class::BACKGROUND => return Err(Error::Invalid),
+        c if c < p.class => return Err(Error::Denied),
+        c => c,
+    };
     let bootstrap = if args.pass_handle != handle::INVALID {
         let mut t = p.handles.lock();
         let e = t.get(args.pass_handle)?;
@@ -894,7 +902,7 @@ fn sys_spawn(root: Handle, args_ptr: u64) -> Result<usize, Error> {
         return Err(Error::TooManyHandles);
     }
     // A failed spawn drops the bootstrap handle (same consume-on-transfer rule as send).
-    let child = proc::spawn(&name, args.quota_pages as usize, bootstrap)?;
+    let child = proc::spawn(&name, args.quota_pages as usize, bootstrap, class)?;
     let entry = HandleEntry { object: Object::Process(child.clone()), rights: rights::PROCESS_ALL };
     match p.handles.lock().insert(entry) {
         Ok(h) => Ok(h as usize),
@@ -953,7 +961,7 @@ fn sys_self_info(out: u64) -> Result<usize, Error> {
         quota_pages: p.quota_pages as u64,
         used_pages: used,
         abi_version: spaceabi::ABI_VERSION,
-        _pad: 0,
+        class: p.class,
     };
     write_user(out, info)?;
     Ok(0)
