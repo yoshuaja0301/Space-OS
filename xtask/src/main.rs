@@ -2019,6 +2019,48 @@ struct Scenario {
 const EXIT_SUCCESS: i32 = (0x10 << 1) | 1; // 33
 const EXIT_FAILURE: i32 = (0x11 << 1) | 1; // 35
 const EXIT_PANIC: i32 = (0x3f << 1) | 1; // 127
+/// Not an exit status: the guest halted where it cannot end the run itself (an
+/// AArch64 kernel that refused its hand-over never learns it may use semihosting),
+/// and the harness stopped QEMU once the log said so.
+const EXIT_HALTED: i32 = -1;
+
+/// The boot's states (PRD v0.2 §7.4, B04), lowest first, and the line each is
+/// reported with. "OS not usable" and "AI not ready" are reports too, of a state
+/// not reached.
+const BOOT_STATES: &[(&str, &str)] = &[
+    ("kernel alive", "[status] kernel alive"),
+    ("user-space alive", "[status] user-space alive"),
+    ("OS usable", "[status] OS usable"),
+    ("AI ready", "[status] AI ready"),
+];
+
+/// The highest state a boot's log reports.
+fn boot_state(log: &str) -> &'static str {
+    BOOT_STATES.iter().rev().find(|(_, line)| log.contains(line)).map_or("nothing", |(name, _)| name)
+}
+
+/// The state each scenario must end at -- reached, and nothing above it. That the
+/// four can be told apart is what B04 asks; each is the end of some scenario.
+fn expected_state(scenario: &str) -> Option<&'static str> {
+    Some(match scenario {
+        "panic-diagnosis"
+        | "kernel-fault-diagnosis"
+        | "kernel-stack-overflow-diagnosis"
+        | "init-missing-diagnosis" => "kernel alive",
+        s if s.starts_with("bootinfo-") || s.starts_with("arm64-bootinfo-") => "kernel alive",
+        // The first process runs, but the shell that would show the OS usable never
+        // starts: a program that only says hello, and the recovery console.
+        "init-exit-diagnosis" | "recovery-key" | "recovery-auto" => "user-space alive",
+        // A session that reads files and runs and stops programs; nobody asks for
+        // the model.
+        "terminal" | "terminal-serial" | "terminal-usb" | "boot-count" | "acpi-poweroff"
+        | "arm64-terminal-usb" => "OS usable",
+        "acceptance" | "stress" | "storage-reboot" | "desktop" | "arm64-acceptance" | "arm64-poweroff" => {
+            "AI ready"
+        }
+        _ => return None,
+    })
+}
 
 const TERMINAL_READY: &str = "[shell] terminal ready on the console";
 
@@ -2136,6 +2178,37 @@ const LAB_FORBIDDEN: &[&str] = &[
     "lab-local",
 ];
 
+/// A boot whose BootInfo the bootloader damages on purpose (`bootinfo_fault=` in
+/// `spaceos.cfg`, ADR-0032): the kernel has to refuse it with the field, its value
+/// and the rule it breaks (`markers`), and get no further than "kernel alive".
+macro_rules! bootinfo_fault {
+    ($fault:literal, $($marker:literal),+) => {
+        Scenario {
+            name: concat!("bootinfo-", $fault),
+            machine: &LAB,
+            cmdline: "init=bin/init",
+            boot_cfg: concat!("bootinfo_fault=", $fault, "\n"),
+            disk_files: &[],
+            expect_exit: EXIT_PANIC,
+            must_contain: &[
+                concat!("spaceboot: bootinfo_fault=", $fault, ": handing the kernel"),
+                "[status] kernel alive",
+                $($marker,)+
+                "spacekernel: halted after panic",
+            ],
+            must_contain_extra: &[],
+            must_not_contain: &["[status] user-space alive", "[kernel] init spawned"],
+            runs: 1,
+            typing: Typing::None,
+            final_boot_markers: &[],
+            type_lines: &[],
+            ready_marker: "",
+            lab_must_contain: &[],
+            lab_must_not_contain: &[],
+        }
+    };
+}
+
 const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "acceptance",
@@ -2148,6 +2221,18 @@ const SCENARIOS: &[Scenario] = &[
         expect_exit: EXIT_SUCCESS,
         must_contain: &[
             "[kernel] selftest: heap ok",
+            // The hand-over was checked, not believed (B02, ADR-0032).
+            "[kernel] boot info v3 accepted:",
+            "reserved",
+            "[kernel] boot image: sha256",
+            "[kernel] boot slot: normal",
+            "[kernel] boot entropy:",
+            // Every state of the boot, in its own words (B04).
+            "[status] kernel alive",
+            "[status] user-space alive: pid 1 (bin/init)",
+            "[status] OS usable: read",
+            "[status] AI ready:",
+            "[init] PASS B04",
             "[kernel] cmdline: \"init=bin/init\"",
             "[init] kernel command line: \"init=bin/init\"",
             "input decoding ok",
@@ -2646,6 +2731,66 @@ const SCENARIOS: &[Scenario] = &[
         lab_must_contain: &[],
         lab_must_not_contain: &[],
     },
+    // The hand-over damaged on purpose, one field at a time (B02, ADR-0032): the
+    // kernel names the field, its value and the rule, and goes no further.
+    bootinfo_fault!(
+        "magic",
+        "BootInfo rejected: magic = 0x4f4f424543415052: not a Space OS BootInfo (expected 0x4f4f424543415053)"
+    ),
+    bootinfo_fault!(
+        "version",
+        "BootInfo rejected: version = 0x63: a BootInfo version this kernel does not read (expected 0x3)"
+    ),
+    bootinfo_fault!(
+        "size",
+        "BootInfo rejected: size = 0x2c8: not the size of this version's BootInfo (expected 0x2d0)"
+    ),
+    bootinfo_fault!(
+        "flags",
+        "BootInfo rejected: flags = 0x80000000000000",
+        ": bits this version does not define"
+    ),
+    bootinfo_fault!(
+        "phys_offset",
+        "BootInfo rejected: phys_offset = 0xffff810000000000: not where the linear map is (expected 0xffff800000000000)"
+    ),
+    bootinfo_fault!(
+        "memmap_count",
+        "BootInfo rejected: memory_map_entries = 0xaab: none, or more than the array holds"
+    ),
+    bootinfo_fault!(
+        "memmap_overlap",
+        "BootInfo rejected: memory map start (entry 1) = 0x0: out of order, or overlapping the entry before it"
+    ),
+    bootinfo_fault!(
+        "kernel_image",
+        "BootInfo rejected: kernel_image = 0x",
+        ": not inside the kernel image's reservation"
+    ),
+    bootinfo_fault!("initrd", "BootInfo rejected: initrd = 0x", ": outside the linear map"),
+    bootinfo_fault!(
+        "initrd_hash",
+        "BootInfo rejected: initrd: the boot image hashes to ",
+        " the bootloader measured"
+    ),
+    bootinfo_fault!("cmdline_utf8", "BootInfo rejected: cmdline = 0x0: not UTF-8 from this byte on"),
+    bootinfo_fault!(
+        "reservation",
+        "BootInfo rejected: reservation (entry 1) = 0x",
+        ": overlaps another reservation"
+    ),
+    bootinfo_fault!(
+        "entropy",
+        "BootInfo rejected: entropy.len = 0x41: more than the 64 bytes there is room for"
+    ),
+    bootinfo_fault!(
+        "slot",
+        "BootInfo rejected: boot_slot.slot = 0x7: neither the normal nor the recovery slot"
+    ),
+    bootinfo_fault!(
+        "framebuffer",
+        "BootInfo rejected: framebuffer.stride = 0x4ff: shorter than a line of the screen"
+    ),
 ];
 
 fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
@@ -2665,8 +2810,19 @@ fn check_run(s: &Scenario, run: &QemuRun, final_boot: bool) -> Vec<String> {
     if run.timed_out {
         problems.push(format!("timed out after {:?}", run.elapsed));
     }
-    if run.exit_code != Some(s.expect_exit) {
+    let exit_ok = if s.expect_exit == EXIT_HALTED {
+        run.exit_code.is_none()
+    } else {
+        run.exit_code == Some(s.expect_exit)
+    };
+    if !exit_ok {
         problems.push(format!("QEMU exit code {:?}, expected {}", run.exit_code, s.expect_exit));
+    }
+    if let Some(want) = expected_state(s.name) {
+        let got = boot_state(&run.log);
+        if got != want {
+            problems.push(format!("the boot ended at \"{got}\", expected \"{want}\" (B04)"));
+        }
     }
     for m in s.must_contain.iter().chain(s.must_contain_extra.iter()) {
         if !run.log.contains(m) {
@@ -2739,10 +2895,11 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
             let problems = check_run(s, &run, run_index == s.runs);
             if problems.is_empty() {
                 println!(
-                    "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), log: {}{}",
+                    "   PASS boot {run_index}/{} in {:.1}s (exit {:?}), reached {}, log: {}{}",
                     s.runs,
                     run.elapsed.as_secs_f64(),
                     run.exit_code,
+                    boot_state(&run.log),
                     log_path.display(),
                     tcp_summary(&run)
                 );
@@ -2870,6 +3027,32 @@ const ARM64_SCENARIOS: &[Scenario] = &[
         lab_must_contain: &[],
         lab_must_not_contain: &[],
     },
+    // The same refusal on AArch64, where a kernel that refused its hand-over cannot
+    // end the run itself: it says why, halts, and the harness stops QEMU.
+    Scenario {
+        name: "arm64-bootinfo-reservation",
+        machine: &ARM64_VIRT,
+        cmdline: "init=bin/init exit=semihosting",
+        boot_cfg: "bootinfo_fault=reservation\n",
+        disk_files: &[],
+        expect_exit: EXIT_HALTED,
+        must_contain: &[
+            "spaceboot: bootinfo_fault=reservation: handing the kernel",
+            "[status] kernel alive",
+            "BootInfo rejected: reservation (entry 1) = 0x",
+            ": overlaps another reservation",
+            "spacekernel: halted after panic",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &["[status] user-space alive", "[kernel] init spawned"],
+        runs: 1,
+        typing: Typing::None,
+        final_boot_markers: &[],
+        type_lines: &[],
+        ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
 ];
 
 /// Run [`ARM64_SCENARIOS`] on [`ARM64_VIRT`].
@@ -2919,9 +3102,10 @@ fn cmd_arm64(release: bool, only: Option<&str>) -> Result<(), String> {
         let problems = check_run(s, &run, true);
         if problems.is_empty() {
             println!(
-                "   PASS in {:.1}s (exit {:?}), log: {}{}",
+                "   PASS in {:.1}s (exit {:?}), reached {}, log: {}{}",
                 run.elapsed.as_secs_f64(),
                 run.exit_code,
+                boot_state(&run.log),
                 log_path.display(),
                 tcp_summary(&run)
             );
@@ -3028,10 +3212,18 @@ fn cmd_compat(release: bool, only: Option<&str>) -> Result<(), String> {
                 problems.push(format!("unexpected marker {marker:?}"));
             }
         }
+        // Without a data volume there are no files to read and no model: the OS is
+        // up, and has to say it is not usable rather than claim more (B04).
+        let has_volume = !m.block_device.is_empty() || m.data_disk == DataDisk::Installed;
+        let want = if has_volume { "AI ready" } else { "user-space alive" };
+        let reached = boot_state(&run.log);
+        if reached != want {
+            problems.push(format!("the boot ended at \"{reached}\", expected \"{want}\" (B04)"));
+        }
         problems.extend(tcp_problems(&run));
         if problems.is_empty() {
             println!(
-                "   PASS in {:.1}s (exit {:?}), log: {}{}",
+                "   PASS in {:.1}s (exit {:?}), reached {reached}, log: {}{}",
                 run.elapsed.as_secs_f64(),
                 run.exit_code,
                 log_path.display(),

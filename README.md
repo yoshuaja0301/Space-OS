@@ -50,8 +50,8 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
-cargo xtask test                           # build semua target, buat image, 15 skenario boot di QEMU
-cargo xtask compat                         # image yang sama di 15 konfigurasi mesin (ADR-0010)
+cargo xtask test                           # build semua target, buat image, 31 skenario boot di QEMU
+cargo xtask compat                         # image yang sama di 16 konfigurasi mesin (ADR-0010)
 cargo xtask unit                           # uji unit host (codec DNS, tata letak pesan, server DNS lab)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
 cargo xtask run --gui --cmdline "init=bin/spaceterm"           # sesi yang bisa diketik, lewat keyboard jendela QEMU
@@ -67,9 +67,15 @@ Keluaran acceptance (dipotong):
 
 ```
 spaceboot 0.1.0: Space OS UEFI bootloader
+spaceboot: boot image 4050432 bytes, sha256 9f93593a...
+spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spacekernel 0.1.0: Space OS kernel booting
+[status] kernel alive
+[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 13 bytes, rsdp 0x7f77e014
+[kernel] boot image: sha256 9f93593a... as the bootloader measured it
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] spawn pid 1 'bin/init': entry=0x455ae0, 138 pages mapped, quota 2048 pages
+[status] user-space alive: pid 1 (bin/init) made the first system call
 [init] Space OS init running: pid 1, ABI v0, quota 2048 pages (138 used)
 [kernel] pid 3 'bin/fault' killed: page fault at rip=0x40041c (error=0x7, addr=0xffff800000000000)
 [init] PASS K02: write to kernel memory kills the process (page fault)
@@ -79,6 +85,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS K02: two processes run at the same time on different CPUs
 [init] frames free before=2089875 after=2089875 ; heap used before=9808 after=9808 ; switches=409
 [init] PASS K03: 50 spawn/exit cycles leak no frames and no kernel heap
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 28 ms
+[init] PASS B04: a session says the OS is usable exactly when it can read files and run and stop programs
 [ai] model verified: sha256 a1955def6c7b4e8e...
 [ai] generated 128 tokens offline, all matching the pinned baseline
 [init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (30 ms after Stop was pressed)
@@ -92,7 +100,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files
 [init] link: /spaceos/ws/FRESH.TXT changed; re-indexed on its own in 2 ms (109 bytes read); /spaceos/ws/LATER.TXT, changed too, kept its old text until it was named
 [init] PASS L01: a changed file is re-indexed on its own, and the next search answers from the new text
-[init] ALL TESTS PASSED (118/118, 1 skipped)
+[init] ALL TESTS PASSED (119/119, 1 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 35115 ms, 127325 context switches)
 ```
 

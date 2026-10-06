@@ -17,6 +17,7 @@ mod console;
 
 mod acpi;
 mod arch;
+mod bootinfo;
 mod clock;
 mod cmdline;
 mod dev;
@@ -50,18 +51,13 @@ extern "C" fn kmain(boot_info: *const BootInfo) -> ! {
     arch::serial::init(boot_info);
     println!();
     println!("spacekernel {KERNEL_VERSION}: Space OS kernel booting");
+    // The first of the boot's states (PRD v0.2 §7.4): the kernel runs, and logs,
+    // after the hand-over. Whether it can go on is the hand-over's question next.
+    println!("[status] kernel alive");
 
-    // SAFETY: spaceboot guarantees a valid, readable BootInfo behind `rdi`.
-    let bi: &'static BootInfo = unsafe { &*boot_info };
-    if !bi.is_valid() {
-        panic!("invalid BootInfo (magic {:#x}, version {})", bi.magic, bi.version);
-    }
-    println!(
-        "[kernel] boot info ok: {} memory regions, initrd {} bytes, cmdline {} bytes, rsdp {:#x}",
-        bi.memory_map_entries, bi.initrd.len, bi.cmdline.len, bi.rsdp
-    );
-
+    // Exception vectors first: checking the hand-over reads memory it points to.
     arch::init_cpu();
+    let bi = bootinfo::accept(boot_info);
     mm::init(bi);
     arch::init_after_mm(bi);
 

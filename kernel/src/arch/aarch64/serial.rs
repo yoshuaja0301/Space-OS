@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-use spaceabi::boot::{BootInfo, EARLY_UART_VIRT, uart_kind};
+use spaceabi::boot::{BootInfo, EARLY_UART_VIRT};
 
 use super::gic;
 use crate::acpi;
@@ -33,12 +33,20 @@ fn wr(off: u64, v: u32) {
 }
 
 /// Take the UART the bootloader found, if any. The firmware left it configured.
+///
+/// This runs before the hand-over is checked (`crate::bootinfo`), so that the check
+/// can say what it refused: the UART is taken from a structure that is mapped and,
+/// by its magic and version, one this kernel reads, and only its offset inside the
+/// page the bootloader mapped is used.
 pub fn init(boot_info: *const BootInfo) {
-    // SAFETY: the bootloader passes a readable BootInfo; its fields are checked
-    // before they are believed.
+    let va = boot_info as u64;
+    if !va.is_multiple_of(8) || !crate::mm::range_is_mapped(va, core::mem::size_of::<BootInfo>() as u64) {
+        return;
+    }
+    // SAFETY: mapped and aligned (checked above); plain integers, any bytes a value.
     let bi = unsafe { &*boot_info };
-    if bi.is_valid() && bi.uart_kind == uart_kind::PL011 && bi.uart != 0 {
-        BASE.store(EARLY_UART_VIRT + (bi.uart & 0xFFF), Ordering::Relaxed);
+    if let Some(uart) = bi.console_uart() {
+        BASE.store(EARLY_UART_VIRT + (uart & 0xFFF), Ordering::Relaxed);
     }
 }
 

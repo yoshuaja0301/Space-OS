@@ -8,10 +8,10 @@ Gerbang setiap milestone adalah ID requirement v0.2; statusnya per ID ada di
 | Milestone | Deliverable | Gerbang | Status |
 |---|---|---|---|
 | M0 Kontrak platform | ADR, target manifest, toolchain, image builder | build bersih, dependency terkunci | selesai: toolchain dipatok (`rust-toolchain.toml`), `Cargo.lock`, ADR-0001–0031, `cargo xtask build`; manifest versi dengan hash image belum |
-| M1 Boot | loader, BootInfo, kernel entry, log | B01, B02 | B01 terbukti (diulang di build final); B02 sebagian |
+| M1 Boot | loader, BootInfo, kernel entry, log | B01, B02 | B01 terbukti (diulang di build final); B02 terbukti (BootInfo v3, 16 skenario kerusakan, ADR-0032) |
 | M2 Proteksi | paging, exceptions, timer, user mode | K01, K02, K03 | terbukti (K03: ADR-0031) |
 | M3 Bootstrap | boot image, root task, IPC, capability | B03, K04–K06 | B03, K05, K06 terbukti; K04 sebagian (handle basi) |
-| M4 OS dasar | ELF, shell, VirtIO block, filesystem baca | B04, S01, S02, D01 | S01, S02, D01 terbukti; B04 belum |
+| M4 OS dasar | ELF, shell, VirtIO block, filesystem baca | B04, S01, S02, D01 | B04, S01, S02, D01 terbukti (status boot, ADR-0032) |
 | M5 Runtime CPU | library minimum, compute, model parser | C01, stress resource | C01 terbukti; stress 8 jam di build final |
 | M6 Native AI | tokenizer, model fixture, inference | A01, A02 | A01 terbukti; A02 sebagian |
 | M7 Persistensi | filesystem tulis, task store, update/recovery dasar | D02, W01, recovery | tulis/flush/reboot dan recovery terbukti; disk penuh, task store dan Workspace belum |

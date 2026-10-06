@@ -27,8 +27,26 @@ use crate::sched;
 const MAX_USER_COPY: u64 = 1024 * 1024;
 const MAX_NAME: u64 = 128;
 
+/// Set by the first system call any process makes.
+static USER_SPACE_ALIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// The second of the boot's states (PRD v0.2 §7.4): the first isolated process ran
+/// code of its own, in its own address space, far enough to ask the kernel for
+/// something.
+#[cold]
+fn first_system_call() {
+    use core::sync::atomic::Ordering;
+    if !USER_SPACE_ALIVE.swap(true, Ordering::Relaxed) {
+        let (pid, name) = proc::current_identity();
+        println!("[status] user-space alive: pid {pid} ({name}) made the first system call");
+    }
+}
+
 pub fn dispatch(frame: &mut SyscallFrame) -> isize {
     arch::enable_interrupts();
+    if !USER_SPACE_ALIVE.load(core::sync::atomic::Ordering::Relaxed) {
+        first_system_call();
+    }
     let a = frame.args();
     let r = match frame.number() as usize {
         nr::EXIT => proc::exit_current(ExitStatus::exited(a[0] as i32)),

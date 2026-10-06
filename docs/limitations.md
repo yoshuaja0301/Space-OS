@@ -18,7 +18,8 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - IRQ perangkat hanya lewat **PIC** (belum IOAPIC atau MSI); tick CPU boot dari PIT, CPU lain dari timer local APIC. Waktu diambil dari **timer ACPI PM** (ADR-0029); mesin tanpa timer PM (ACPI "hardware-reduced") kembali menghitung interrupt tick, dan tick yang hilang di sana adalah waktu yang hilang. Belum HPET, belum TSC sebagai sumber waktu. Timer PM 24 bit berputar setiap 4,7 detik: CPU boot yang tidak menerima tick selama itu kehilangan satu putaran.
 - Linear map hanya memuat RAM dan framebuffer; MMIO perangkat dipetakan uncached on demand (ADR-0010). Framebuffer sendiri masih write-back lewat linear map (cukup untuk QEMU; perangkat fisik memerlukan write-combining/PAT).
 - Granularitas linear map 2 MiB: satu halaman besar yang sebagian RAM dan sebagian MMIO tetap dipetakan write-back seluruhnya. Pada q35/i440fx batas PCI hole sejajar 2 MiB sehingga tidak terjadi.
-- Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED).
+- Reklamasi memori `BOOTLOADER_RECLAIMABLE` dilakukan segera; UEFI runtime services tidak dipakai (region-nya dibiarkan RESERVED). Reservasi BootInfo v3 (ADR-0032) belum dipakai untuk mereklamasi apa pun: boot stack, memory map, halaman BootInfo dan identity map bootloader tetap milik kernel selamanya.
+- **Serah terima yang ditolak menghentikan mesin** (ADR-0032): tidak ada jalan kembali ke bootloader atau slot lain dari kernel. Di AArch64 konsol diambil dari BootInfo, jadi magic atau versi yang rusak membuat kernel diam, dan kernel yang menolak tidak bisa mengakhiri QEMU sendiri. Boot image di-hash dua kali per boot (bootloader dan kernel), sekitar 0,3–0,5 s di TCG.
 - Masukan konsol (IRQ1 keyboard, IRQ3 COM2) masuk ke satu ring buffer dan diambil user space lewat `SYS_CONSOLE_READ` di balik hak root `CONSOLE`; kernel tidak melakukan echo maupun line editing.
 
 ## Penyimpanan
@@ -135,7 +136,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Penyedia kripto `rustls-rustcrypto` berlabel *alpha* dan belum diaudit sebagai satu kesatuan; primitifnya crate RustCrypto yang luas dipakai. Batas record AES-GCM yang tidak diberikannya dipasang oleh `spacetls`. RSA hanya dipakai untuk verifikasi (kunci publik), jadi advisory Marvin (RUSTSEC-2023-0071) tidak berlaku.
 - Kripto berjalan **tanpa instruksi vektor**: state FP/SIMD kini milik setiap thread (ADR-0031), tetapi program biasa tetap dibangun soft-float dan gerbang build menolak instruksi vektor di dalamnya. Handshake 40–70 ms di TCG; throughput dibatasi AES/ChaCha perangkat lunak dan pesan channel 255 byte.
 - Waktu untuk memeriksa sertifikat berasal dari RTC yang dibaca sekali saat boot, tanpa sinkronisasi jaringan. Jam yang maju membuat sertifikat terlihat kedaluwarsa (gagal tertutup); jam yang mundur akan menerima sertifikat yang sudah kedaluwarsa sejak itu.
-- Tanpa virtio-rng dan tanpa RDRAND tidak ada entropi sama sekali: `SYS_RANDOM` menjawab `NotFound` dan semua yang membutuhkan kunci dilewati. Tidak ada kumpulan entropi (pool) atau DRBG di kernel; setiap permintaan diisi langsung dari perangkat.
+- Tanpa virtio-rng dan tanpa RDRAND tidak ada entropi sama sekali: `SYS_RANDOM` menjawab `NotFound` dan semua yang membutuhkan kunci dilewati. Tidak ada kumpulan entropi (pool) atau DRBG di kernel; setiap permintaan diisi langsung dari perangkat. Entropi dari RNG firmware (BootInfo v3, ADR-0032) hanya dicampurkan ke keluaran itu dan tidak pernah dihitung sebagai sumber, jadi mesin tanpa perangkat tetap menolak.
 
 ## Adapter cloud (I01)
 

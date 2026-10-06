@@ -84,3 +84,21 @@ pub fn init(bi: &BootInfo) {
 pub fn kernel_addr_is_mapped(addr: u64) -> bool {
     addr >= spaceabi::boot::PHYS_OFFSET && paging::translate_current(addr).is_some()
 }
+
+/// True when every byte of `[va, va + len)` is mapped in the kernel's half of the
+/// live tables. Works from the first instruction on (the bootloader's tables, read
+/// through the linear map), so the hand-over can be checked before it is read.
+pub fn range_is_mapped(va: u64, len: u64) -> bool {
+    let Some(end) = va.checked_add(len) else { return false };
+    if va < spaceabi::boot::PHYS_OFFSET {
+        return false;
+    }
+    let mut at = va;
+    loop {
+        let Some(step) = paging::mapped_extent(at) else { return false };
+        match (at & !(step - 1)).checked_add(step) {
+            Some(next) if next < end => at = next,
+            _ => return true,
+        }
+    }
+}

@@ -21,14 +21,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use spaceabi::boot::{BootSlot, FAILED_BOOTS, NOT_COUNTED, recovery_reason, recovery_state, slot};
 use uefi::boot::{self, EventType, TimerTrigger, Tpl};
 use uefi::proto::console::text::Key;
 use uefi::proto::media::file::{File, FileSystemVolumeLabel};
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::{CStr16, cstr16, println};
 
-/// Boots in a row that never came up before recovery starts by itself.
-pub const FAILED_BOOTS: u32 = 3;
 const COUNT_PATH: &CStr16 = cstr16!("\\SPACEOS\\VAR\\BOOTS.TXT");
 const DATA_LABEL: &str = "SPACEDATA";
 
@@ -38,6 +37,8 @@ pub struct Config {
     pub recovery: Vec<u8>,
     pub wait_ms: u64,
     pub boot_count: bool,
+    /// `bootinfo_fault=`: a test's request for a damaged hand-over (`crate::fault`).
+    pub bootinfo_fault: Vec<u8>,
 }
 
 pub fn parse_config(cfg: &[u8]) -> Config {
@@ -46,6 +47,7 @@ pub fn parse_config(cfg: &[u8]) -> Config {
         recovery: b"init=bin/spacerecovery".to_vec(),
         wait_ms: 0,
         boot_count: false,
+        bootinfo_fault: Vec::new(),
     };
     for line in cfg.split(|&b| b == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
@@ -59,6 +61,8 @@ pub fn parse_config(cfg: &[u8]) -> Config {
                 core::str::from_utf8(v).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0).min(10_000);
         } else if line == b"boot_count=on" {
             c.boot_count = true;
+        } else if let Some(v) = line.strip_prefix(b"bootinfo_fault=") {
+            c.bootinfo_fault = v.trim_ascii().to_vec();
         }
     }
     c
@@ -146,26 +150,41 @@ fn count_boot() -> Option<u32> {
     Some(before)
 }
 
+/// Which slot this boot runs, and with what command line.
+pub struct Choice {
+    pub cmdline: Vec<u8>,
+    /// What the kernel is told in `BootInfo::boot_slot`.
+    pub slot: BootSlot,
+}
+
 /// The command line to boot with: the normal one, or recovery's with the reason
-/// appended (`recovery=operator` or `recovery=failed-boots`).
-pub fn choose(cfg: &Config) -> Vec<u8> {
+/// appended (`recovery=operator` or `recovery=failed-boots`); and the slot that is,
+/// with the count it was decided on.
+pub fn choose(cfg: &Config) -> Choice {
     let asked = cfg.wait_ms > 0 && operator_asks(cfg.wait_ms);
-    let failed = if cfg.boot_count { count_boot() } else { None };
+    let counted = if cfg.boot_count { count_boot() } else { None };
     let reason = if asked {
-        Some("operator")
-    } else if let Some(n) = failed.filter(|&n| n >= FAILED_BOOTS) {
+        recovery_reason::OPERATOR
+    } else if let Some(n) = counted.filter(|&n| n >= FAILED_BOOTS) {
         println!("spaceboot: {n} boots in a row did not come up; starting recovery");
-        Some("failed-boots")
+        recovery_reason::FAILED_BOOTS
     } else {
-        None
+        recovery_reason::NONE
     };
-    match reason {
-        None => cfg.cmdline.clone(),
-        Some(r) => {
-            println!("spaceboot: recovery ({r})");
-            let mut line = cfg.recovery.clone();
-            line.extend_from_slice(format!(" recovery={r}").as_bytes());
-            line
-        }
-    }
+    let slot = BootSlot {
+        slot: if reason == recovery_reason::NONE { slot::NORMAL } else { slot::RECOVERY },
+        reason,
+        attempts: counted.unwrap_or(NOT_COUNTED),
+        state: if counted.is_some() { recovery_state::DATA_VOLUME } else { recovery_state::NONE },
+    };
+    let cmdline = if reason == recovery_reason::NONE {
+        cfg.cmdline.clone()
+    } else {
+        let r = recovery_reason::name(reason);
+        println!("spaceboot: recovery ({r})");
+        let mut line = cfg.recovery.clone();
+        line.extend_from_slice(format!(" recovery={r}").as_bytes());
+        line
+    };
+    Choice { cmdline, slot }
 }

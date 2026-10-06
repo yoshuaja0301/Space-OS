@@ -1308,12 +1308,21 @@ pub extern "C" fn space_main() -> i32 {
     if standalone {
         d.launch(app::TERMINAL, false).ok();
         println!("[desk] desktop ready; Super+Enter opens a terminal, Ctrl+Alt+Delete shuts down");
-        // A desktop on the screen is the system being up: boots that did not get
+        // A desktop on the screen whose sessions can read files and run and stop
+        // programs is the system being up (PRD v0.2 §7.4): boots that did not get
         // this far are no longer counted against it (ADR-0027).
-        match libspace::boot::mark_up(root) {
-            Ok(true) => println!("[desk] the system is up; the boot count is back to 0"),
-            Ok(false) => {}
-            Err(e) => println!("[desk] cannot clear the boot count: {e}"),
+        match libspace::shell::check_usable(root) {
+            Ok(true) => match libspace::boot::mark_up(root) {
+                Ok(true) => println!("[desk] the system is up; the boot count is back to 0"),
+                Ok(false) => {}
+                Err(e) => println!("[desk] cannot clear the boot count: {e}"),
+            },
+            Ok(false) => {
+                println!("[desk] the sessions cannot do their work; the boot count is left as it is")
+            }
+            Err(e) => {
+                println!("[desk] the sessions could not be checked ({e}); the boot count is left as it is")
+            }
         }
     }
     d.run();

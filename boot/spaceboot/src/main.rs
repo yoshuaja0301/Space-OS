@@ -7,12 +7,16 @@
 //!    memory typed `MemKind::KERNEL` so the kernel never reclaims them by accident;
 //! 3. build page tables: kernel at its link address, physical memory linear map at
 //!    `PHYS_OFFSET` (and on x86-64 a temporary identity map);
-//! 4. capture GOP framebuffer, ACPI RSDP, the time and the final UEFI memory map;
+//! 4. capture GOP framebuffer, ACPI RSDP, the time, entropy from the firmware's RNG
+//!    and the final UEFI memory map;
 //! 5. exit boot services and jump to the kernel entry with the `BootInfo` pointer
 //!    as the first argument.
 //!
 //! Steps 3 and 5 are the architecture's (`x86.rs`, `aarch64.rs`, ADR-0028).
-//! Nothing here depends on the kernel besides the `spaceabi::boot` contract.
+//! Nothing here depends on the kernel besides the `spaceabi::boot` contract, which
+//! the kernel checks before it believes any of it (ADR-0032): every range handed
+//! over is listed as a reservation with its owner, the boot image comes with the
+//! SHA-256 taken here, and `fault` can damage the result on purpose for a test.
 
 #![no_std]
 #![no_main]
@@ -20,6 +24,7 @@
 
 extern crate alloc;
 
+mod fault;
 mod recovery;
 
 #[cfg(target_arch = "aarch64")]
@@ -33,15 +38,19 @@ use x86 as arch;
 
 use alloc::vec::Vec;
 use core::mem;
+use core::ptr::NonNull;
 
 use spaceabi::boot::{
-    BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BOOT_STACK_SIZE, BootInfo, FramebufferInfo, MemRegion, PHYS_OFFSET,
-    PhysRange, fb_format, mem_kind,
+    BOOT_INFO_MAGIC, BOOT_INFO_VERSION, BOOT_STACK_SIZE, BootInfo, Entropy, FramebufferInfo, LINEAR_MAP_MAX,
+    MAX_RESERVATIONS, MEMORY_MAP_FORMAT, MemRegion, PHYS_OFFSET, PhysRange, Reservation, entropy_source,
+    fb_format, flags, mem_kind, owner, uart_kind,
 };
 use spaceabi::elf::Elf;
+use spaceabi::sha256;
 use uefi::boot::{self, AllocateType, MemoryType};
 use uefi::mem::memory_map::{MemoryDescriptor, MemoryMap, MemoryMapOwned};
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
+use uefi::proto::rng::Rng;
 use uefi::table::cfg::ACPI2_GUID;
 use uefi::{CStr16, Status, cstr16, println};
 
@@ -143,6 +152,54 @@ fn load_kernel(data: &[u8]) -> Result<LoadedKernel, &'static str> {
     Ok(LoadedKernel { entry: elf.entry, image: PhysRange { phys: phys_base, len: hi - lo }, pages })
 }
 
+/// The page tables the kernel is entered on, taken from one allocation so that a
+/// single reservation covers them all. Sized for the worst case before the tables
+/// are built; what is left over goes back to the firmware afterwards.
+pub struct TablePool {
+    base: u64,
+    pages: usize,
+    used: usize,
+}
+
+impl TablePool {
+    /// Enough pages for the kernel image's 4 KiB pages and 2 MiB blocks up to
+    /// `phys_map_end`, twice over (x86-64 also builds an identity map), plus the
+    /// AArch64 UART page and some room.
+    fn for_map(kernel: &LoadedKernel, phys_map_end: u64) -> Result<TablePool, &'static str> {
+        const GIB: u64 = 1 << 30;
+        let kernel_tables = kernel.image.len.div_ceil(HUGE) as usize + 4;
+        let gibs = phys_map_end.div_ceil(GIB) as usize;
+        let tibs = phys_map_end.div_ceil(512 * GIB) as usize;
+        let pages = 1 + kernel_tables + 2 * (gibs + tibs) + 8;
+        Ok(TablePool { base: alloc_kernel_pages(pages)?, pages, used: 0 })
+    }
+
+    /// One zeroed page for a table.
+    pub fn take(&mut self) -> Result<u64, &'static str> {
+        if self.used == self.pages {
+            return Err("page-table pool exhausted");
+        }
+        let pa = self.base + self.used as u64 * PAGE;
+        self.used += 1;
+        Ok(pa)
+    }
+
+    /// Give the pages no table needed back to the firmware; the range the tables
+    /// are in.
+    fn finish(self) -> PhysRange {
+        let unused = self.pages - self.used;
+        let tail = self.base + self.used as u64 * PAGE;
+        if unused > 0
+            && let Some(ptr) = NonNull::new(tail as *mut u8)
+        {
+            // SAFETY: pages of our own allocation that nothing refers to. Should the
+            // firmware refuse, they stay ours, inside nobody's reservation: harmless.
+            let _ = unsafe { boot::free_pages(ptr, unused) };
+        }
+        PhysRange { phys: self.base, len: self.used as u64 * PAGE }
+    }
+}
+
 /// Copy `data` into fresh `MT_KERNEL` pages.
 fn stash(data: &[u8]) -> Result<PhysRange, &'static str> {
     if data.is_empty() {
@@ -153,6 +210,34 @@ fn stash(data: &[u8]) -> Result<PhysRange, &'static str> {
     // SAFETY: allocation is at least data.len() bytes.
     unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), phys as *mut u8, data.len()) };
     Ok(PhysRange { phys, len: data.len() as u64 })
+}
+
+/// Bytes from the firmware's RNG protocol, if it has one. Their quality is not
+/// assumed (PRD v0.2 §7.2): the kernel mixes them in and never relies on them alone.
+fn firmware_entropy() -> Entropy {
+    let mut e = Entropy::NONE;
+    let rng = boot::get_handle_for_protocol::<Rng>().and_then(boot::open_protocol_exclusive::<Rng>);
+    let Ok(mut rng) = rng else {
+        println!("spaceboot: entropy: the firmware has no RNG protocol");
+        return e;
+    };
+    let mut buf = [0u8; 32];
+    match rng.get_rng(None, &mut buf) {
+        Ok(()) => {
+            e.source = entropy_source::UEFI_RNG;
+            e.len = buf.len() as u32;
+            e.bytes[..buf.len()].copy_from_slice(&buf);
+            println!("spaceboot: entropy: {} bytes from the firmware's RNG protocol", buf.len());
+        }
+        Err(err) => println!("spaceboot: entropy: the firmware's RNG protocol failed ({:?})", err.status()),
+    }
+    buf.fill(0);
+    e
+}
+
+fn hex(digest: &[u8; 32]) -> alloc::string::String {
+    let h = sha256::to_hex(digest);
+    alloc::string::String::from(core::str::from_utf8(&h).unwrap_or("?"))
 }
 
 fn framebuffer_info() -> FramebufferInfo {
@@ -245,9 +330,36 @@ fn run() -> Result<(), &'static str> {
     drop(fs);
 
     // ---- 2. place kernel-owned data ---------------------------------------
+    let config = recovery::parse_config(&cfg_data);
+    let fault = match config.bootinfo_fault.as_slice() {
+        [] => None,
+        name => match fault::find(name) {
+            Some(f) => {
+                println!(
+                    "spaceboot: bootinfo_fault={}: handing the kernel {} (a test of the kernel's checks; never on a real boot)",
+                    f.name, f.what
+                );
+                Some(f)
+            }
+            None => {
+                let name = core::str::from_utf8(name).unwrap_or("(not text)");
+                println!("spaceboot: bootinfo_fault={name} is not a fault spaceboot knows; ignored");
+                None
+            }
+        },
+    };
     let kernel = load_kernel(&kernel_data)?;
+    let initrd_sha256 = if initrd_data.is_empty() { [0; 32] } else { sha256::digest(&initrd_data) };
+    if !initrd_data.is_empty() {
+        println!("spaceboot: boot image {} bytes, sha256 {}", initrd_data.len(), hex(&initrd_sha256));
+    }
     let initrd = stash(&initrd_data)?;
-    let cmdline = stash(&recovery::choose(&recovery::parse_config(&cfg_data)))?;
+    let choice = recovery::choose(&config);
+    if let Err(e) = spaceabi::boot::validate_cmdline(&choice.cmdline) {
+        println!("spaceboot: the command line in spaceos.cfg cannot be handed over: {e}");
+        return Err("the command line must be UTF-8 and at most 4096 bytes");
+    }
+    let cmdline = stash(&choice.cmdline)?;
     let stack_phys = alloc_kernel_pages(BOOT_STACK_SIZE / PAGE as usize)?;
     let bootinfo_phys = alloc_kernel_pages(1)?;
     let memmap_phys = alloc_kernel_pages(MEMMAP_PAGES)?;
@@ -256,6 +368,7 @@ fn run() -> Result<(), &'static str> {
     });
     let boot_time = uefi::runtime::get_time().map(|t| unix_seconds(&t)).unwrap_or(0);
     let (uart, uart_kind) = arch::console_uart(rsdp);
+    let entropy = firmware_entropy();
     mem::forget(kernel_data);
     mem::forget(initrd_data);
     mem::forget(cfg_data);
@@ -273,14 +386,29 @@ fn run() -> Result<(), &'static str> {
             phys_map_end = phys_map_end.max(d.phys_start + d.page_count * PAGE);
         }
     }
-    // The framebuffer is captured last (opening GOP exclusively may detach the text console).
-    let fb = framebuffer_info();
-    if fb.present != 0 {
-        phys_map_end = phys_map_end.max(fb.phys_addr + fb.size);
-    }
     phys_map_end = phys_map_end.div_ceil(HUGE) * HUGE;
+    if phys_map_end > LINEAR_MAP_MAX {
+        return Err("RAM above 16 TiB: the kernel's linear map cannot hold it");
+    }
+    // The framebuffer is captured last (opening GOP exclusively may detach the text
+    // console). One the contract cannot describe -- beyond what the linear map
+    // holds, or not page-aligned -- is left behind rather than handed over wrong.
+    let mut fb = framebuffer_info();
+    if fb.present != 0 {
+        let end = fb.phys_addr.checked_add(fb.size).map(|e| e.div_ceil(HUGE) * HUGE).unwrap_or(u64::MAX);
+        let with_fb = phys_map_end.max(end).min(LINEAR_MAP_MAX);
+        match fb.check(with_fb) {
+            Ok(()) => phys_map_end = with_fb,
+            Err(e) => {
+                println!("spaceboot: the framebuffer is not handed over ({e}); serial console only");
+                fb = FramebufferInfo::default();
+            }
+        }
+    }
 
-    let tables = arch::build_tables(&kernel, &prelim, &fb, phys_map_end, uart)?;
+    let mut pool = TablePool::for_map(&kernel, phys_map_end)?;
+    let tables = arch::build_tables(&kernel, &prelim, &fb, phys_map_end, uart, &mut pool)?;
+    let page_tables = pool.finish();
     drop(prelim);
     println!(
         "spaceboot: linear map {} MiB of RAM below {:#x} at {:#x} (device MMIO excluded), framebuffer {}x{} @ {:#x}",
@@ -336,28 +464,68 @@ fn run() -> Result<(), &'static str> {
     }
     let region_count = w as u64;
 
+    // Every range handed over, with what it holds.
+    let pages = |r: PhysRange| PhysRange { phys: r.phys, len: r.len.div_ceil(PAGE) * PAGE };
+    let boot_stack = PhysRange { phys: stack_phys, len: BOOT_STACK_SIZE as u64 };
+    let memory_map = PhysRange { phys: memmap_phys, len: (MEMMAP_PAGES as u64) * PAGE };
+    let held = [
+        (owner::KERNEL_IMAGE, kernel.image),
+        (owner::BOOT_IMAGE, pages(initrd)),
+        (owner::CMDLINE, pages(cmdline)),
+        (owner::BOOT_STACK, boot_stack),
+        (owner::BOOT_INFO, PhysRange { phys: bootinfo_phys, len: PAGE }),
+        (owner::MEMORY_MAP, memory_map),
+        (owner::PAGE_TABLES, page_tables),
+    ];
+    let mut reservations = [Reservation::default(); MAX_RESERVATIONS];
+    let mut reservation_count = 0;
+    for (who, range) in held.into_iter().filter(|(_, r)| r.len != 0) {
+        reservations[reservation_count] = Reservation { range, owner: who, _pad: 0 };
+        reservation_count += 1;
+    }
+    let present = [
+        (flags::FRAMEBUFFER, fb.present != 0),
+        (flags::ACPI, rsdp != 0),
+        (flags::BOOT_IMAGE, initrd.len != 0),
+        (flags::CMDLINE, cmdline.len != 0),
+        (flags::UART, uart_kind != uart_kind::NONE),
+        (flags::BOOT_TIME, boot_time != 0),
+        (flags::ENTROPY, entropy.source != entropy_source::NONE),
+    ];
+    let info_flags = present.iter().filter(|(_, there)| *there).fold(0, |f, (bit, _)| f | bit);
+
     // SAFETY: bootinfo_phys is one zeroed page, identity-mapped.
     let bi = unsafe { &mut *(bootinfo_phys as *mut BootInfo) };
     *bi = BootInfo {
         magic: BOOT_INFO_MAGIC,
         version: BOOT_INFO_VERSION,
-        _pad: 0,
+        size: mem::size_of::<BootInfo>() as u32,
+        flags: info_flags,
         phys_offset: PHYS_OFFSET,
         phys_map_end,
-        memory_map: PhysRange { phys: memmap_phys, len: (MEMMAP_PAGES as u64) * PAGE },
+        memory_map,
         memory_map_entries: region_count,
+        memory_map_entry_size: mem::size_of::<MemRegion>() as u32,
+        memory_map_format: MEMORY_MAP_FORMAT,
         kernel_image: kernel.image,
         initrd,
+        initrd_sha256,
         cmdline,
         boot_pml4: tables.root,
-        boot_stack: PhysRange { phys: stack_phys, len: BOOT_STACK_SIZE as u64 },
+        boot_stack,
         rsdp,
         framebuffer: fb,
         boot_time,
         uart,
         uart_kind,
-        _pad2: 0,
+        reservation_count: reservation_count as u32,
+        reservations,
+        entropy,
+        boot_slot: choice.slot,
     };
+    if let Some(f) = fault {
+        f.apply(bi, &mut regions[..w]);
+    }
 
     // ---- 5. switch page tables and jump --------------------------------------
     let stack_top = PHYS_OFFSET + stack_phys + BOOT_STACK_SIZE as u64;

@@ -2510,6 +2510,30 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         Ok(())
     });
 
+    r.run(
+        "B04",
+        "a session says the OS is usable exactly when it can read files and run and stop programs",
+        || {
+            // PRD v0.2 §7.4: the shell reads a file, runs a program to its end and stops
+            // another, and says the outcome as the boot's status. Without a data volume
+            // there are no files to read, and it has to say so rather than claim more.
+            let usable = libspace::shell::check_usable(ROOT).map_err(|e| alloc::format!("check: {e}"))?;
+            match (usable, disk) {
+                (true, true) => Ok(()),
+                (false, false) => {
+                    println!(
+                        "[init] B04: no file system on this machine, and the session says it is not usable"
+                    );
+                    Ok(())
+                }
+                (true, false) => Err(String::from("the session says it is usable without a file system")),
+                (false, true) => {
+                    Err(String::from("the session could not read a file or run and stop a program"))
+                }
+            }
+        },
+    );
+
     r.run_if(
         disk,
         "no disk on this machine",

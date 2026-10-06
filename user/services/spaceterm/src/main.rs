@@ -54,16 +54,25 @@ pub extern "C" fn space_main() -> i32 {
             return give_up(&alloc::format!("cannot narrow the root capability: {e}"));
         }
     };
-    if let Err(e) = Session::open(mine, root) {
-        sys::kill(shell).ok();
-        return give_up(&alloc::format!("cannot open the session: {e}"));
-    }
-    // A session a person can type into is the system being up: boots that did not
-    // get this far are no longer counted against it (ADR-0027).
-    match libspace::boot::mark_up(ROOT) {
-        Ok(true) => println!("[term] the system is up; the boot count is back to 0"),
-        Ok(false) => {}
-        Err(e) => println!("[term] cannot clear the boot count: {e}"),
+    let session = match Session::open(mine, root) {
+        Ok(s) => s,
+        Err(e) => {
+            sys::kill(shell).ok();
+            return give_up(&alloc::format!("cannot open the session: {e}"));
+        }
+    };
+    // A session that can read files and run and stop programs is the system being
+    // up (PRD v0.2 §7.4: what counts is the core, not the model): boots that did not
+    // get this far are no longer counted against it (ADR-0027). One that cannot is
+    // still a terminal to type into, but not a boot that succeeded.
+    match session.check() {
+        Ok(true) => match libspace::boot::mark_up(ROOT) {
+            Ok(true) => println!("[term] the system is up; the boot count is back to 0"),
+            Ok(false) => {}
+            Err(e) => println!("[term] cannot clear the boot count: {e}"),
+        },
+        Ok(false) => println!("[term] the session cannot do its work; the boot count is left as it is"),
+        Err(e) => println!("[term] the session could not be checked ({e}); the boot count is left as it is"),
     }
 
     // From here the person at the console is in charge. Waiting is all this process

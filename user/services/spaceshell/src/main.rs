@@ -16,6 +16,7 @@
 
 extern crate alloc;
 
+use alloc::format;
 use alloc::string::String;
 
 use libspace::spaceabi::error::Error;
@@ -24,7 +25,7 @@ use libspace::spaceabi::shell::{
     ABI_VERSION, Command, JobReport, Progress, Reply, cmd, job, worker, worker_state,
 };
 use libspace::spaceabi::syscall::{DIR_ENTRIES_MAX, DirEntry, ExitStatus, kill_reason};
-use libspace::{Handle, handle, println, sys};
+use libspace::{Handle, exit_kind, handle, println, sys};
 
 /// Quota for a test job: code, stack and a little heap.
 const WORKER_QUOTA: u64 = 128;
@@ -35,6 +36,10 @@ const COMPUTE_QUOTA: u64 = 4096;
 /// Idle pause between polls. Short enough that Stop feels immediate, long enough
 /// that an idle session is not a busy loop.
 const POLL_MS: u64 = 2;
+/// Where `cmd::CHECK` looks for a file to read: the top of the data volume.
+const CHECK_DIR: &str = "/spaceos";
+/// How long the check's finishing program may take before the check gives up.
+const CHECK_DEADLINE_MS: u64 = 10_000;
 
 struct Shell {
     control: Handle,
@@ -421,6 +426,94 @@ impl Shell {
         self.reply(r);
     }
 
+    /// `cmd::CHECK` (PRD v0.2 §7.4): read a file, run a program to its end and stop
+    /// another, then say so as the boot's status. Its programs are its own, so a
+    /// check can run beside the session's worker and leaves its state alone.
+    fn check(&mut self) {
+        let (usable, text) = match self.usable() {
+            Ok(text) => (true, text),
+            Err(text) => (false, text),
+        };
+        if usable {
+            println!("[status] OS usable: {text}");
+        } else {
+            println!("[status] OS not usable: {text}");
+        }
+        let mut r = Reply { value: usable as u64, ..Default::default() };
+        r.set_text(&text);
+        self.reply(r);
+    }
+
+    fn usable(&self) -> Result<String, String> {
+        let root = self.root.ok_or_else(|| String::from("the session holds no capability"))?;
+        let t0 = sys::ticks_ms();
+        // A file: the first one with something in it at the top of the data volume.
+        let mut entries = [DirEntry::default(); DIR_ENTRIES_MAX];
+        let n = sys::fs_list(root, CHECK_DIR, &mut entries)
+            .map_err(|e| format!("cannot read files: listing {CHECK_DIR}: {e}"))?;
+        let file = entries
+            .iter()
+            .take(n)
+            .find(|e| e.is_dir == 0 && e.size > 0)
+            .ok_or_else(|| format!("cannot read files: nothing to read in {CHECK_DIR}"))?;
+        let path = format!("{CHECK_DIR}/{}", file.name());
+        let f = sys::fs_open(root, &path).map_err(|e| format!("cannot read files: opening {path}: {e}"))?;
+        let mut buf = [0u8; 512];
+        let read = sys::fs_read(f, 0, &mut buf);
+        sys::handle_close(f).ok();
+        let read = read.map_err(|e| format!("cannot read files: reading {path}: {e}"))?;
+        if read == 0 {
+            return Err(format!("cannot read files: {path} reads as empty"));
+        }
+        // A program run to its end, with the exit code it chose.
+        let p = check_job(root, job::OK)?;
+        let deadline = sys::ticks_ms() + CHECK_DEADLINE_MS;
+        let ended = loop {
+            match sys::wait_nonblocking(p) {
+                Ok(st) => break Ok(st),
+                Err(Error::WouldBlock) if sys::ticks_ms() < deadline => sys::sleep_ms(POLL_MS),
+                Err(e) => break Err(e),
+            }
+        };
+        if ended.is_err() {
+            sys::kill(p).ok();
+            sys::wait(p).ok();
+        }
+        sys::handle_close(p).ok();
+        match ended {
+            Ok(st) if st.kind == exit_kind::EXITED && st.code == 0 => {}
+            Ok(st) => return Err(format!("cannot run programs: bin/uiworker ended {st:?}")),
+            Err(Error::WouldBlock) => {
+                return Err(format!(
+                    "cannot run programs: bin/uiworker did not finish in {CHECK_DEADLINE_MS} ms"
+                ));
+            }
+            Err(e) => return Err(format!("cannot run programs: waiting for bin/uiworker: {e}")),
+        }
+        // And one stopped while it runs: it spins and never asks the kernel for
+        // anything, so only the stop can end it.
+        let p = check_job(root, job::HANG)?;
+        sys::sleep_ms(POLL_MS);
+        let early = sys::wait_nonblocking(p);
+        let killed = sys::kill(p);
+        let st = sys::wait(p);
+        sys::handle_close(p).ok();
+        match early {
+            Err(Error::WouldBlock) => {}
+            Ok(st) => return Err(format!("cannot stop programs: bin/uiworker ended by itself ({st:?})")),
+            Err(e) => return Err(format!("cannot stop programs: watching bin/uiworker: {e}")),
+        }
+        killed.map_err(|e| format!("cannot stop programs: {e}"))?;
+        let st = st.map_err(|e| format!("cannot stop programs: reaping bin/uiworker: {e}"))?;
+        if st.reason != kill_reason::SIGNAL {
+            return Err(format!("cannot stop programs: bin/uiworker ended {st:?}, not by the stop"));
+        }
+        Ok(format!(
+            "read {read} bytes of {path}, ran bin/uiworker to its end and stopped another while it ran, in {} ms",
+            sys::ticks_ms() - t0
+        ))
+    }
+
     fn send_progress(&mut self) {
         self.drain_reports();
         let p = Progress { status: 0, state: self.state, served: self.served, ..self.progress };
@@ -484,6 +577,7 @@ impl Shell {
             cmd::RUN => self.run(c.text()),
             cmd::STOP => self.stop(),
             cmd::PROGRESS => self.send_progress(),
+            cmd::CHECK => self.check(),
             cmd::QUIT => {
                 self.reply(Reply::default());
                 return false;
@@ -729,6 +823,29 @@ pub extern "C" fn space_main() -> i32 {
     sh.shutdown();
     println!("[shell] session closed after {} commands", sh.served);
     0
+}
+
+/// Start `bin/uiworker` on `name` for the check, with a quota of its own.
+fn check_job(root: Handle, name: &str) -> Result<Handle, String> {
+    let (mine, theirs) = sys::channel_create().map_err(|e| format!("cannot run programs: channel: {e}"))?;
+    let p = match sys::spawn(root, "bin/uiworker", WORKER_QUOTA, Some(theirs)) {
+        Ok(p) => p,
+        Err(e) => {
+            sys::handle_close(mine).ok();
+            // Only taken once spawn succeeds; a no-op if it already was.
+            sys::handle_close(theirs).ok();
+            return Err(format!("cannot run programs: bin/uiworker: {e}"));
+        }
+    };
+    let sent = sys::send(mine, name.as_bytes(), None);
+    sys::handle_close(mine).ok();
+    if let Err(e) = sent {
+        sys::kill(p).ok();
+        sys::wait(p).ok();
+        sys::handle_close(p).ok();
+        return Err(format!("cannot run programs: handing bin/uiworker its job: {e}"));
+    }
+    Ok(p)
 }
 
 /// Kept so the linker never drops the rights constants the service documents it

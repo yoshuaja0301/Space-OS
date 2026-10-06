@@ -11,7 +11,7 @@ use x86_64::structures::paging::{
 };
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::{HUGE, LoadedKernel, alloc_kernel_pages, backs_ram};
+use crate::{HUGE, LoadedKernel, TablePool, backs_ram};
 
 pub const KERNEL_ELF_ERROR: &str = "kernel is not a valid ELF64 x86-64 executable";
 
@@ -36,12 +36,12 @@ pub struct Tables {
     pub mapped_huge: u64,
 }
 
-struct BootFrameAllocator;
+struct BootFrameAllocator<'a>(&'a mut TablePool);
 
-// SAFETY: frames come from UEFI AllocatePages and are never handed out twice.
-unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator {
+// SAFETY: frames come from the pool, zeroed, and are never handed out twice.
+unsafe impl FrameAllocator<Size4KiB> for BootFrameAllocator<'_> {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
-        let phys = alloc_kernel_pages(1).ok()?;
+        let phys = self.0.take().ok()?;
         Some(PhysFrame::containing_address(PhysAddr::new(phys)))
     }
 }
@@ -53,8 +53,9 @@ pub fn build_tables(
     fb: &FramebufferInfo,
     phys_map_end: u64,
     _uart: u64,
+    pool: &mut TablePool,
 ) -> Result<Tables, &'static str> {
-    let mut falloc = BootFrameAllocator;
+    let mut falloc = BootFrameAllocator(pool);
     let pml4_frame = falloc.allocate_frame().ok_or("cannot allocate PML4")?;
     // SAFETY: UEFI identity-maps memory, so the physical address is also the virtual one.
     let pml4: &mut PageTable = unsafe { &mut *(pml4_frame.start_address().as_u64() as *mut PageTable) };

@@ -1,0 +1,183 @@
+# Serah terima dan status boot (B02, B03, B04, ADR-0032) — sesi verifikasi 2026-10-06
+
+Diambil dari build/logs (cargo xtask test, compat, arm64) dan cargo xtask unit.
+
+## Serah terima yang diterima (acceptance, x86-64)
+spaceboot: boot image 4050432 bytes, sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49
+spaceboot: entropy: 32 bytes from the firmware's RNG protocol
+[status] kernel alive
+[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 13 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d503000..0x7d56a000 (412 KiB): kernel image
+[kernel]   reserved 0x7d126000..0x7d503000 (3956 KiB): boot image
+[kernel]   reserved 0x7e74f000..0x7e750000 (4 KiB): command line
+[kernel]   reserved 0x7d116000..0x7d126000 (64 KiB): boot stack
+[kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): boot info
+[kernel]   reserved 0x7d106000..0x7d116000 (64 KiB): memory map
+[kernel]   reserved 0x7d0e0000..0x7d0f8000 (96 KiB): page tables
+[kernel] boot image: sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49 as the bootloader measured it
+[kernel] boot slot: normal; boots are not counted
+[kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
+[kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+
+## Serah terima yang diterima (arm64-acceptance)
+[kernel] boot info v3 accepted: 720 bytes, 26 memory regions, 7 reservations, initrd 3285504 bytes, cmdline 30 bytes, rsdp 0x13c760018
+[kernel] boot image: sha256 a4fb408b27346217f722aa9ebf3b4edfb902749b4fb33d49db997311b8bb6f52 as the bootloader measured it
+[kernel] boot slot: normal; boots are not counted
+[kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
+[kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+
+## Kerusakan yang ditolak: satu field per boot (bootinfo_fault=, cargo xtask test dan arm64)
+== arm64-bootinfo-reservation
+   bootloader: bootinfo_fault=reservation: handing the kernel two reservations over the same pages
+   kernel    : BootInfo rejected: reservation (entry 1) = 0x13c394000: overlaps another reservation
+   status    : kernel alive
+== bootinfo-cmdline_utf8
+   bootloader: bootinfo_fault=cmdline_utf8: handing the kernel a command line that is not UTF-8
+   kernel    : BootInfo rejected: cmdline = 0x0: not UTF-8 from this byte on
+   status    : kernel alive
+== bootinfo-entropy
+   bootloader: bootinfo_fault=entropy: handing the kernel more entropy than there is room for
+   kernel    : BootInfo rejected: entropy.len = 0x41: more than the 64 bytes there is room for
+   status    : kernel alive
+== bootinfo-flags
+   bootloader: bootinfo_fault=flags: handing the kernel a flag no version defines
+   kernel    : BootInfo rejected: flags = 0x800000000000006f: bits this version does not define
+   status    : kernel alive
+== bootinfo-framebuffer
+   bootloader: bootinfo_fault=framebuffer: handing the kernel a framebuffer whose lines are shorter than the screen
+   kernel    : BootInfo rejected: framebuffer.stride = 0x4ff: shorter than a line of the screen
+   status    : kernel alive
+== bootinfo-initrd
+   bootloader: bootinfo_fault=initrd: handing the kernel a boot image as long as the linear map
+   kernel    : BootInfo rejected: initrd = 0x7d129000: outside the linear map
+   status    : kernel alive
+== bootinfo-initrd_hash
+   bootloader: bootinfo_fault=initrd_hash: handing the kernel a boot image whose digest has one byte flipped
+   kernel    : BootInfo rejected: initrd: the boot image hashes to 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49, not to the 6093593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49 the bootloader measured
+   status    : kernel alive
+== bootinfo-kernel_image
+   bootloader: bootinfo_fault=kernel_image: handing the kernel a kernel image moved past itself
+   kernel    : BootInfo rejected: kernel_image = 0x7d56d000: not inside the kernel image's reservation
+   status    : kernel alive
+== bootinfo-magic
+   bootloader: bootinfo_fault=magic: handing the kernel a magic number one bit off
+   kernel    : BootInfo rejected: magic = 0x4f4f424543415052: not a Space OS BootInfo (expected 0x4f4f424543415053)
+   status    : kernel alive
+== bootinfo-memmap_count
+   bootloader: bootinfo_fault=memmap_count: handing the kernel one memory-map entry more than the array holds
+   kernel    : BootInfo rejected: memory_map_entries = 0xaab: none, or more than the array holds
+   status    : kernel alive
+== bootinfo-memmap_overlap
+   bootloader: bootinfo_fault=memmap_overlap: handing the kernel a memory map whose second entry repeats the first
+   kernel    : BootInfo rejected: memory map start (entry 1) = 0x0: out of order, or overlapping the entry before it
+   status    : kernel alive
+== bootinfo-phys_offset
+   bootloader: bootinfo_fault=phys_offset: handing the kernel a linear map 1 TiB from where it is
+   kernel    : BootInfo rejected: phys_offset = 0xffff810000000000: not where the linear map is (expected 0xffff800000000000)
+   status    : kernel alive
+== bootinfo-reservation
+   bootloader: bootinfo_fault=reservation: handing the kernel two reservations over the same pages
+   kernel    : BootInfo rejected: reservation (entry 1) = 0x7d503000: overlaps another reservation
+   status    : kernel alive
+== bootinfo-size
+   bootloader: bootinfo_fault=size: handing the kernel a size 8 bytes short
+   kernel    : BootInfo rejected: size = 0x2c8: not the size of this version's BootInfo (expected 0x2d0)
+   status    : kernel alive
+== bootinfo-slot
+   bootloader: bootinfo_fault=slot: handing the kernel boot slot 7
+   kernel    : BootInfo rejected: boot_slot.slot = 0x7: neither the normal nor the recovery slot
+   status    : kernel alive
+== bootinfo-version
+   bootloader: bootinfo_fault=version: handing the kernel BootInfo version 99
+   kernel    : BootInfo rejected: version = 0x63: a BootInfo version this kernel does not read (expected 0x3)
+   status    : kernel alive
+
+## Status boot tertinggi setiap skenario (B04)
+acceptance                         AI ready
+acpi-poweroff                      OS usable
+arm64-acceptance                   AI ready
+arm64-bootinfo-reservation         kernel alive
+arm64-poweroff                     AI ready
+arm64-terminal-usb                 OS usable
+boot-count                         OS usable
+desktop                            AI ready
+init-exit-diagnosis                user-space alive
+init-missing-diagnosis             kernel alive
+kernel-fault-diagnosis             kernel alive
+kernel-stack-overflow-diagnosis    kernel alive
+panic-diagnosis                    kernel alive
+recovery-auto                      user-space alive
+recovery-key                       user-space alive
+storage-reboot                     AI ready
+stress                             AI ready
+terminal                           OS usable
+terminal-serial                    OS usable
+terminal-usb                       OS usable
+
+## Status pada mesin compat
+lab                    AI ready
+q35-1cpu-2g            AI ready
+i440fx                 AI ready
+cpu-max                AI ready
+virtio-transitional    AI ready
+virtio-small-queue     AI ready
+no-disk                user-space alive
+sata-data              AI ready
+nvme-data              AI ready
+installed-disk         AI ready
+e1000                  AI ready
+e1000e                 AI ready
+rtl8139-only           AI ready
+no-vga                 AI ready
+vmware-vga             AI ready
+usb                    AI ready
+no-disk:               [status] OS not usable: cannot read files: listing /spaceos: not found
+
+## OS usable: bukti dari sesi (terminal, acceptance)
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 33 ms
+[status] AI ready: the model is verified and loaded on the 1 backend and answered after 385 ms
+[init] PASS B04: a session says the OS is usable exactly when it can read files and run and stop programs
+
+## Validator di host (cargo xtask unit)
+test boot::tests::images_and_hand_over_state_are_checked ... ok
+test boot::tests::entropy_and_the_boot_slot_are_checked ... ok
+test boot::tests::identity_is_checked_first ... ok
+test boot::tests::reservations_are_checked ... ok
+test boot::tests::the_command_line_is_text ... ok
+test boot::tests::the_fixture_is_accepted ... ok
+test boot::tests::the_memory_map_entries_are_checked ... ok
+test boot::tests::the_memory_map_header_is_checked ... ok
+test boot::tests::the_platform_is_checked ... ok
+test boot::tests::the_linear_map_is_checked ... ok
+test boot::tests::random_damage_is_refused_or_harmless ... ok
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== kernel checks the header only (no memory map, no reservations)
+   FAIL boot 1/1 in 37.8s, log: /home/user/Space-OS/build/logs/bootinfo-reservation.log
+     - QEMU exit code Some(33), expected 127
+     - the boot ended at "AI ready", expected "kernel alive" (B04)
+     - missing marker "BootInfo rejected: reservation (entry 1) = 0x"
+     - missing marker ": overlaps another reservation"
+     - missing marker "spacekernel: halted after panic"
+     - unexpected marker "[status] user-space alive"
+     - unexpected marker "[kernel] init spawned"
+=== kernel does not compare the boot image's digest
+   FAIL boot 1/1 in 37.8s, log: /home/user/Space-OS/build/logs/bootinfo-initrd_hash.log
+     - QEMU exit code Some(33), expected 127
+     - the boot ended at "AI ready", expected "kernel alive" (B04)
+     - missing marker "BootInfo rejected: initrd: the boot image hashes to "
+     - missing marker "spacekernel: halted after panic"
+     - unexpected marker "[status] user-space alive"
+     - unexpected marker "[kernel] init spawned"
+=== kernel claims user space before any process ran
+   FAIL boot 1/1 in 4.1s, log: /home/user/Space-OS/build/logs/init-missing-diagnosis.log
+     - the boot ended at "user-space alive", expected "kernel alive" (B04)
+=== the session claims the OS is usable without reading a file
+   FAIL in 12.9s, log: /home/user/Space-OS/build/logs/compat/no-disk.log
+     - QEMU exit code Some(35), expected 33
+     - missing marker "[init] ALL TESTS PASSED"
+     - missing marker "[init] ALL TESTS PASSED"
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+     - the boot ended at "OS usable", expected "user-space alive" (B04)
+=== restored:  27 files changed, 1981 insertions(+), 124 deletions(-)

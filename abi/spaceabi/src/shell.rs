@@ -29,6 +29,12 @@ pub mod cmd {
     /// What the running (or last) job has done so far: answered with a [`Progress`]
     /// instead of a [`Reply`].
     pub const PROGRESS: u32 = 6;
+    /// Show that the session can do what an OS is for (PRD v0.2 §7.4, "OS usable"):
+    /// read a file, run a program to its end, and stop another while it runs. The
+    /// shell says the outcome on the console as the boot's status; the reply's
+    /// `value` is 1 when it could and 0 when it could not, with the account in
+    /// `text`. The programs are the check's own, never the session's worker.
+    pub const CHECK: u32 = 7;
 }
 
 /// Job names `cmd::RUN` accepts. [`job::INFER`] is the real thing; the others exist

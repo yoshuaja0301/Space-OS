@@ -14,6 +14,18 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 | `storage-reboot` | — | image yang sama di-boot dua kali; kedua boot harus memuat virtio-blk, mount FAT32, dan lulus D01 (checksum model) |
 | `init-exit-diagnosis` | `init=bin/hello` | proses pertama yang **selesai tanpa meminta shutdown** tidak meninggalkan apa pun untuk dijadwalkan. Kernel harus mengatakannya (`ended without requesting shutdown; nothing left to run`) dan berhenti dengan exit 35 — bukan menggantung seperti hang |
 | `init-missing-diagnosis` | `init=bin/not_a_program` | `init=` yang salah ketik harus menyebut program yang benar-benar gagal: `cannot start "bin/not_a_program" from initrd: not found`, lalu panic; exit 127 |
+| `bootinfo-<kerusakan>` (15) | `init=bin/init` + `bootinfo_fault=<kerusakan>` | bootloader merusak satu field BootInfo tepat sebelum lompat ke kernel (ADR-0032): `magic`, `version`, `size`, `flags`, `phys_offset`, `memmap_count`, `memmap_overlap`, `kernel_image`, `initrd`, `initrd_hash`, `cmdline_utf8`, `reservation`, `entropy`, `slot`, `framebuffer`. Bootloader mengumumkannya (`spaceboot: bootinfo_fault=… : handing the kernel …`), kernel harus menolak dengan field, nilai dan aturannya (`BootInfo rejected: size = 0x2c8: not the size of this version's BootInfo (expected 0x2d0)`), berhenti di `kernel alive` tanpa `user-space alive`; exit 127 |
+
+Setiap boot juga dinilai dari **status tertinggi** yang dilaporkannya (PRD v0.2 §7.4, B04):
+`[status] kernel alive` (kernel, setelah serah terima), `[status] user-space alive` (system call
+pertama proses pertama), `[status] OS usable` (sesi membaca berkas, menjalankan program sampai
+selesai dan menghentikan program lain) dan `[status] AI ready` (model terverifikasi menjawab token
+pertamanya). Harness mencetaknya di setiap baris PASS (`reached OS usable`), dan setiap skenario harus
+berakhir tepat di status yang diharapkan — tercapai, dan tidak lebih: diagnosis panic, `init` yang
+hilang dan `bootinfo-*` di `kernel alive`; `init-exit-diagnosis` dan recovery di `user-space alive`;
+terminal, `boot-count` dan `acpi-poweroff` di `OS usable`; `acceptance`, `stress`, `storage-reboot`,
+`desktop` dan skenario AArch64 yang menjalankan suite di `AI ready`. Jadi keempatnya terbukti bisa
+dibedakan, masing-masing menjadi akhir dari skenario tertentu.
 | `terminal` | `init=bin/spaceterm` | image yang **sama**, di-boot ke sesi interaktif dan dikendalikan dari **keyboard**: harness menekan tombol lewat monitor QEMU (`sendkey`), jadi jalurnya scan code → IRQ 1 → decoder kernel. Mesin ini tidak punya COM2 sama sekali (log wajib memuat `no COM2 UART`), jadi tiap ketikan pasti datang dari keyboard. Diketik `help`, `status`, `ls /spaceos`, `run hang`, `status`, `stop`, `status`, `quit`; exit 33 |
 | `terminal-serial` | `init=bin/spaceterm` | sesi yang sama lewat **konsol serial**: COM2 sebagai pty, harness menulis byte ke sana (IRQ 3). Log wajib memuat `keyboard (IRQ1) and COM2 serial (IRQ3)`. Perintah dan harapan sama dengan `terminal` |
 | `recovery-key` | `init=bin/init` + `recovery_wait_ms=5000` | operator menekan **R** di menu boot (monitor QEMU `sendkey`, keyboard PS/2 firmware): `spaceboot: recovery (operator)`, `bin/spacerecovery` berjalan sebagai pid 1 alih-alih `init`, dan mengetik `status`, `check`, `files`, `poweroff` lewat keyboard harus dijawab — `check model: ok` (SHA-256 terhadap manifest), `check done: 0 problem(s)`; exit 33 (ADR-0027) |
@@ -26,7 +38,10 @@ Semua uji berjalan **di dalam guest** (kernel + user-space Space OS); host hanya
 ## Matriks kompatibilitas `cargo xtask compat` (ADR-0010)
 
 Image yang sama di-boot pada setiap konfigurasi; semua harus mencapai
-`[init] ALL TESTS PASSED` dan exit 33, tanpa `KERNEL PANIC` atau `[init] FAIL`.
+`[init] ALL TESTS PASSED` dan exit 33, tanpa `KERNEL PANIC` atau `[init] FAIL`. Status boot
+(B04) juga dituntut: setiap mesin dengan volume data harus sampai `AI ready`, dan `no-disk` harus
+berhenti di `user-space alive` dengan `[status] OS not usable: cannot read files: …` — tanpa berkas
+untuk dibaca, sesi tidak boleh mengaku lebih.
 
 | Mesin | QEMU | Marker tambahan |
 |---|---|---|

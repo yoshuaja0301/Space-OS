@@ -14,7 +14,7 @@ use core::arch::asm;
 use spaceabi::boot::{EARLY_UART_VIRT, FramebufferInfo, PHYS_OFFSET, mair, uart_kind};
 use uefi::mem::memory_map::MemoryMapOwned;
 
-use crate::{HUGE, LoadedKernel, PAGE, alloc_kernel_pages, backs_ram};
+use crate::{HUGE, LoadedKernel, PAGE, TablePool, backs_ram};
 
 pub const KERNEL_ELF_ERROR: &str = "kernel is not a valid ELF64 AArch64 executable";
 
@@ -104,15 +104,15 @@ pub struct Tables {
 }
 
 fn table_at(pa: u64) -> &'static mut [u64; 512] {
-    // SAFETY: tables are pages from `alloc_kernel_pages`, identity-mapped during
-    // boot services, and only this module touches them.
+    // SAFETY: tables are zeroed pages from the pool, identity-mapped during boot
+    // services, and only this module touches them.
     unsafe { &mut *(pa as *mut [u64; 512]) }
 }
 
 /// The table one level down from `entry`, creating it when absent.
-fn next(entry: &mut u64) -> Result<u64, &'static str> {
+fn next(entry: &mut u64, pool: &mut TablePool) -> Result<u64, &'static str> {
     if *entry & VALID == 0 {
-        let t = alloc_kernel_pages(1)?;
+        let t = pool.take()?;
         *entry = t | TABLE | VALID;
     }
     Ok(*entry & 0x0000_FFFF_FFFF_F000)
@@ -124,10 +124,10 @@ fn index(va: u64, level: u32) -> usize {
 
 /// Map one 4 KiB page (`level` 0) or 2 MiB block (`level` 1) with descriptor bits
 /// `bits`.
-fn map(root: u64, va: u64, pa: u64, level: u32, bits: u64) -> Result<(), &'static str> {
+fn map(root: u64, va: u64, pa: u64, level: u32, bits: u64, pool: &mut TablePool) -> Result<(), &'static str> {
     let mut t = root;
     for l in ((level + 1)..=3).rev() {
-        t = next(&mut table_at(t)[index(va, l)])?;
+        t = next(&mut table_at(t)[index(va, l)], pool)?;
     }
     let slot = &mut table_at(t)[index(va, level)];
     if *slot & VALID != 0 {
@@ -143,8 +143,9 @@ pub fn build_tables(
     fb: &FramebufferInfo,
     phys_map_end: u64,
     uart: u64,
+    pool: &mut TablePool,
 ) -> Result<Tables, &'static str> {
-    let root = alloc_kernel_pages(1)?;
+    let root = pool.take()?;
     for p in &kernel.pages {
         let mut bits = VALID | TABLE | AF | SH_INNER | attr(mair::NORMAL) | UXN;
         if !p.writable {
@@ -153,21 +154,21 @@ pub fn build_tables(
         if !p.executable {
             bits |= PXN;
         }
-        map(root, p.va, p.pa, 0, bits)?;
+        map(root, p.va, p.pa, 0, bits, pool)?;
     }
     let block = VALID | AF | SH_INNER | attr(mair::NORMAL) | UXN | PXN;
     let mut pa = 0u64;
     let mut mapped_huge = 0u64;
     while pa < phys_map_end {
         if backs_ram(prelim, pa, fb) {
-            map(root, PHYS_OFFSET + pa, pa, 1, block)?;
+            map(root, PHYS_OFFSET + pa, pa, 1, block, pool)?;
             mapped_huge += 1;
         }
         pa += HUGE;
     }
     if uart != 0 {
         let device = VALID | TABLE | AF | attr(mair::DEVICE) | UXN | PXN;
-        map(root, EARLY_UART_VIRT, uart & !(PAGE - 1), 0, device)?;
+        map(root, EARLY_UART_VIRT, uart & !(PAGE - 1), 0, device, pool)?;
     }
     Ok(Tables { root, mapped_huge })
 }

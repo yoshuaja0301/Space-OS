@@ -73,6 +73,13 @@ pub fn translate_current(va: u64) -> Option<u64> {
     pt::translate(mmu::root_for(va), va).map(|(pa, _, _)| pa)
 }
 
+/// How much of the address space around `va` one mapping covers, if `va` is
+/// mapped: 4 KiB for a page, 2 MiB for a block (larger blocks are counted in
+/// 2 MiB steps). Read only, no locks, like [`translate_current`].
+pub fn mapped_extent(va: u64) -> Option<u64> {
+    pt::translate(mmu::root_for(va), va).map(|(_, _, small)| if small { PAGE_SIZE } else { 2 << 20 })
+}
+
 /// Switch to `frame`'s address space, even when it is already there: the scheduler
 /// relies on every switch flushing what this CPU cached of other address spaces
 /// (ADR-0024).

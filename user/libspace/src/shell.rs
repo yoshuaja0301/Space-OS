@@ -4,13 +4,48 @@
 //! that it hands over during `open`. Everything else is a request/reply pair.
 
 use spaceabi::error::Error;
-use spaceabi::handle::Handle;
+use spaceabi::handle::{Handle, rights};
 use spaceabi::shell::{ABI_VERSION, Command, Progress, Reply, cmd};
 
 use crate::sys;
 
 pub struct Session {
     channel: Handle,
+}
+
+/// Start a session service only to ask it whether the OS is usable
+/// ([`Session::check`]), and end it again: for a front end that has no session of
+/// its own to ask. The session gets `root` narrowed to starting programs and
+/// reading files (no console: it must not take keystrokes meant for someone else).
+/// `root` needs `SPAWN`, `FS`, `TRANSFER` and `DUP`.
+pub fn check_usable(root: Handle) -> Result<bool, Error> {
+    const QUOTA: u64 = 192;
+    let (mine, theirs) = sys::channel_create()?;
+    let shell = match sys::spawn(root, "bin/spaceshell", QUOTA, Some(theirs)) {
+        Ok(h) => h,
+        Err(e) => {
+            sys::handle_close(mine).ok();
+            sys::handle_close(theirs).ok();
+            return Err(e);
+        }
+    };
+    let result = sys::handle_dup(root, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP)
+        .and_then(|narrow| Session::open(mine, narrow))
+        .and_then(|s| {
+            let usable = s.check();
+            s.quit().ok();
+            usable
+        });
+    // A shell that does not go after QUIT is stopped: a check must not linger.
+    let until = sys::ticks_ms() + 1000;
+    while sys::wait_nonblocking(shell).is_err() && sys::ticks_ms() < until {
+        sys::sleep_ms(5);
+    }
+    sys::kill(shell).ok();
+    sys::wait(shell).ok();
+    sys::handle_close(shell).ok();
+    sys::handle_close(mine).ok();
+    result
 }
 
 fn as_bytes<T>(v: &T) -> &[u8] {
@@ -68,6 +103,13 @@ impl Session {
 
     pub fn quit(&self) -> Result<Reply, Error> {
         self.call(cmd::QUIT, "")
+    }
+
+    /// Ask the shell to show the OS is usable (`cmd::CHECK`). `Ok(true)` when it is.
+    pub fn check(&self) -> Result<bool, Error> {
+        let r = self.call(cmd::CHECK, "")?;
+        r.result()?;
+        Ok(r.value == 1)
     }
 
     /// What the running (or last) job has done: tokens, timing, memory, and how the

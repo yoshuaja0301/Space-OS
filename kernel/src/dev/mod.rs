@@ -35,7 +35,14 @@ pub fn init() {
     block::init();
     nic::init();
     virtio_rng::init();
-    crate::println!("[kernel] entropy: {}", entropy::describe());
+    // Firmware entropy from the hand-over is mixed into what a source gives, and
+    // is never a source itself: "none" stays none (ADR-0032).
+    let mixed = if entropy::boot_entropy_mixed() {
+        "; boot entropy from the firmware mixed in, not counted"
+    } else {
+        ""
+    };
+    crate::println!("[kernel] entropy: {}{mixed}", entropy::describe());
     // USB keyboards (ADR-0030).
     xhci::init();
 }
