@@ -2,9 +2,9 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 422664 bytes, initrd 4050432 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d503000, entry 0xffffffff80100000
-spaceboot: boot image 4050432 bytes, sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2
+spaceboot: kernel 422664 bytes, initrd 4070912 bytes, config 77 bytes
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d4fe000, entry 0xffffffff80100000
+spaceboot: boot image 4070912 bytes, sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -15,18 +15,18 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 18 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d503000..0x7d56a000 (412 KiB): kernel image
-[kernel]   reserved 0x7d126000..0x7d503000 (3956 KiB): boot image
+[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4070912 bytes, cmdline 18 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d4fe000..0x7d565000 (412 KiB): kernel image
+[kernel]   reserved 0x7d11c000..0x7d4fe000 (3976 KiB): boot image
 [kernel]   reserved 0x7e74f000..0x7e750000 (4 KiB): command line
-[kernel]   reserved 0x7d116000..0x7d126000 (64 KiB): boot stack
+[kernel]   reserved 0x7d10c000..0x7d11c000 (64 KiB): boot stack
 [kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): boot info
-[kernel]   reserved 0x7d106000..0x7d116000 (64 KiB): memory map
-[kernel]   reserved 0x7d0e0000..0x7d0f8000 (96 KiB): page tables
-[kernel] boot image: sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2 as the bootloader measured it
+[kernel]   reserved 0x7d0fc000..0x7d10c000 (64 KiB): memory map
+[kernel]   reserved 0x7d0d6000..0x7d0ee000 (96 KiB): page tables
+[kernel] boot image: sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
-[kernel] frames: 2094303 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094298 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -35,8 +35,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spacedesk"
-[kernel] initrd: 4050432 bytes, 31 files
-[kernel]   bin/init (508888 bytes)
+[kernel] initrd: 4070912 bytes, 31 files
+[kernel]   bin/init (525272 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/fpu (37520 bytes)
@@ -48,7 +48,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/worker (29296 bytes)
 [kernel]   bin/blocker (25176 bytes)
 [kernel]   bin/spacecompute (49912 bytes)
-[kernel]   bin/spaceai (74544 bytes)
+[kernel]   bin/spaceai (78640 bytes)
 [kernel]   bin/spaceshell (62200 bytes)
 [kernel]   bin/uiworker (21064 bytes)
 [kernel]   bin/spacebroker (53936 bytes)
@@ -84,75 +84,76 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791262865 s since the Unix epoch (UTC)
+[kernel] rtc: 1791265654 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (623440 counts)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (630440 counts)
 [kernel] spawn pid 1 'bin/spacedesk': entry=0x4095c4, 45 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spacedesk
-[status] user-space alive: pid 1 (bin/spacedesk) made the first system call
 [kernel] entering idle loop; scheduler live
+[status] user-space alive: pid 1 (bin/spacedesk) made the first system call
 [kernel] display: leased to pid 1 'bin/spacedesk'; the console goes on on the serial port
 [desk] Space OS desktop on a 1280x800 screen (BGRX)
 [kernel] spawn pid 2 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
 [desk] starting terminal
 [desk] desktop ready; Super+Enter opens a terminal, Ctrl+Alt+Delete shuts down
-[kernel] spawn pid 3 'bin/spaceshell': entry=0x40471c, 31 pages mapped, quota 192 pages
+[kernel] spawn pid 3 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 192 pages
 [shell] Space OS session service, ABI v0
-[shell] session open, ABI v0
+[kernel] spawn pid 4 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 256 pages
+[shell] session open, ABI v0; the session holds 63 pages
+[shell] Space OS session service, ABI v0
 [shell] session: worker idle (-), commands served 1
-[kernel] spawn pid 4 'bin/spaceshell': entry=0x40471c, 31 pages mapped, quota 256 pages
-[shell] no console capability (permission denied); channel control only
-[shell] Space OS session service, ABI v0
-[shell] session open, ABI v0
+[shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
 [deskterm] Space OS terminal; type 'help'
-[kernel] spawn pid 5 'bin/uiworker': entry=0x4003c0, 21 pages mapped, quota 128 pages
+[shell] no console capability (permission denied); channel control only
+[kernel] spawn pid 5 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
 [worker] job 'ok' starting
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
 [kernel] pid 5 'bin/uiworker' exited with code 0
-[kernel] spawn pid 6 'bin/uiworker': entry=0x4003c0, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 6 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
 [worker] job 'hang' starting
 [worker] job 'hang' is wedged and never calls the kernel again
 [kernel] pid 6 'bin/uiworker' killed (killed, addr 0x0)
-[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 33 ms
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 29 ms
 [shell] session closed after 3 commands
 [kernel] pid 3 'bin/spaceshell' exited with code 0
 [desk] window 1 'Terminal' (terminal) opened at 20,70, 720x400
 [desk] focus: 'Terminal' (window 1)
 [deskterm] $ ls /spaceos
-[shell] files in /spaceos: 14 entries [./ ../ MODEL.SLM MANIFEST.TXT BASELINE.TXT BADMAGIC.SLM BADDIMS.SLM TRUNC.SLM VAR/ WS/ DOCS/ TLS/ CRED/ PKG/]
-[deskterm] /spaceos: 14 entries
+[shell] files in /spaceos: 15 entries [./ ../ MODEL.SLM MANIFEST.TXT BASELINE.TXT BADMAGIC.SLM BADDIMS.SLM TRUNC.SLM BITFLIP.SLM VAR/ WS/ DOCS/ TLS/ CRED/ PKG/]
+[deskterm] /spaceos: 15 entries
 [deskterm] ./  ../  MODEL.SLM  MANIFEST.TXT  BASELINE.TXT  BADMAGIC.SLM  BADDIMS.SLM  TRUNC.SLM  
-[deskterm] VAR/  WS/  DOCS/  TLS/  CRED/  PKG/  
+[deskterm] BITFLIP.SLM  VAR/  WS/  DOCS/  TLS/  CRED/  PKG/  
 [kernel] spawn pid 7 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
 [desk] starting files
 [desk] shortcut Super+E
-[deskfiles] /spaceos: 14 entries
+[deskfiles] /spaceos: 15 entries
 [desk] window 2 'Files' (files) opened at 780,70, 460x360
 [desk] focus: 'Files' (window 2)
 [kernel] spawn pid 8 'bin/deskapps': entry=0x40c7a4, 47 pages mapped, quota 1536 pages
 [desk] starting agent
 [desk] shortcut Super+A
-[kernel] spawn pid 9 'bin/spaceshell': entry=0x40471c, 31 pages mapped, quota 256 pages
+[kernel] spawn pid 9 'bin/spaceshell': entry=0x404a9c, 31 pages mapped, quota 256 pages
 [shell] Space OS session service, ABI v0
-[shell] session open, ABI v0
+[shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] no console capability (permission denied); channel control only
 [deskagent] no worker has run
 [desk] window 3 'Agent Center' (agent) opened at 620,390, 640x330
 [desk] focus: 'Agent Center' (window 3)
-[kernel] spawn pid 10 'bin/uiworker': entry=0x4003c0, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 10 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
 [shell] started worker 'crash'
 [shell] session: worker running (crash), commands served 6
+[deskagent] started 'crash'
 [worker] job 'crash' starting
 [worker] job 'crash' is about to fault
-[deskagent] started 'crash'
-[kernel] pid 10 'bin/uiworker' killed: page fault at rip=0x400280 (error=0x4, addr=0x0)
+[kernel] pid 10 'bin/uiworker' killed: page fault at rip=0x400233 (error=0x4, addr=0x0)
 [kernel] pid 10 'bin/uiworker' killed (page fault, addr 0x0)
+[deskagent] worker 'crash' running
 [shell] worker 'crash' was killed: page fault (fault at 0x0); the session is unaffected
-[shell] session: worker crashed (crash), commands served 6
+[shell] session: worker crashed (crash), commands served 8
 [deskagent] worker 'crash' crashed (page fault)
 [desk] focus: 'Terminal' (window 1)
 [desk] shortcut Alt+Tab
@@ -162,7 +163,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [desk] shortcut Alt+Tab
 [desk] focus: 'Agent Center' (window 3)
 [desk] shortcut Alt+Tab
-[kernel] spawn pid 11 'bin/uiworker': entry=0x4003c0, 21 pages mapped, quota 128 pages
+[kernel] spawn pid 11 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages
 [shell] started worker 'hang'
 [shell] session: worker running (hang), commands served 35
 [deskagent] started 'hang'
@@ -172,16 +173,16 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] pid 11 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
 [shell] session: worker stopped (hang), commands served 44
-[shell] Stop: worker 'hang' was killed after 6 ms
+[shell] Stop: worker 'hang' was killed after 8 ms
 [deskagent] worker 'hang' stopped
-[deskagent] Stop: worker 'hang' stopped (8 ms)
+[deskagent] Stop: worker 'hang' stopped (11 ms)
 [kernel] spawn pid 12 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages
-[kernel] spawn pid 13 'bin/spaceai': entry=0x407b1c, 34 pages mapped, quota 512 pages
+[kernel] spawn pid 13 'bin/spaceai': entry=0x407e5c, 35 pages mapped, quota 512 pages
+[compute] Space Compute service, ABI v0, CPU backend
 [shell] started worker 'infer'
-[shell] session: worker running (infer), commands served 49
+[shell] session: worker running (infer), commands served 51
 [ai] Space OS AI runtime starting
 [deskagent] started 'infer'
-[compute] Space Compute service, ABI v0, CPU backend
 [ai] compute backend 1, ABI v0
 [deskagent] worker 'infer' running
 [ai] model: 2 layers, d_model 64, 4 heads x 16, d_ff 128, vocab 256, 115008 params (449 KiB)
@@ -189,16 +190,16 @@ spacekernel 0.1.0: Space OS kernel booting
 [ai] working set: 711 KiB in 4 compute buffers
 [ai] baseline: 10 prompt bytes, 128 tokens to generate
 [ai] session: up to 128 tokens; a Stop is honoured between two compute steps
-[status] AI ready: the model is verified and loaded on the CPU backend and answered after 398 ms
-[deskagent] worker 'infer' wrote its first token after 398 ms
+[status] AI ready: the model is verified and loaded on the CPU backend and answered after 380 ms
+[deskagent] worker 'infer' wrote its first token after 380 ms
 [ai] stopped on request after 22 of 128 tokens
 [compute] shutdown requested; exiting
 [shell] worker 'infer' stopped between two steps after 22 of 128 tokens
 [ai] result=STOPPED
-[kernel] pid 12 'bin/spacecompute' exited with code 0
 [kernel] pid 13 'bin/spaceai' exited with code 3
+[kernel] pid 12 'bin/spacecompute' exited with code 0
 [shell] worker 'infer' ended: stopped
-[shell] session: worker stopped (infer), commands served 80
+[shell] session: worker stopped (infer), commands served 76
 [shell] Stop: worker 'infer' ended between two steps after 3 ms
 [deskagent] worker 'infer' stopped between two steps after 22 of 128 tokens (Stop took 3 ms)
 [deskagent] Stop: worker 'infer' stopped between two steps after 22 of 128 tokens (Stop took 3 ms) (5 ms)
@@ -259,17 +260,17 @@ spacekernel 0.1.0: Space OS kernel booting
 [link] closing: 7 chunk(s), 0 revoked document(s)
 [kernel] pid 16 'bin/deskapps' exited with code 0
 [kernel] pid 15 'bin/spacelink' exited with code 0
-[shell] session closed after 171 commands
 [shell] session closed after 5 commands
+[shell] session closed after 167 commands
 [kernel] pid 4 'bin/spaceshell' exited with code 0
 [kernel] pid 9 'bin/spaceshell' exited with code 0
 [kernel] pid 14 'bin/deskapps' exited with code 0
 [desk] window 4 'Command Center' closed: the app closed its window
 [desk] window 5 'Files' closed: the app closed its window
 [desk] focus: 'Terminal' (window 1)
-[kernel] pid 8 'bin/deskapps' exited with code 0
 [kernel] pid 2 'bin/deskapps' exited with code 0
-[desk] window 3 'Agent Center' closed: the app closed its window
+[kernel] pid 8 'bin/deskapps' exited with code 0
 [desk] window 1 'Terminal' closed: the app closed its window
-[desk] closed after 163 frames
-[kernel] shutdown requested by pid 1 'bin/spacedesk' with code 0 (uptime 20274 ms, 46438 context switches)
+[desk] window 3 'Agent Center' closed: the app closed its window
+[desk] closed after 161 frames
+[kernel] shutdown requested by pid 1 'bin/spacedesk' with code 0 (uptime 20222 ms, 46607 context switches)

@@ -416,7 +416,15 @@ fn bad_models(good: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     // d_model = 4096: beyond MAX_D_MODEL and inconsistent with heads * head_dim.
     bad_dims[16..20].copy_from_slice(&4096u32.to_le_bytes());
     let truncated = good[..good.len() / 2].to_vec();
-    vec![("BADMAGIC.SLM", bad_magic), ("BADDIMS.SLM", bad_dims), ("TRUNC.SLM", truncated)]
+    // The header is fine and so is the size: only the digest can tell (A02).
+    let mut bit_flip = good.to_vec();
+    bit_flip[good.len() / 2 + 7] ^= 0x10;
+    vec![
+        ("BADMAGIC.SLM", bad_magic),
+        ("BADDIMS.SLM", bad_dims),
+        ("TRUNC.SLM", truncated),
+        ("BITFLIP.SLM", bit_flip),
+    ]
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -514,7 +522,7 @@ fn make_data_disk(out: &Path) -> Result<(), String> {
     }
     disk.flush().map_err(|e| e.to_string())?;
     println!(
-        "== data disk {} ({} KiB model + baseline + 3 malformed fixtures + agent workspace + link corpus + lab CA + cloud credential + 5 packages, FAT32)",
+        "== data disk {} ({} KiB model + baseline + 4 damaged models + agent workspace + link corpus + lab CA + cloud credential + 5 packages, FAT32)",
         out.display(),
         model.len() / 1024
     );
@@ -2232,6 +2240,12 @@ const SCENARIOS: &[Scenario] = &[
             "[status] OS usable: read",
             "[status] AI ready:",
             "[init] PASS B04",
+            // A damaged model and workers that run out of memory never take the
+            // console (A02, ADR-0034).
+            "[init] PASS A02: a damaged model is refused in a session",
+            "[init] PASS A02: a worker that runs out of its memory is refused",
+            "[init] PASS A02: workers that take every free frame are refused",
+            "[shell] session open, ABI v0; the session holds",
             "[kernel] cmdline: \"init=bin/init\"",
             "[init] kernel command line: \"init=bin/init\"",
             "input decoding ok",
@@ -3003,6 +3017,7 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[init] PASS A01: native inference: a small model generates 128 tokens matching the pinned baseline",
             "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305",
             "[init] PASS NET:",
+            "[init] PASS A02: workers that take every free frame are refused",
             "[init] ALL TESTS PASSED",
         ],
         must_contain_extra: &[],

@@ -244,8 +244,12 @@ impl Shell {
     /// Spawn a job. Shared by the control protocol and the terminal, so both take
     /// exactly the same path.
     fn start_worker(&mut self, name: &str) -> Result<(), Error> {
-        if name == job::INFER {
-            return self.start_inference();
+        // `infer`, or `infer <path>`: the model on another file (A02).
+        if let Some(rest) = name.strip_prefix(job::INFER)
+            && (rest.is_empty() || rest.starts_with(' '))
+        {
+            let path = rest.trim();
+            return self.start_inference((!path.is_empty()).then_some(path));
         }
         let root = self.root.ok_or(Error::Denied)?;
         let (mine, theirs) = sys::channel_create()?;
@@ -289,8 +293,16 @@ impl Shell {
     /// The worker is given exactly three things - this channel (to report, and to be
     /// asked to stop), a compute connection, and read access to the file system. It
     /// cannot spawn, write, reach the network, or see any other process.
-    fn start_inference(&mut self) -> Result<(), Error> {
+    fn start_inference(&mut self, model: Option<&str>) -> Result<(), Error> {
         let root = self.root.ok_or(Error::Denied)?;
+        let mut named = alloc::vec::Vec::new();
+        if let Some(path) = model {
+            if path.len() > worker::MODEL_PATH_MAX {
+                return Err(Error::Invalid);
+            }
+            named.extend_from_slice(worker::MODEL);
+            named.extend_from_slice(path.as_bytes());
+        }
         let close = |hs: &[Handle]| {
             for h in hs {
                 sys::handle_close(*h).ok();
@@ -302,11 +314,9 @@ impl Shell {
             sys::handle_close(p).ok();
         };
         // Handles that go to a child are closed here only when handing them over
-        // failed. Spawn and send consume a handle once they have taken it, and a
-        // consumed handle's number is free for the next handle this process gets -
-        // so closing it after a success could close something else entirely. On the
-        // failure paths nothing new is created in between, which makes closing a
-        // consumed handle there a harmless no-op.
+        // failed. Spawn and send consume a handle once they have taken it; closing
+        // one that was consumed is refused (`BadHandle`), never another object
+        // (ADR-0033), so the failure paths close everything that may still be here.
         let fs = sys::handle_dup(root, rights::FS | rights::TRANSFER)?;
         let (client, server) = sys::channel_create().inspect_err(|_| close(&[fs]))?;
         let compute = sys::spawn(root, "bin/spacecompute", COMPUTE_QUOTA, Some(server))
@@ -322,6 +332,7 @@ impl Shell {
         // The session first: from its very first message the worker knows it reports
         // here and can be asked to stop.
         let sent = sys::send(mine, worker::SESSION, None)
+            .and_then(|_| if named.is_empty() { Ok(()) } else { sys::send(mine, &named, None) })
             .and_then(|_| sys::send(mine, b"compute", Some(client)))
             .and_then(|_| sys::send(mine, b"fs", Some(fs)));
         if let Err(e) = sent {
@@ -565,7 +576,11 @@ impl Shell {
                         // the console": look again rather than stay latched off.
                         self.console_ok = true;
                         self.terminal = false;
-                        println!("[shell] session open, ABI v{ABI_VERSION}");
+                        // Everything the session needs was mapped when it started,
+                        // its heap included, so serving it never waits on a free
+                        // frame: this is the console's reserve, measured (A02).
+                        let pages = sys::self_info().map(|i| i.used_pages).unwrap_or(0);
+                        println!("[shell] session open, ABI v{ABI_VERSION}; the session holds {pages} pages");
                         self.paint();
                         self.reply(Reply { value: ABI_VERSION as u64, ..Default::default() });
                     }
@@ -650,12 +665,14 @@ impl Shell {
         };
         match verb {
             "help" => println!(
-                "[shell] commands: help, status, ls [path], run <{}|{}|{}|{}|{}>, stop, quit",
+                "[shell] commands: help, status, ls [path], run <{} [model]|{}|{}|{}|{}|{}|{}>, stop, quit",
                 job::INFER,
                 job::OK,
                 job::CRASH,
                 job::HANG,
-                job::SLOW
+                job::SLOW,
+                job::OOM,
+                job::HOG
             ),
             "status" => {
                 self.drain_reports();
@@ -729,6 +746,12 @@ impl Shell {
 #[unsafe(no_mangle)]
 pub extern "C" fn space_main() -> i32 {
     println!("[shell] Space OS session service, ABI v{ABI_VERSION}");
+    // Everything a session needs is mapped before it serves anything, its heap
+    // included: answering never waits on a free frame (A02, ADR-0034).
+    if !libspace::heap::map_now() {
+        println!("[shell] no memory for the heap");
+        return 1;
+    }
     let mut sh = Shell::new(handle::BOOTSTRAP);
     let mut buf = [0u8; core::mem::size_of::<Command>()];
     let mut typed = [0u8; 64];

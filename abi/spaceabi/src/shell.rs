@@ -42,7 +42,9 @@ pub mod cmd {
 pub mod job {
     /// Generate text with the model on the guest disk, through the compute service
     /// (`bin/spaceai` in session mode). Reports every token and stops between two
-    /// compute steps when asked.
+    /// compute steps when asked. `infer <path>` runs on another file instead, which
+    /// must still be the model the manifest names: a damaged copy is refused, with
+    /// the reason, before a single step runs (A02).
     pub const INFER: &str = "infer";
     /// Finishes quickly and exits 0.
     pub const OK: &str = "ok";
@@ -52,6 +54,14 @@ pub mod job {
     pub const HANG: &str = "hang";
     /// Sleeps for far longer than any test waits: stopped while blocked.
     pub const SLOW: &str = "slow";
+    /// Takes memory until it is refused, then dies the way a program that does not
+    /// handle running out does: a panic, exit code 101 (A02).
+    pub const OOM: &str = "oom";
+    /// Takes memory until it is refused, says [`FULL`] on its job channel, and holds
+    /// on to all of it until it is stopped (A02).
+    pub const HOG: &str = "hog";
+    /// What a [`HOG`] says once the kernel has refused it a single page.
+    pub const FULL: &[u8] = b"full";
 }
 
 pub mod worker_state {
@@ -225,6 +235,11 @@ impl Progress {
 pub mod worker {
     /// First message from the shell: report progress here and accept Stop.
     pub const SESSION: &[u8] = b"session";
+    /// Optional, after [`SESSION`] and before any capability: run on another model
+    /// file (`infer <path>`). This prefix, then the path (A02).
+    pub const MODEL: &[u8] = b"model=";
+    /// The longest model path a session may name.
+    pub const MODEL_PATH_MAX: usize = 64;
     /// From the shell: end between two compute steps, now.
     pub const STOP: &[u8] = b"stop";
     /// How long the shell waits for a worker asked to stop before it kills it.

@@ -2,9 +2,9 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 422664 bytes, initrd 4050432 bytes, config 86 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d510000, entry 0xffffffff80100000
-spaceboot: boot image 4050432 bytes, sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2
+spaceboot: kernel 422664 bytes, initrd 4070912 bytes, config 86 bytes
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d4fe000, entry 0xffffffff80100000
+spaceboot: boot image 4070912 bytes, sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa
 spaceboot: 3 boot(s) since the system last came up
 spaceboot: 3 boots in a row did not come up; starting recovery
 spaceboot: recovery (failed-boots)
@@ -18,18 +18,18 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 44 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d510000..0x7d577000 (412 KiB): kernel image
-[kernel]   reserved 0x7d124000..0x7d501000 (3956 KiB): boot image
-[kernel]   reserved 0x7d119000..0x7d11a000 (4 KiB): command line
-[kernel]   reserved 0x7d109000..0x7d119000 (64 KiB): boot stack
-[kernel]   reserved 0x7d108000..0x7d109000 (4 KiB): boot info
-[kernel]   reserved 0x7d0f8000..0x7d108000 (64 KiB): memory map
-[kernel]   reserved 0x7d0d2000..0x7d0ea000 (96 KiB): page tables
-[kernel] boot image: sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2 as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4070912 bytes, cmdline 44 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d4fe000..0x7d565000 (412 KiB): kernel image
+[kernel]   reserved 0x7d11c000..0x7d4fe000 (3976 KiB): boot image
+[kernel]   reserved 0x7d110000..0x7d111000 (4 KiB): command line
+[kernel]   reserved 0x7d100000..0x7d110000 (64 KiB): boot stack
+[kernel]   reserved 0x7d0ff000..0x7d100000 (4 KiB): boot info
+[kernel]   reserved 0x7d0ef000..0x7d0ff000 (64 KiB): memory map
+[kernel]   reserved 0x7d0c9000..0x7d0e1000 (96 KiB): page tables
+[kernel] boot image: sha256 aa06c608277d024809debd7615f719773d3e771eeac4c6e99435b5df41d05bfa as the bootloader measured it
 [kernel] boot slot: recovery (failed-boots); 3 boot(s) before this one did not come up
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
-[kernel] frames: 2094303 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094298 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -38,8 +38,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spacerecovery recovery=failed-boots"
-[kernel] initrd: 4050432 bytes, 31 files
-[kernel]   bin/init (508888 bytes)
+[kernel] initrd: 4070912 bytes, 31 files
+[kernel]   bin/init (525272 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/fpu (37520 bytes)
@@ -51,7 +51,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/worker (29296 bytes)
 [kernel]   bin/blocker (25176 bytes)
 [kernel]   bin/spacecompute (49912 bytes)
-[kernel]   bin/spaceai (74544 bytes)
+[kernel]   bin/spaceai (78640 bytes)
 [kernel]   bin/spaceshell (62200 bytes)
 [kernel]   bin/uiworker (21064 bytes)
 [kernel]   bin/spacebroker (53936 bytes)
@@ -87,10 +87,10 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791262905 s since the Unix epoch (UTC)
+[kernel] rtc: 1791265697 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (625280 counts)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (618070 counts)
 [kernel] spawn pid 1 'bin/spacerecovery': entry=0x40429c, 30 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spacerecovery
 [status] user-space alive: pid 1 (bin/spacerecovery) made the first system call
@@ -122,4 +122,4 @@ recovery> check
 [recovery] check done: 0 problem(s)
 recovery> poweroff
 [recovery] powering off
-[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2715 ms, 233 context switches)
+[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2651 ms, 219 context switches)

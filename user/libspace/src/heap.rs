@@ -26,6 +26,13 @@ pub fn set_pages(pages: usize) -> bool {
     true
 }
 
+/// Map the heap now instead of on the first allocation, and say whether it is
+/// mapped. A service that must keep answering when the machine has no memory left
+/// takes everything it needs when it starts (A02, ADR-0034).
+pub fn map_now() -> bool {
+    HEAP.get().is_some()
+}
+
 /// `(size, used)` of this process's heap in bytes; `(0, 0)` before the first
 /// allocation maps it. What a long-running program checks to see that it gives
 /// back what it takes.

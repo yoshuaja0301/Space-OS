@@ -39,7 +39,7 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03), satu berkas yang berubah diindeks ulang tanpa full rescan (ADR-0023) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 119 uji penerimaan K01–K03, D01, C01, A01, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 122 uji penerimaan B04, K01–K04, D01, C01, A01, A02, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/stress/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan dan kombinasi tombol ke guest serta screenshot, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
 
 Setiap komponen guest juga dibangun untuk `aarch64-unknown-none-softfloat` (bootloader: `aarch64-unknown-uefi`); `cargo xtask arm64` mem-boot hasilnya (ADR-0028).
@@ -92,6 +92,10 @@ spacekernel 0.1.0: Space OS kernel booting
 [ai] generated 128 tokens offline, all matching the pinned baseline
 [init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (30 ms after Stop was pressed)
 [init] PASS U01: the desktop, terminal, file manager and Stop keep working while inference workers crash
+[init] A02: /spaceos/bitflip.slm refused before a single step: a20bcbf9bf011b47868c does not match the manifest
+[worker] job 'hog' took 4111912 KiB, then the kernel said: out of memory
+[init] A02: 3 worker(s) took 8162 MiB in 22917 ms and left 0 frames free; the session answered, a new program was refused, and all 2089722 frames came back
+[init] PASS A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
 [kernel] console input: 8 byte(s) dropped, the buffer was full
 [shell] input was lost; the line was discarded
 [init] PASS U01: input lost to a full buffer is reported before the bytes that survived
@@ -101,7 +105,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files
 [init] link: /spaceos/ws/FRESH.TXT changed; re-indexed on its own in 2 ms (109 bytes read); /spaceos/ws/LATER.TXT, changed too, kept its old text until it was named
 [init] PASS L01: a changed file is re-indexed on its own, and the next search answers from the new text
-[init] ALL TESTS PASSED (119/119, 1 skipped)
+[init] ALL TESTS PASSED (122/122, 1 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 35115 ms, 127325 context switches)
 ```
 

@@ -14,6 +14,7 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use libspace::compute::{Buffer, Compute};
 use libspace::spaceabi::compute::{BufferRef, Op, op};
@@ -35,6 +36,10 @@ const STOPPED: &str = "stopped on request";
 /// run to stop - which it does between two compute steps, never inside one.
 struct Watch {
     session: Option<Handle>,
+    /// Another model file the session named (`infer <path>`, A02).
+    model: Option<String>,
+    /// Set once the final report has gone out.
+    ended: Cell<bool>,
 }
 
 impl Watch {
@@ -70,6 +75,7 @@ impl Watch {
     /// Report how the run ended. That one must arrive, so a full queue is waited out
     /// for a while - the session drains it every few milliseconds.
     fn report_final(&self, r: &JobReport) {
+        self.ended.set(true);
         let Some(ch) = self.session else { return };
         for _ in 0..200 {
             match sys::send(ch, as_bytes(r), None) {
@@ -77,6 +83,17 @@ impl Watch {
                 _ => return,
             }
         }
+    }
+
+    /// Tell the session why the run failed, unless a final report already did: a
+    /// run refused before its first step -- a damaged model -- still says why (A02).
+    fn fail(&self, why: &str) {
+        if self.ended.get() {
+            return;
+        }
+        let mut r = JobReport { kind: worker::report::FAILED, ..Default::default() };
+        r.set_text(why);
+        self.report_final(&r);
     }
 }
 
@@ -201,23 +218,24 @@ struct Model {
 }
 
 /// Verify the model against its manifest while streaming it into a compute buffer.
-fn load_model(root: Handle, c: &Compute) -> Result<Model, String> {
+fn load_model(root: Handle, c: &Compute, path: &str) -> Result<Model, String> {
     let manifest = read_text(root, MANIFEST_PATH)?;
     let want_hash = field(&manifest, "sha256").ok_or_else(|| String::from("manifest has no sha256"))?;
     let want_size: u64 = field(&manifest, "size")
         .and_then(|v| v.parse().ok())
         .ok_or_else(|| String::from("manifest has no size"))?;
 
-    let f = sys::fs_open(root, MODEL_PATH).map_err(|e| alloc::format!("open model: {e}"))?;
-    let stat = sys::fs_stat(f).map_err(|e| alloc::format!("stat model: {e}"))?;
+    let f = sys::fs_open(root, path).map_err(|e| alloc::format!("open model {path}: {e}"))?;
+    // The header first: a damaged file is refused for what is wrong with it, not
+    // only for not being the file the manifest expected.
+    let mut head = [0u8; HEADER_BYTES];
+    let read = sys::fs_stat(f).and_then(|stat| sys::fs_read(f, 0, &mut head).map(|n| (stat, n)));
+    sys::handle_close(f).ok();
+    let (stat, n) = read.map_err(|e| alloc::format!("read model {path}: {e}"))?;
+    let header = Header::parse(&head[..n], stat.size).map_err(|e| alloc::format!("model rejected: {e}"))?;
     if stat.size != want_size {
-        sys::handle_close(f).ok();
         return Err(alloc::format!("model is {} bytes, manifest says {want_size}", stat.size));
     }
-    let mut head = [0u8; HEADER_BYTES];
-    let n = sys::fs_read(f, 0, &mut head).map_err(|e| alloc::format!("read header: {e}"))?;
-    let header = Header::parse(&head[..n], stat.size).map_err(|e| alloc::format!("model rejected: {e}"))?;
-    sys::handle_close(f).ok();
 
     let weight_bytes = header.weight_floats() * 4;
     println!(
@@ -237,7 +255,7 @@ fn load_model(root: Handle, c: &Compute) -> Result<Model, String> {
     let weights =
         c.buffer_create(weight_bytes as usize).map_err(|e| alloc::format!("weights buffer: {e}"))?;
     let mut hasher = sha256::Sha256::new();
-    let read = stream(root, MODEL_PATH, |chunk, offset| {
+    let read = stream(root, path, |chunk, offset| {
         hasher.update(chunk);
         if offset + chunk.len() as u64 > HEADER_BYTES as u64 {
             let skip = HEADER_BYTES.saturating_sub(offset as usize);
@@ -487,7 +505,7 @@ fn run(root: Handle, compute_channel: Handle, watch: &Watch) -> Result<Ended, St
     println!("[ai] compute backend {backend}, ABI v{abi}");
     let queue = c.queue_create().map_err(|e| alloc::format!("queue: {e}"))?;
 
-    let model = load_model(root, &c)?;
+    let model = load_model(root, &c, watch.model.as_deref().unwrap_or(MODEL_PATH))?;
     let h = model.header;
     let s = scratch_layout(&h);
     let cache_floats = h.n_layers as usize * h.n_heads as usize * h.max_seq as usize * h.head_dim as usize;
@@ -622,16 +640,30 @@ pub extern "C" fn space_main() -> i32 {
     println!("[ai] Space OS AI runtime starting");
     // The parent hands over two capabilities: a compute connection and read access
     // to the file system. A session announces itself first, with no capability.
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; 96];
     let mut session = None;
+    let mut model = None;
     let mut compute_channel = None;
     let mut root = None;
-    for _ in 0..3 {
+    for _ in 0..4 {
         if compute_channel.is_some() && root.is_some() {
             break;
         }
         match sys::recv(handle::BOOTSTRAP, &mut buf, false) {
             Ok((n, None)) if &buf[..n] == worker::SESSION => session = Some(handle::BOOTSTRAP),
+            // A session may name another model file (`infer <path>`, A02).
+            Ok((n, None)) if session.is_some() && buf[..n].starts_with(worker::MODEL) => {
+                match core::str::from_utf8(&buf[worker::MODEL.len()..n]) {
+                    Ok(path) => {
+                        println!("[ai] the session named the model file {path}");
+                        model = Some(String::from(path));
+                    }
+                    Err(_) => {
+                        println!("[ai] the session named a model file that is not UTF-8");
+                        return 2;
+                    }
+                }
+            }
             Ok((n, Some(h))) => match core::str::from_utf8(&buf[..n]).unwrap_or("") {
                 "compute" => compute_channel = Some(h),
                 "fs" => root = Some(h),
@@ -654,7 +686,8 @@ pub extern "C" fn space_main() -> i32 {
         println!("[ai] missing capabilities");
         return 2;
     };
-    match run(root, compute_channel, &Watch { session }) {
+    let watch = Watch { session, model, ended: Cell::new(false) };
+    match run(root, compute_channel, &watch) {
         Ok(Ended::Done) => {
             println!("[ai] result=PASS");
             0
@@ -665,6 +698,7 @@ pub extern "C" fn space_main() -> i32 {
         }
         Err(e) => {
             println!("[ai] result=FAIL {e}");
+            watch.fail(&e);
             1
         }
     }

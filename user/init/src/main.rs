@@ -35,7 +35,7 @@ use libspace::spaceabi::syscall::DirEntry;
 use libspace::spaceabi::syscall::PS2_INJECT_CHAR;
 use libspace::spaceabi::syscall::debug_op;
 use libspace::spaceabi::syscall::nr;
-use libspace::spaceabi::syscall::{ExitStatus, KernelStats};
+use libspace::spaceabi::syscall::{ExitStatus, KernelStats, MAX_QUOTA_PAGES};
 use libspace::{Handle, exit_kind, handle, kill_reason, println, sys};
 
 const ROOT: Handle = handle::BOOTSTRAP;
@@ -2655,6 +2655,250 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
 
             let final_status = s.status().map_err(|e| alloc::format!("final status: {e}"))?;
             println!("[init] session served {} commands and outlived 4 workers", final_status.served);
+            s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+            let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+            sys::handle_close(shell).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spaceshell", st, 0)
+        },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "A02",
+        "a damaged model is refused in a session, for what is wrong with it, and the session answers on",
+        || {
+            const SHELL_QUOTA: u64 = 192;
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+            let shell_root =
+                sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP)
+                    .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
+            // One bit flipped in the weights (only the digest can tell), and a header
+            // that is not a model's at all.
+            for (path, why) in [
+                ("/spaceos/bitflip.slm", "does not match the manifest"),
+                ("/spaceos/badmagic.slm", "model rejected"),
+            ] {
+                s.run(&alloc::format!("{} {path}", shell_job::INFER))
+                    .and_then(|r| r.result())
+                    .map_err(|e| alloc::format!("run infer {path}: {e}"))?;
+                let st = wait_for_worker(&s, worker_state::DONE, 60_000)?;
+                let p = s.progress().map_err(|e| alloc::format!("progress after {path}: {e}"))?;
+                if st.value != 1 || !p.text().contains(why) || p.done != 0 {
+                    return Err(alloc::format!(
+                        "{path}: exit code {}, {} tokens, report {:?}; expected 1, none, and '{why}'",
+                        st.value,
+                        p.done,
+                        p.text()
+                    ));
+                }
+                println!("[init] A02: {path} refused before a single step: {}", p.text());
+                // The session answers on: its state, the files, a job to the end.
+                s.status()
+                    .and_then(|r| r.result())
+                    .map_err(|e| alloc::format!("status after {path}: {e}"))?;
+                let l = s.list("/spaceos").map_err(|e| alloc::format!("list after {path}: {e}"))?;
+                if l.result().map_err(|e| alloc::format!("list after {path}: {e}"))? == 0 {
+                    return Err(alloc::format!("the file manager listed nothing after {path}"));
+                }
+            }
+            s.run(shell_job::OK).and_then(|r| r.result()).map_err(|e| alloc::format!("run ok: {e}"))?;
+            wait_for_worker(&s, worker_state::DONE, 10_000)?;
+            s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+            let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+            sys::handle_close(shell).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spaceshell", st, 0)
+        },
+    );
+
+    r.run(
+        "A02",
+        "a worker that runs out of its memory is refused, dies alone, and the session answers on",
+        || {
+            const SHELL_QUOTA: u64 = 192;
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+            let shell_root = sys::handle_dup(ROOT, rights::SPAWN | rights::TRANSFER | rights::DUP)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
+            // The worker asks for memory until its quota refuses, then dies the way a
+            // program that does not handle that does: a panic, exit code 101.
+            s.run(shell_job::OOM).and_then(|r| r.result()).map_err(|e| alloc::format!("run oom: {e}"))?;
+            let st = wait_for_worker(&s, worker_state::DONE, 30_000)?;
+            if st.value != 101 || st.reason != 0 {
+                return Err(alloc::format!(
+                    "the worker ended with code {} (kill reason {}), expected a panic's 101",
+                    st.value,
+                    st.reason
+                ));
+            }
+            s.status().and_then(|r| r.result()).map_err(|e| alloc::format!("status after oom: {e}"))?;
+            s.run(shell_job::OK).and_then(|r| r.result()).map_err(|e| alloc::format!("run ok: {e}"))?;
+            wait_for_worker(&s, worker_state::DONE, 10_000)?;
+            s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
+            let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
+            sys::handle_close(shell).ok();
+            sys::handle_close(mine).ok();
+            expect_exit("spaceshell", st, 0)
+        },
+    );
+
+    r.run(
+        "A02",
+        "workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back",
+        || {
+            const SHELL_QUOTA: u64 = 192;
+            /// How long the workers may take to fill the machine.
+            const FILL_MS: u64 = 180_000;
+            fn stop_all(hogs: &[Handle], jobs: &[Handle]) {
+                for &h in hogs {
+                    sys::kill(h).ok();
+                }
+                for &h in hogs {
+                    sys::wait(h).ok();
+                    sys::handle_close(h).ok();
+                }
+                for &j in jobs {
+                    sys::handle_close(j).ok();
+                }
+            }
+            let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+            let shell = sys::spawn(ROOT, "bin/spaceshell", SHELL_QUOTA, Some(theirs))
+                .map_err(|e| alloc::format!("spawn shell: {e}"))?;
+            let shell_root = sys::handle_dup(ROOT, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP)
+                .map_err(|e| alloc::format!("dup root: {e}"))?;
+            let s = Session::open(mine, shell_root).map_err(|e| alloc::format!("open session: {e}"))?;
+            let before = settled_stats()?;
+            let free = before.frames_free;
+            // Workers that together ask for more than the machine has, so that only the
+            // end of its memory stops them. One process holds at most MAX_QUOTA_PAGES,
+            // so a machine with more than that takes several. All of them start before
+            // any is told to take, so none is refused for want of memory.
+            let mut hogs = Vec::new();
+            let mut jobs = Vec::new();
+            let mut asked = 0u64;
+            while asked < free + 65_536 {
+                let quota = (free + 65_536 - asked).min(MAX_QUOTA_PAGES);
+                let started = sys::channel_create().and_then(|(job, theirs)| {
+                    sys::spawn(ROOT, "bin/uiworker", quota, Some(theirs)).map(|h| (h, job)).inspect_err(|_| {
+                        sys::handle_close(job).ok();
+                        sys::handle_close(theirs).ok();
+                    })
+                });
+                match started {
+                    Ok((h, job)) => {
+                        hogs.push(h);
+                        jobs.push(job);
+                    }
+                    Err(e) => {
+                        stop_all(&hogs, &jobs);
+                        return Err(alloc::format!("start worker {}: {e}", hogs.len() + 1));
+                    }
+                }
+                asked += quota;
+            }
+            for (i, &job) in jobs.iter().enumerate() {
+                if let Err(e) = sys::send(job, shell_job::HOG.as_bytes(), None) {
+                    stop_all(&hogs, &jobs);
+                    return Err(alloc::format!("job for worker {}: {e}", i + 1));
+                }
+            }
+            // Each says when the kernel has refused it a single page.
+            let t0 = sys::ticks_ms();
+            let mut buf = [0u8; 8];
+            for (i, &job) in jobs.iter().enumerate() {
+                let left = (t0 + FILL_MS).saturating_sub(sys::ticks_ms()).max(1);
+                let full = sys::wait_any(&[job], left)
+                    .and_then(|_| sys::recv(job, &mut buf, true))
+                    .map(|(n, _)| &buf[..n] == shell_job::FULL);
+                if !matches!(full, Ok(true)) {
+                    let free = sys::kstats(ROOT).map(|k| k.frames_free).unwrap_or(0);
+                    stop_all(&hogs, &jobs);
+                    return Err(alloc::format!(
+                        "worker {} of {} did not fill up within {FILL_MS} ms ({full:?}); {free} frames were free",
+                        i + 1,
+                        hogs.len()
+                    ));
+                }
+            }
+            let took_ms = sys::ticks_ms() - t0;
+            let least = match sys::kstats(ROOT) {
+                Ok(k) => k.frames_free,
+                Err(e) => {
+                    stop_all(&hogs, &jobs);
+                    return Err(alloc::format!("stats: {e}"));
+                }
+            };
+            if least > 16 {
+                stop_all(&hogs, &jobs);
+                return Err(alloc::format!("the workers were refused with {least} frames still free"));
+            }
+            // The machine is out of memory. The console answers anyway: everything it
+            // needs was mapped when it started.
+            if let Err(e) = s.status().and_then(|r| r.result()) {
+                stop_all(&hogs, &jobs);
+                return Err(alloc::format!("status with no memory left: {e}"));
+            }
+            if disk {
+                match s.list("/spaceos").map(|r| r.result()) {
+                    Ok(Ok(n)) if n > 0 => {}
+                    other => {
+                        stop_all(&hogs, &jobs);
+                        return Err(alloc::format!("listing with no memory left: {other:?}"));
+                    }
+                }
+            }
+            // A new program is refused, and refused cleanly.
+            match sys::spawn(ROOT, "bin/hello", 64, None) {
+                Err(Error::NoMemory) => {}
+                Ok(h) => {
+                    sys::kill(h).ok();
+                    sys::wait(h).ok();
+                    sys::handle_close(h).ok();
+                    stop_all(&hogs, &jobs);
+                    return Err(String::from("a program started with no memory left"));
+                }
+                Err(e) => {
+                    stop_all(&hogs, &jobs);
+                    return Err(alloc::format!("starting a program with no memory left: {e}, expected NoMemory"));
+                }
+            }
+            // Stop, and every frame comes back.
+            for &h in &hogs {
+                sys::kill(h).ok();
+            }
+            let mut ends = Vec::new();
+            for &h in &hogs {
+                ends.push(sys::wait(h));
+                sys::handle_close(h).ok();
+            }
+            for &j in &jobs {
+                sys::handle_close(j).ok();
+            }
+            if let Some(end) = ends.iter().find(|st| !matches!(st, Ok(st) if st.reason == kill_reason::SIGNAL)) {
+                return Err(alloc::format!("a worker ended {end:?}, not by the stop"));
+            }
+            let after = stats_back_to(&before)?;
+            if !same_memory(&after, &before) {
+                return Err(alloc::format!(
+                    "{} frames free and {} kernel heap bytes in use before the workers, {} and {} after they were stopped",
+                    before.frames_free,
+                    before.heap_used,
+                    after.frames_free,
+                    after.heap_used
+                ));
+            }
+            println!(
+                "[init] A02: {} worker(s) took {} MiB in {took_ms} ms and left {least} frames free; the session answered, a new program was refused, and all {free} frames came back",
+                hogs.len(),
+                (free - least) * 4 / 1024
+            );
             s.quit().and_then(|r| r.result()).map_err(|e| alloc::format!("quit: {e}"))?;
             let st = sys::wait(shell).map_err(|e| alloc::format!("wait shell: {e}"))?;
             sys::handle_close(shell).ok();

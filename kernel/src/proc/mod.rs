@@ -26,7 +26,7 @@ pub const USER_STACK_PAGES: usize = 16;
 pub const INIT_QUOTA_PAGES: usize = 2048;
 /// The first user process. Its exit ends the machine.
 pub const INIT_PID: u64 = 1;
-pub const MAX_QUOTA_PAGES: usize = 1 << 20; // 4 GiB
+pub const MAX_QUOTA_PAGES: usize = spaceabi::syscall::MAX_QUOTA_PAGES as usize;
 
 pub struct Process {
     pub pid: u64,

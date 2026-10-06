@@ -46,6 +46,31 @@ pub extern "C" fn space_main() -> i32 {
                 core::hint::spin_loop();
             }
         }
+        job::OOM | job::HOG => {
+            // As much as the kernel will give, in the biggest pieces it will give:
+            // halve the request each time one is refused, until a single page is.
+            const PAGE: usize = 4096;
+            let mut chunk = 64 * 1024 * 1024;
+            let mut taken = 0usize;
+            let why = loop {
+                match sys::mem_map(chunk) {
+                    Ok(_) => taken += chunk,
+                    Err(_) if chunk > PAGE => chunk /= 2,
+                    Err(e) => break e,
+                }
+            };
+            println!("[worker] job '{mode}' took {} KiB, then the kernel said: {why}", taken / 1024);
+            if mode == job::OOM {
+                // What a program that does not handle running out of memory does.
+                panic!("out of memory after {} KiB", taken / 1024);
+            }
+            // A hog says it can take no more, then keeps every page until it is
+            // stopped. Nobody may be listening: a session closes its job channel.
+            let _ = sys::send(handle::BOOTSTRAP, job::FULL, None);
+            loop {
+                sys::sleep_ms(1000);
+            }
+        }
         job::SLOW => {
             println!("[worker] job '{mode}' is sleeping");
             for _ in 0..600 {

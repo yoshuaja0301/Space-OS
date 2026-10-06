@@ -2,10 +2,10 @@ UEFI firmware (version 2024.02-2ubuntu0.10 built at 15:40:28 on Sep 23 2026)
 BdsDxe: loading Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 BdsDxe: starting Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 296000 bytes, initrd 3285504 bytes, config 116 bytes
+spaceboot: kernel 296000 bytes, initrd 3305984 bytes, config 116 bytes
 spaceboot: bootinfo_fault=reservation: handing the kernel two reservations over the same pages (a test of the kernel's checks; never on a real boot)
-spaceboot: kernel 3 segments, 296 KiB at phys 0x13c394000, entry 0xffffffff8010ca7c
-spaceboot: boot image 3285504 bytes, sha256 3b81c014fabdb0b2e5c27a9e7b56d9b6297c239336b29089a8bdd098d5c86bd6
+spaceboot: kernel 3 segments, 296 KiB at phys 0x13c38f000, entry 0xffffffff8010ca7c
+spaceboot: boot image 3305984 bytes, sha256 2d66d67a0f2f9f295b6cdd8d9512bd472206a7d765a265b64ee9eedffb4059b6
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 4096 MiB of RAM below 0x140000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 0x0 @ 0x0
 spaceboot: exiting boot services and jumping to kernel
@@ -16,7 +16,7 @@ spacekernel 0.1.0: Space OS kernel booting
 
 !!! KERNEL PANIC !!!
 at kernel/src/bootinfo.rs:26:5
-message: BootInfo rejected: reservation (entry 1) = 0x13c394000: overlaps another reservation
+message: BootInfo rejected: reservation (entry 1) = 0x13c38f000: overlaps another reservation
 backtrace (frame pointers):
   #00 0xffffffff80134970
   #01 0xffffffff8010a0a8

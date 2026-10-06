@@ -217,6 +217,11 @@ pub struct SpawnArgs {
     pub _pad: u32,
 }
 
+/// The largest quota a process can be given, in pages (4 GiB): a larger one is
+/// `Invalid`. On a machine with more memory than that, no one process can take it
+/// all.
+pub const MAX_QUOTA_PAGES: u64 = 1 << 20;
+
 /// How a process ended.
 pub mod exit_kind {
     /// Called `exit`; `code` is the exit code.
