@@ -1,4 +1,26 @@
-# Roadmap PRD §8 vs kondisi repo
+# Roadmap
+
+## Milestone PRD v0.2 §21
+
+Gerbang setiap milestone adalah ID requirement v0.2; statusnya per ID ada di
+`docs/requirements.md`.
+
+| Milestone | Deliverable | Gerbang | Status |
+|---|---|---|---|
+| M0 Kontrak platform | ADR, target manifest, toolchain, image builder | build bersih, dependency terkunci | selesai: toolchain dipatok (`rust-toolchain.toml`), `Cargo.lock`, ADR-0001–0031, `cargo xtask build`; manifest versi dengan hash image belum |
+| M1 Boot | loader, BootInfo, kernel entry, log | B01, B02 | B01 terbukti (diulang di build final); B02 sebagian |
+| M2 Proteksi | paging, exceptions, timer, user mode | K01, K02, K03 | terbukti (K03: ADR-0031) |
+| M3 Bootstrap | boot image, root task, IPC, capability | B03, K04–K06 | B03, K05, K06 terbukti; K04 sebagian (handle basi) |
+| M4 OS dasar | ELF, shell, VirtIO block, filesystem baca | B04, S01, S02, D01 | S01, S02, D01 terbukti; B04 belum |
+| M5 Runtime CPU | library minimum, compute, model parser | C01, stress resource | C01 terbukti; stress 8 jam di build final |
+| M6 Native AI | tokenizer, model fixture, inference | A01, A02 | A01 terbukti; A02 sebagian |
+| M7 Persistensi | filesystem tulis, task store, update/recovery dasar | D02, W01, recovery | tulis/flush/reboot dan recovery terbukti; disk penuh, task store dan Workspace belum |
+| M8 Workspace | SpaceLink, editor, broker, Task Center, desktop | L01–L03, T01, G01, U01, E01 | SpaceLink, broker, desktop ada; editor, Task Center dan E01 belum |
+| M9 Developer Preview | adapter, SDK, paket, uji gabungan | T02, G02, U02, I01, P01 | I01, P01 terbukti; T02 belum; G02, U02 sebagian |
+| M10 Hardware | installer dan PC referensi | H01 | blocked (tanpa perangkat keras); driver VM: SATA, NVMe, e1000, USB keyboard |
+| M11 Ekspansi | GPU compute dan port ARM64 | H02, H03 | H03 terbukti (ADR-0028); H02 blocked |
+
+## Tahap PRD v0.1 §8 vs kondisi repo
 
 | Tahap | Hasil kerja PRD | Status repo |
 |---|---|---|
