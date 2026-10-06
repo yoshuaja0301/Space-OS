@@ -13,6 +13,8 @@
 //! system does can reach another partition, or another disk: the EFI system
 //! partition with the bootloader and the kernel image above all (ADR-0025).
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -262,21 +264,60 @@ pub fn capacity_sectors() -> u64 {
     volume().map_or(0, |v| v.sectors)
 }
 
+/// A driver's failure, as the file system and its callers see it: whatever the
+/// device did -- an error status, no answer, a controller taken offline -- is `Io`
+/// (ADR-0037). Refusals that are not the device's (a bad request, a read-only
+/// device) keep their own errors.
+fn device_error(e: Error) -> Error {
+    match e {
+        Error::Fault | Error::TimedOut | Error::WouldBlock => Error::Io,
+        e => e,
+    }
+}
+
+/// Injected write failures (`SYS_DEBUG BLOCK_FAIL`): writes that still succeed, then
+/// writes that fail.
+static INJECT_OK: AtomicU32 = AtomicU32::new(0);
+static INJECT_FAIL: AtomicU32 = AtomicU32::new(0);
+
+/// Let `ok` more writes succeed, then fail the next `fail` with `Io`.
+pub fn inject_write_failures(ok: u32, fail: u32) {
+    INJECT_OK.store(ok, Ordering::Relaxed);
+    INJECT_FAIL.store(fail, Ordering::Relaxed);
+    println!("[kernel] block: injected failure: {ok} write(s) succeed, then {fail} fail");
+}
+
+fn injected_failure() -> bool {
+    if INJECT_FAIL.load(Ordering::Relaxed) == 0 {
+        return false;
+    }
+    if INJECT_OK.load(Ordering::Relaxed) > 0 {
+        INJECT_OK.fetch_sub(1, Ordering::Relaxed);
+        return false;
+    }
+    INJECT_FAIL.fetch_sub(1, Ordering::Relaxed);
+    true
+}
+
 /// Read whole sectors of the data volume, `lba` counted from its start.
 pub fn read_sectors(lba: u64, buf: &mut [u8]) -> Result<(), Error> {
     let v = volume()?;
-    read_on(v.disk, locate(&v, lba, buf.len())?, buf)
+    read_on(v.disk, locate(&v, lba, buf.len())?, buf).map_err(device_error)
 }
 
 /// Write whole sectors of the data volume, `lba` counted from its start.
 pub fn write_sectors(lba: u64, buf: &[u8]) -> Result<(), Error> {
     let v = volume()?;
     let at = locate(&v, lba, buf.len())?;
+    if injected_failure() {
+        return Err(Error::Io);
+    }
     match v.disk {
         Disk::Virtio(d) => virtio_blk::write_sectors(d, at, buf),
         Disk::Ahci(d) => ahci::write_sectors(d, at, buf),
         Disk::Nvme(c, ns) => nvme::write_sectors(c, ns, at, buf),
     }
+    .map_err(device_error)
 }
 
 /// Make earlier writes to the data volume durable.
@@ -286,6 +327,7 @@ pub fn flush() -> Result<(), Error> {
         Disk::Ahci(d) => ahci::flush(d),
         Disk::Nvme(c, ns) => nvme::flush(c, ns),
     }
+    .map_err(device_error)
 }
 
 /// True when writes to the data volume would be refused (no volume, or a device

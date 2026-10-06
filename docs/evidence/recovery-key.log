@@ -2,9 +2,9 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 422664 bytes, initrd 4292608 bytes, config 94 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d4d7000, entry 0xffffffff80100000
-spaceboot: boot image 4292608 bytes, sha256 f217fcbabc9a75c0d1bb9eb5215ccd112201bd68757098fea866022a197d7b1d
+spaceboot: kernel 434952 bytes, initrd 4300800 bytes, config 94 bytes
+spaceboot: kernel 3 segments, 424 KiB at phys 0x7d4c2000, entry 0xffffffff8011d33c
+spaceboot: boot image 4300800 bytes, sha256 4a2e635642536acd3777e3f4518d80b385cd71f26826a833a1b4de74e59ffb8c
 spaceboot: press R within 5 s for recovery
 spaceboot: recovery (operator)
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
@@ -17,18 +17,18 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4292608 bytes, cmdline 40 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d4d7000..0x7d53e000 (412 KiB): kernel image
-[kernel]   reserved 0x7d0b0000..0x7d4c8000 (4192 KiB): boot image
-[kernel]   reserved 0x7d0af000..0x7d0b0000 (4 KiB): command line
-[kernel]   reserved 0x7d09f000..0x7d0af000 (64 KiB): boot stack
-[kernel]   reserved 0x7d09e000..0x7d09f000 (4 KiB): boot info
-[kernel]   reserved 0x7d08e000..0x7d09e000 (64 KiB): memory map
-[kernel]   reserved 0x7d068000..0x7d080000 (96 KiB): page tables
-[kernel] boot image: sha256 f217fcbabc9a75c0d1bb9eb5215ccd112201bd68757098fea866022a197d7b1d as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4300800 bytes, cmdline 40 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d4c2000..0x7d52c000 (424 KiB): kernel image
+[kernel]   reserved 0x7d0a8000..0x7d4c2000 (4200 KiB): boot image
+[kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): command line
+[kernel]   reserved 0x7d098000..0x7d0a8000 (64 KiB): boot stack
+[kernel]   reserved 0x7d097000..0x7d098000 (4 KiB): boot info
+[kernel]   reserved 0x7d087000..0x7d097000 (64 KiB): memory map
+[kernel]   reserved 0x7d061000..0x7d079000 (96 KiB): page tables
+[kernel] boot image: sha256 4a2e635642536acd3777e3f4518d80b385cd71f26826a833a1b4de74e59ffb8c as the bootloader measured it
 [kernel] boot slot: recovery (operator); boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
-[kernel] frames: 2094244 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094239 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -37,8 +37,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spacerecovery recovery=operator"
-[kernel] initrd: 4292608 bytes, 34 files
-[kernel]   bin/init (615392 bytes)
+[kernel] initrd: 4300800 bytes, 34 files
+[kernel]   bin/init (627680 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/fpu (37520 bytes)
@@ -59,13 +59,13 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/spacepkg (49792 bytes)
 [kernel]   bin/spaceterm (37560 bytes)
 [kernel]   bin/spacenet (119504 bytes)
-[kernel]   bin/tlsprobe (1074024 bytes)
+[kernel]   bin/tlsprobe (1069928 bytes)
 [kernel]   bin/spacecloud (1184632 bytes)
 [kernel]   bin/churn (25168 bytes)
 [kernel]   bin/sched (25160 bytes)
 [kernel]   bin/spacetask (70320 bytes)
-[kernel]   bin/taskworker (33448 bytes)
-[kernel]   bin/spacedesk (119536 bytes)
+[kernel]   bin/taskworker (37544 bytes)
+[kernel]   bin/spacedesk (115440 bytes)
 [kernel]   bin/deskapps (127728 bytes)
 [kernel]   bin/spacerecovery (58056 bytes)
 [kernel]   fixtures/bad_entry (21064 bytes)
@@ -89,14 +89,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes (a class waits at most 100 ms)
-[kernel] rtc: 1791297775 s since the Unix epoch (UTC)
+[kernel] rtc: 1791301074 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (620930 counts)
-[kernel] spawn pid 1 'bin/spacerecovery': entry=0x403f48, 30 pages mapped, quota 2048 pages, interactive
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (622020 counts)
+[kernel] spawn pid 1 'bin/spacerecovery': entry=0x403dd8, 30 pages mapped, quota 2048 pages, interactive
 [kernel] init spawned as pid 1 from bin/spacerecovery
-[kernel] entering idle loop; scheduler live
 [status] user-space alive: pid 1 (bin/spacerecovery) made the first system call
+[kernel] entering idle loop; scheduler live
 [recovery] Space OS recovery console: no model, no network and no AI needed
 [recovery] started because the operator asked for it at the boot menu
 [recovery] ready; type 'help'
@@ -131,4 +131,4 @@ recovery> files
 [recovery] 15 entries in /spaceos
 recovery> poweroff
 [recovery] powering off
-[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2678 ms, 233 context switches)
+[kernel] shutdown requested by pid 1 'bin/spacerecovery' with code 0 (uptime 2741 ms, 235 context switches)

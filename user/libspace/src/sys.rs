@@ -259,6 +259,35 @@ pub fn fs_open_write(root: Handle, path: &str) -> Result<Handle, Error> {
         .map(|h| h as Handle)
 }
 
+/// Remove a file nobody holds open (root `FS | FS_WRITE`; `Busy` while it is held).
+pub fn fs_remove(root: Handle, path: &str) -> Result<(), Error> {
+    call(nr::FS_REMOVE, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0]).map(|_| ())
+}
+
+/// Put `staging` in the place of `target`, in the same directory, with one sector
+/// write as the commit; without a target, `staging` is renamed (ADR-0037).
+pub fn fs_replace(root: Handle, staging: &str, target: &str) -> Result<(), Error> {
+    call(
+        nr::FS_REPLACE,
+        [
+            root as u64,
+            staging.as_ptr() as u64,
+            staging.len() as u64,
+            target.as_ptr() as u64,
+            target.len() as u64,
+            0,
+        ],
+    )
+    .map(|_| ())
+}
+
+/// Walk the volume; with `repair`, lost clusters go back to the free pool.
+pub fn fs_check(root: Handle, repair: bool) -> Result<spaceabi::syscall::FsCheck, Error> {
+    let mut out = spaceabi::syscall::FsCheck::default();
+    call(nr::FS_CHECK, [root as u64, &mut out as *mut _ as u64, u64::from(repair), 0, 0, 0])?;
+    Ok(out)
+}
+
 /// Write `buf` at `offset`. The handle must carry the `WRITE` right, which only
 /// [`fs_create`] and [`fs_open_write`] hand out.
 pub fn fs_write(file: Handle, offset: u64, buf: &[u8]) -> Result<usize, Error> {
@@ -272,7 +301,12 @@ pub fn fs_stat(file: Handle) -> Result<FileStat, Error> {
 }
 
 pub fn debug(root: Handle, op: u64) -> Result<(), Error> {
-    call(nr::DEBUG, [root as u64, op, 0, 0, 0, 0]).map(|_| ())
+    debug_arg(root, op, 0)
+}
+
+/// Fault injection that takes an argument (see `spaceabi::syscall::debug_op`).
+pub fn debug_arg(root: Handle, op: u64, arg: u64) -> Result<(), Error> {
+    call(nr::DEBUG, [root as u64, op, arg, 0, 0, 0]).map(|_| ())
 }
 
 /// Lease the network device (needs the root `NET` right). One lease exists at a

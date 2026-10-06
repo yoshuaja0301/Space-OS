@@ -228,6 +228,19 @@ Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehing
 `INDEX` ulang membaca kembali dokumen yang dicabut), L02 merah pada langkah
 "query after re-index".
 
+### Uji D02 (kontrak penyimpanan, ADR-0037)
+
+Kesalahan disuntikkan lewat `SYS_DEBUG` (`FS_SPACE`: berapa cluster lagi boleh diklaim; `BLOCK_FAIL`:
+tulisan perangkat ke-n gagal). Setiap uji mulai dengan `SYS_FS_CHECK` + repair, jadi hitungan cluster
+hilang yang diperiksanya adalah miliknya sendiri.
+
+| ID | Uji | Program |
+|---|---|---|
+| D02 | dengan ruang untuk 2 cluster lagi, tulisan 5000 byte → `NoSpace`; berkas tetap 1000 byte dengan isi yang sama, jumlah cluster bebas tidak berubah, 0 hilang; tanpa batas tulisan yang sama berhasil dan terbaca utuh; menghapus berkas mengembalikan setiap cluster | `bin/init` |
+| D02 | tulisan yang tumbuh dengan tulisan perangkat pertama gagal, yang gagal di tengah mengklaim clusternya, dan penimpaan yang tulisan datanya gagal → `Io` ketiganya; berkas tetap 600 byte dengan isi yang sama, 0 cluster hilang; tulisan berikutnya berhasil | `bin/init` |
+| D02 | dokumen diganti versi staging-nya (satu cluster versi lama kembali bebas); commit yang tulisannya gagal → `Io`, dokumen tetap versi lama, tepat 1 cluster hilang dan 0 cross-linked, `repair` mengembalikannya; dokumen yang dipegang terbuka → `Busy`; antar-direktori → `Invalid`; tanpa target, staging diganti namanya | `bin/init` |
+| D02 | berkas yang dipegang terbuka tidak dihapus atau dikosongkan (`Busy`); setelah dilepas dihapus, `NotFound`, dan jumlah cluster bebas kembali seperti sebelum ditulis; hapus lagi `NotFound`, direktori `Invalid`, tanpa `FS_WRITE` `Denied` | `bin/init` |
+
 ### Uji T01, T02 dan G02 (Task Service, ADR-0036)
 
 Setiap uji menjalankan `bin/spacetask` sendiri di atas jurnal yang sama di volume data, jadi yang

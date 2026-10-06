@@ -17,32 +17,32 @@ Log lengkap: acceptance.log di direktori ini.
 [cloud] ask 2 (lab-echo): auth: the provider refused the credential (401: invalid x-api-key); 139 ms, 1 round(s), 1 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 0 of 50000 µ$
 [init] cloud: with a wrong key: auth: the provider refused the credential (401: invalid x-api-key)
 [cloud] credential held (55 bytes)
+[cloud] ask 3 (lab-echo): done; 680 ms, 1 round(s), 1 attempt(s), tools [], 25 in / 14 out tokens, 285 µ$; spent 285 of 50000 µ$
 [init] PASS I01: the adapter holds the credential, and the provider refuses a wrong one
-[cloud] ask 3 (lab-echo): done; 671 ms, 1 round(s), 1 attempt(s), tools [], 25 in / 14 out tokens, 285 µ$; spent 285 of 50000 µ$
-[cloud] ask 4 (lab-echo): done; 681 ms, 1 round(s), 1 attempt(s), tools [], 28 in / 16 out tokens, 324 µ$; spent 609 of 50000 µ$
-[init] cloud: 4 pieces, the first after 230 ms and the end after 681 ms; 28 in / 16 out tokens, 324 µ$
+[cloud] ask 4 (lab-echo): done; 679 ms, 1 round(s), 1 attempt(s), tools [], 28 in / 16 out tokens, 324 µ$; spent 609 of 50000 µ$
+[init] cloud: 4 pieces, the first after 228 ms and the end after 679 ms; 28 in / 16 out tokens, 324 µ$
 [init] PASS I01: answers stream back as the provider writes them, and cost what it reports
-[cloud] ask 5 (lab-tool): done; 169 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/ws/input.txt: allowed], 297 in / 23 out tokens, 1236 µ$; spent 1845 of 50000 µ$
+[cloud] ask 5 (lab-tool): done; 164 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/ws/input.txt: allowed], 297 in / 23 out tokens, 1236 µ$; spent 1845 of 50000 µ$
 [init] cloud: tool calls [(0, "read_file /spaceos/ws/input.txt: allowed")]; answer "I will read the file.The file begins: space-os workspace"
-[cloud] ask 6 (lab-tool): done; 86 ms, 1 round(s), 1 attempt(s), tools [], 31 in / 5 out tokens, 168 µ$; spent 2013 of 50000 µ$
+[cloud] ask 6 (lab-tool): done; 78 ms, 1 round(s), 1 attempt(s), tools [], 31 in / 5 out tokens, 168 µ$; spent 2013 of 50000 µ$
 [init] PASS I01: the model's tool calls go through the Tool Broker, inside the workspace
-[cloud] ask 7 (lab-exfil): done; 156 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/cred/cloud.key: denied (outside the workspace)], 283 in / 39 out tokens, 1434 µ$; spent 3447 of 50000 µ$
+[cloud] ask 7 (lab-exfil): done; 162 ms, 2 round(s), 2 attempt(s), tools [read_file /spaceos/cred/cloud.key: denied (outside the workspace)], 283 in / 39 out tokens, 1434 µ$; spent 3447 of 50000 µ$
 [init] cloud: tool calls [(1, "read_file /spaceos/cred/cloud.key: denied (outside the workspace)")]; answer "I will read the file.The tool refused: refused by the Tool Broker: /spaceos/cred/cloud.key is outside the workspace"
 [init] PASS I01: a tool call for the credential is refused, and the provider hears only that
 [cloud] ask 8 (lab-stall): timeout: reading the answer: timed out; 1501 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 1 out tokens, 93 µ$; spent 3540 of 50000 µ$
 [init] cloud: a stalled answer ended after 1501 ms: timeout: reading the answer: timed out
-[cloud] ask 9 (lab-echo): done; 677 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 3843 of 50000 µ$
+[cloud] ask 9 (lab-echo): done; 671 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 3843 of 50000 µ$
 [init] PASS I01: a stalled answer ends at the deadline, and the adapter keeps serving
 [cloud] attempt 1: the provider is busy (529: Overloaded); trying again in 250 ms
 [cloud] attempt 2: the provider is busy (529: Overloaded); trying again in 500 ms
-[cloud] ask 10 (lab-overloaded): overloaded: the provider is busy (529: Overloaded) on every one of 3 attempt(s); 976 ms, 1 round(s), 3 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 3843 of 50000 µ$
+[cloud] ask 10 (lab-overloaded): overloaded: the provider is busy (529: Overloaded) on every one of 3 attempt(s); 980 ms, 1 round(s), 3 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 3843 of 50000 µ$
 [init] cloud: 3 attempts, 3 connections: overloaded: the provider is busy (529: Overloaded) on every one of 3 attempt(s)
 [init] PASS I01: an overloaded provider is tried three times, and no more
-[cloud] ask 11 (lab-hostile): protocol: event content_block_start is not JSON the adapter accepts; 123 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 1 out tokens, 93 µ$; spent 3936 of 50000 µ$
+[cloud] ask 11 (lab-hostile): protocol: event content_block_start is not JSON the adapter accepts; 124 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 1 out tokens, 93 µ$; spent 3936 of 50000 µ$
 [init] cloud: protocol: event content_block_start is not JSON the adapter accepts
-[cloud] ask 12 (lab-echo): done; 680 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 4239 of 50000 µ$
+[cloud] ask 12 (lab-echo): done; 676 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 15 out tokens, 303 µ$; spent 4239 of 50000 µ$
 [init] PASS I01: an answer nested deep enough to exhaust a stack is refused, and the adapter lives on
-[cloud] ask 13 (lab-runaway): over-budget: the provider reported 400 output tokens, past the 100 reserved: cut off; 126 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 400 out tokens, 6078 µ$; spent 10317 of 50000 µ$
+[cloud] ask 13 (lab-runaway): over-budget: the provider reported 400 output tokens, past the 100 reserved: cut off; 127 ms, 1 round(s), 1 attempt(s), tools [], 26 in / 400 out tokens, 6078 µ$; spent 10317 of 50000 µ$
 [init] cloud: over-budget: the provider reported 400 output tokens, past the 100 reserved: cut off after 127 ms; charged 6078 µ$
 [init] PASS I01: a provider streaming past what was reserved is cut off, and charged what it used
 [cloud] ask 14 (lab-budget): budget: this request could cost up to 60165 µ$ and 39683 µ$ of the budget is left: nothing was sent; 0 ms, 0 round(s), 0 attempt(s), tools [], 0 in / 0 out tokens, 0 µ$; spent 10317 of 50000 µ$
@@ -66,7 +66,7 @@ cloud: lab-tool: tool_result for toolu_lab_1: 119 bytes
 cloud: lab-tool: no read_file tool was offered
 cloud: lab-exfil: asked to read /spaceos/cred/cloud.key
 cloud: lab-exfil: the tool was refused: refused by the Tool Broker: /spaceos/cred/cloud.key is outside the workspace
-cloud: lab-stall: the client closed the connection after 1423 ms
+cloud: lab-stall: the client closed the connection after 1431 ms
 cloud: lab-echo: streamed 4 pieces, 26 in / 15 out tokens
 cloud: lab-overloaded: attempt 1 answered 529
 cloud: lab-overloaded: attempt 2 answered 529
@@ -77,7 +77,7 @@ cloud: lab-echo: streamed 4 pieces, 26 in / 15 out tokens
 cloud: lab-runaway: the client closed the connection after 2 rounds (800 tokens reported, max_tokens 100)
 
 ## Kabel (pcap skenario acceptance)
-tcp: 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:60064 <- 10.0.2.101:7)
+tcp: 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:56320 <- 10.0.2.101:7)
 
 ## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
 === local-only-ignored: xtask exit 1

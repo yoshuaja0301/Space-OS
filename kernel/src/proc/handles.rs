@@ -13,11 +13,19 @@ use super::Process;
 use crate::fs::fat32::FileNode;
 use crate::ipc::channel::Endpoint;
 
-/// An open file on a mounted volume.
+/// An open file on a mounted volume, held open (see `fs::closed`) until the last
+/// handle on it is gone.
 pub struct OpenFile {
     /// Behind a lock because writing changes it: a file that grew must report its
     /// new size to the next reader through the same handle.
     pub node: crate::sync::SpinLock<FileNode>,
+}
+
+impl Drop for OpenFile {
+    fn drop(&mut self) {
+        let node = *self.node.lock();
+        crate::fs::closed(&node);
+    }
 }
 
 /// What a memory object's frames are.

@@ -75,6 +75,11 @@ errors! {
     Reset = 20, "connection reset";
     /// No address or no route: the network interface is not configured.
     Unreachable = 21, "network unreachable";
+    /// The volume has no room for what was asked; none of it was written.
+    NoSpace = 22, "no space left on the volume";
+    /// The storage device reported a failure or stopped answering. What the call was
+    /// doing may be partly done; it is never reported as done.
+    Io = 23, "input/output error";
 }
 
 impl core::fmt::Display for Error {

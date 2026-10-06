@@ -9,9 +9,9 @@ use alloc::sync::Arc;
 use spaceabi::error::{Error, encode};
 use spaceabi::handle::{self, Handle, rights};
 use spaceabi::syscall::{
-    DIR_ENTRIES_MAX, DirEntry, ExitStatus, FRAME_MAX, FRAME_MIN, FileStat, HandleInfo, KernelStats, MSG_MAX,
-    PATH_MAX, RecvArgs, SelfInfo, SpawnArgs, WAIT_FOREVER, WAIT_MAX, debug_op, kill_reason, map_flags, nr,
-    qemu_exit, recv_flags, sched_class, wait_flags,
+    DIR_ENTRIES_MAX, DirEntry, ExitStatus, FRAME_MAX, FRAME_MIN, FileStat, FsCheck, HandleInfo, KernelStats,
+    MSG_MAX, PATH_MAX, RecvArgs, SelfInfo, SpawnArgs, WAIT_FOREVER, WAIT_MAX, debug_op, kill_reason,
+    map_flags, nr, qemu_exit, recv_flags, sched_class, wait_flags,
 };
 
 use crate::arch;
@@ -70,7 +70,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::SELF_INFO => sys_self_info(a[0]),
         nr::KSTATS => sys_kstats(a[0] as Handle, a[1]),
         nr::SHUTDOWN => sys_shutdown(a[0] as Handle, a[1] as u32),
-        nr::DEBUG => sys_debug(a[0] as Handle, a[1]),
+        nr::DEBUG => sys_debug(a[0] as Handle, a[1], a[2]),
         nr::HANDLE_INFO => sys_handle_info(a[0] as Handle, a[1]),
         nr::FS_OPEN => sys_fs_open(a[0] as Handle, a[1], a[2]),
         nr::FS_READ => sys_fs_read(a[0] as Handle, a[1], a[2], a[3]),
@@ -94,6 +94,9 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::DISPLAY_INFO => sys_display_info(a[0] as Handle, a[1]),
         nr::INPUT_READ => sys_input_read(a[0] as Handle, a[1], a[2]),
         nr::FS_OPEN_WRITE => sys_fs_open_write(a[0] as Handle, a[1], a[2]),
+        nr::FS_REMOVE => sys_fs_remove(a[0] as Handle, a[1], a[2]),
+        nr::FS_REPLACE => sys_fs_replace(a[0] as Handle, a[1], a[2], a[3], a[4]),
+        nr::FS_CHECK => sys_fs_check(a[0] as Handle, a[1], a[2]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -174,15 +177,49 @@ fn sys_fs_open_write(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize
     if !p.handles.lock().has_free_slot() {
         return Err(Error::TooManyHandles);
     }
-    let node = fs::open(&path)?;
     if !fs::writable() {
         return Err(Error::Denied);
     }
+    let node = fs::open(&path)?;
     let entry = HandleEntry {
         object: Object::File(Arc::new(OpenFile { node: crate::sync::SpinLock::new(node) })),
         rights: rights::FILE_WRITABLE,
     };
     Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+/// Remove a file nobody holds open (ADR-0037).
+fn sys_fs_remove(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Error> {
+    require_root(root, rights::FS | rights::FS_WRITE)?;
+    let path = read_user_str(path_ptr, path_len, PATH_MAX as u64)?;
+    fs::remove(&path)?;
+    Ok(0)
+}
+
+/// Put a staged file in the place of another, with one sector write as the commit
+/// (ADR-0037).
+fn sys_fs_replace(
+    root: Handle,
+    staging_ptr: u64,
+    staging_len: u64,
+    target_ptr: u64,
+    target_len: u64,
+) -> Result<usize, Error> {
+    require_root(root, rights::FS | rights::FS_WRITE)?;
+    let staging = read_user_str(staging_ptr, staging_len, PATH_MAX as u64)?;
+    let target = read_user_str(target_ptr, target_len, PATH_MAX as u64)?;
+    fs::replace(&staging, &target)?;
+    Ok(0)
+}
+
+/// Walk the volume; with `repair`, give lost clusters back (ADR-0037).
+fn sys_fs_check(root: Handle, out: u64, repair: u64) -> Result<usize, Error> {
+    let repair = repair != 0;
+    require_root(root, if repair { rights::FS | rights::FS_WRITE } else { rights::FS })?;
+    user_bytes(out, core::mem::size_of::<FsCheck>() as u64, true)?;
+    let report = fs::check(repair)?;
+    write_user(out, report)?;
+    Ok(0)
 }
 
 /// Write to a file opened for writing. The handle carries the permission: a handle
@@ -1038,7 +1075,7 @@ fn sys_shutdown(root: Handle, code: u32) -> Result<usize, Error> {
     arch::halt_forever();
 }
 
-fn sys_debug(root: Handle, op: u64) -> Result<usize, Error> {
+fn sys_debug(root: Handle, op: u64, arg: u64) -> Result<usize, Error> {
     require_root(root, rights::DEBUG)?;
     let (pid, _) = proc::current_identity();
     match op {
@@ -1065,6 +1102,14 @@ fn sys_debug(root: Handle, op: u64) -> Result<usize, Error> {
             const MAKE_A: u8 = 0x1E;
             debug_assert_eq!(spaceabi::syscall::PS2_INJECT_CHAR, b'a');
             if crate::arch::ps2::inject(MAKE_A) { Ok(0) } else { Err(Error::NoSys) }
+        }
+        debug_op::BLOCK_FAIL => {
+            crate::dev::block::inject_write_failures((arg >> 32) as u32, arg as u32);
+            Ok(0)
+        }
+        debug_op::FS_SPACE => {
+            fs::set_space_limit((arg != u64::MAX).then(|| arg.min(u32::MAX as u64) as u32))?;
+            Ok(0)
         }
         _ => Err(Error::Invalid),
     }

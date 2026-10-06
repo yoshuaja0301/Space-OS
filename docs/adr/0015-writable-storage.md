@@ -31,7 +31,7 @@ cara mendapat handle yang bisa ditulis adalah lewat `SYS_FS_CREATE`. *(Sejak ADR
 
 **"Create atau kosongkan", bukan sunting di tempat.** Semua pemanggil di atas lapisan ini
 menulis berkas utuh, jadi itulah operasi yang disediakan. `SYS_FS_CREATE` membuat berkas
-kosong atau mengosongkan yang sudah ada; `SYS_FS_WRITE` menulis pada offset dan menumbuhkan
+kosong atau mengosongkan yang sudah ada (sejak ADR-0037, tidak selagi berkas itu dipegang terbuka); `SYS_FS_WRITE` menulis pada offset dan menumbuhkan
 berkas bila perlu.
 
 **Tiga aturan yang dipegang lapisan FAT32:**

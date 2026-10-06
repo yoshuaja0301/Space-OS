@@ -46,7 +46,7 @@ pub mod nr {
     pub const KSTATS: usize = 16;
     /// `shutdown(root_handle, code) -> !`
     pub const SHUTDOWN: usize = 17;
-    /// `debug(root_handle, op) -> 0` – kernel fault injection, see [`debug_op`].
+    /// `debug(root_handle, op, arg) -> 0` – kernel fault injection, see [`debug_op`].
     pub const DEBUG: usize = 18;
     /// `handle_info(handle, out: *mut HandleInfo) -> 0`
     pub const HANDLE_INFO: usize = 19;
@@ -118,8 +118,22 @@ pub mod nr {
     /// to itself; ADR-0036). Needs root `FS | FS_WRITE`; `NotFound` when there is no
     /// such file, `Invalid` for a directory, `Denied` on a volume that refuses writes.
     pub const FS_OPEN_WRITE: usize = 41;
+    /// `fs_remove(root_handle, path_ptr, path_len) -> 0` – remove a file (ADR-0037).
+    /// Needs root `FS | FS_WRITE`; `Busy` while anyone holds it open, `Invalid` for a
+    /// directory.
+    pub const FS_REMOVE: usize = 42;
+    /// `fs_replace(root_handle, staging_ptr, staging_len, target_ptr, target_len) -> 0`
+    /// – put the staging file in the target's place, in the same directory, with one
+    /// sector write as the commit: a reader finds the old version or the new one.
+    /// Without a target the staging file is renamed. Needs root `FS | FS_WRITE`;
+    /// `Busy` while either is held open.
+    pub const FS_REPLACE: usize = 43;
+    /// `fs_check(root_handle, out: *mut FsCheck, repair) -> 0` – walk the volume and
+    /// count what is reachable, free, lost and cross-linked; with `repair` (root
+    /// `FS_WRITE` as well as `FS`) lost clusters go back to the free pool.
+    pub const FS_CHECK: usize = 44;
 
-    pub const COUNT: usize = 42;
+    pub const COUNT: usize = 45;
 }
 
 /// Most bytes one `SYS_RANDOM` call returns.
@@ -409,6 +423,27 @@ pub struct FileStat {
 /// Longest path `SYS_FS_OPEN` accepts.
 pub const PATH_MAX: usize = 255;
 
+/// What `SYS_FS_CHECK` found on the volume.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FsCheck {
+    /// Data clusters on the volume; how many are free, and how many a file or a
+    /// directory reaches.
+    pub clusters: u32,
+    pub free: u32,
+    pub used: u32,
+    /// Taken in the FAT but reached by nothing: what an operation cut short by a crash
+    /// or an error left. `freed` of them were given back (repair).
+    pub lost: u32,
+    pub freed: u32,
+    /// Clusters reached from two places.
+    pub crosslinked: u32,
+    pub files: u32,
+    pub dirs: u32,
+    pub cluster_bytes: u32,
+    pub _pad: u32,
+}
+
 /// Result of `SYS_HANDLE_INFO`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -430,6 +465,13 @@ pub mod debug_op {
     /// Make the PS/2 controller deliver one key press ([`PS2_INJECT_CHAR`]), so the
     /// keyboard interrupt path can be tested on a machine nobody is typing at.
     pub const PS2_INJECT: u64 = 4;
+    /// Make writes to the data volume fail (ADR-0037): `arg` is the number of writes
+    /// that still succeed (high 32 bits), then the number that fail with `Io` (low 32
+    /// bits); after those, writes succeed again. 0 ends an injection.
+    pub const BLOCK_FAIL: u64 = 5;
+    /// The file system may claim only `arg` more clusters before it says the volume
+    /// is full (`NoSpace`); `u64::MAX` lifts the limit.
+    pub const FS_SPACE: u64 = 6;
 }
 
 /// The character [`debug_op::PS2_INJECT`] makes the keyboard produce.

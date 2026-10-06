@@ -12,6 +12,7 @@ mod cloudtest;
 mod desktest;
 mod netcheck;
 mod nettest;
+mod storetest;
 mod stress;
 mod tasktest;
 
@@ -3545,6 +3546,35 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
             }
             Ok(())
         },
+    );
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D02",
+        "a write the volume has no room for is refused whole, and the file and the volume are as they were",
+        storetest::no_space,
+    );
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D02",
+        "a device error is reported, never as success, and the file keeps what it held",
+        storetest::io_error,
+    );
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D02",
+        "a document is replaced through staging and one committing write: the old version or the new, never a mix",
+        storetest::replace,
+    );
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D02",
+        "a removed file is gone and its space comes back; a file held open is not removed or emptied",
+        storetest::remove,
     );
 
     r.run_if(disk, "no disk on this machine", "D01", "the volume remembers across a reboot", || {

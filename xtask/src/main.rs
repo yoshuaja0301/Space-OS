@@ -2270,6 +2270,11 @@ const SCENARIOS: &[Scenario] = &[
             "[init] PASS G02: a worker that does not stop is ended after 2 s",
             "[init] PASS T01: a running task with an effect open is left for the next boot",
             "[init] PASS D01: a file opened for writing keeps what it holds",
+            // Full, failing and replaced: the storage contract (ADR-0037).
+            "[init] PASS D02: a write the volume has no room for is refused whole",
+            "[init] PASS D02: a device error is reported, never as success",
+            "[init] PASS D02: a document is replaced through staging and one committing write",
+            "[init] PASS D02: a removed file is gone and its space comes back",
             "[kernel] cmdline: \"init=bin/init\"",
             "[init] kernel command line: \"init=bin/init\"",
             "input decoding ok",
