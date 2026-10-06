@@ -1,0 +1,29 @@
+BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/Pci(0x2,0x0): Not Found
+BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+spaceboot 0.1.0: Space OS UEFI bootloader
+spaceboot: kernel 434952 bytes, initrd 4300800 bytes, config 99 bytes
+spaceboot: bootinfo_fault=reservation: handing the kernel two reservations over the same pages (a test of the kernel's checks; never on a real boot)
+spaceboot: kernel 3 segments, 424 KiB at phys 0x7d4c2000, entry 0xffffffff8011d33c
+spaceboot: boot image 4300800 bytes, sha256 4a2e635642536acd3777e3f4518d80b385cd71f26826a833a1b4de74e59ffb8c
+spaceboot: entropy: 32 bytes from the firmware's RNG protocol
+spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
+spaceboot: exiting boot services and jumping to kernel
+
+spacekernel 0.1.0: Space OS kernel booting
+[status] kernel alive
+[kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
+[kernel] idt loaded (256 vectors)
+[kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
+[kernel] cpu: RDRAND absent
+
+!!! KERNEL PANIC !!!
+at kernel/src/bootinfo.rs:26:5
+message: BootInfo rejected: reservation (entry 1) = 0x7d4c2000: overlaps another reservation
+backtrace (frame pointers):
+  #00 0xffffffff8013ebec
+  #01 0xffffffff80138007
+  #02 0xffffffff80137ca9
+  #03 0xffffffff80122366
+  #04 0xffffffff8011d348
+spacekernel: halted after panic (uptime 0 ms)

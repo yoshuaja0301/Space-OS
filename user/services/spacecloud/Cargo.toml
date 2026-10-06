@@ -1,0 +1,18 @@
+[package]
+name = "spacecloud"
+description = "Cloud model adapter: holds the provider credential, streams answers, runs tool calls through the Tool Broker, keeps to a budget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spacecloud"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true
+spacetls = { path = "../../spacetls" }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }

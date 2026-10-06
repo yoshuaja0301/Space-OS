@@ -1,0 +1,108 @@
+# Kontrak penyimpanan (D02, ADR-0037) — sesi verifikasi 2026-10-06
+
+Diambil dari build/logs (cargo xtask test, compat, arm64). Log lengkap: acceptance.log.
+
+## Acceptance (x86-64): uji D02 dan baris kernel
+[init] storage: FAT32 volume mounted
+[init] --- D02: a write the volume has no room for is refused whole, and the file and the volume are as they were
+[kernel] vfs: injected limit: 2 more cluster(s) may be claimed
+[kernel] vfs: injected limit: lifted
+[init] storage: a 5000-byte write with room for 2 more clusters was refused (no space left on the volume): the file kept its 1000 bytes and the volume its 124953 free clusters; without the limit it went through, and removing the file gave back every cluster (124955 free)
+[init] PASS D02: a write the volume has no room for is refused whole, and the file and the volume are as they were
+[init] --- D02: a device error is reported, never as success, and the file keeps what it held
+[kernel] block: injected failure: 0 write(s) succeed, then 1 fail
+[kernel] block: injected failure: 0 write(s) succeed, then 0 fail
+[kernel] block: injected failure: 3 write(s) succeed, then 1 fail
+[kernel] block: injected failure: 0 write(s) succeed, then 0 fail
+[kernel] block: injected failure: 0 write(s) succeed, then 1 fail
+[kernel] block: injected failure: 0 write(s) succeed, then 0 fail
+[init] storage: a device error on a growing write's first device write, in the middle of claiming its clusters, and on an overwrite's data write was reported (input/output error) each time; the file kept its 600 bytes, no cluster was lost, and the next write went through
+[init] PASS D02: a device error is reported, never as success, and the file keeps what it held
+[init] --- D02: a document is replaced through staging and one committing write: the old version or the new, never a mix
+[kernel] block: injected failure: 1 write(s) succeed, then 1 fail
+[kernel] block: injected failure: 0 write(s) succeed, then 0 fail
+[init] storage: a document was replaced by its staged version with one sector write; a commit whose write failed (input/output error) left the old version and 1 lost cluster, which a repair gave back; a document held open was not replaced (resource busy)
+[init] PASS D02: a document is replaced through staging and one committing write: the old version or the new, never a mix
+[init] --- D02: a removed file is gone and its space comes back; a file held open is not removed or emptied
+[init] storage: a file held open was neither removed nor emptied (resource busy); once let go it was removed and its 6 cluster(s) came back (124955 free)
+[init] PASS D02: a removed file is gone and its space comes back; a file held open is not removed or emptied
+
+## Reboot: volume yang sama di boot kedua (storage-reboot)
+== storage-reboot-boot1
+[init] storage: FAT32 volume mounted
+[init] PASS D01: SHA-256 in the guest matches the published test vectors
+[init] PASS D01: model file read from the guest disk matches the manifest checksum
+[init] PASS D01: file API rejects bad paths, missing rights and bad buffers
+[init] PASS D01: a written file reads back byte for byte
+[init] PASS D01: writing is a right of its own
+[init] PASS D01: a file opened for writing keeps what it holds and grows at its end
+[init] storage: a 5000-byte write with room for 2 more clusters was refused (no space left on the volume): the file kept its 1000 bytes and the volume its 124807 free clusters; without the limit it went through, and removing the file gave back every cluster (124809 free)
+[init] PASS D02: a write the volume has no room for is refused whole, and the file and the volume are as they were
+[init] storage: a device error on a growing write's first device write, in the middle of claiming its clusters, and on an overwrite's data write was reported (input/output error) each time; the file kept its 600 bytes, no cluster was lost, and the next write went through
+[init] PASS D02: a device error is reported, never as success, and the file keeps what it held
+[init] storage: a document was replaced by its staged version with one sector write; a commit whose write failed (input/output error) left the old version and 1 lost cluster, which a repair gave back; a document held open was not replaced (resource busy)
+[init] PASS D02: a document is replaced through staging and one committing write: the old version or the new, never a mix
+[init] storage: a file held open was neither removed nor emptied (resource busy); once let go it was removed and its 6 cluster(s) came back (124809 free)
+[init] PASS D02: a removed file is gone and its space comes back; a file held open is not removed or emptied
+[init] PASS D01: the volume remembers across a reboot
+== storage-reboot-boot2
+[init] storage: FAT32 volume mounted
+[init] PASS D01: SHA-256 in the guest matches the published test vectors
+[init] PASS D01: model file read from the guest disk matches the manifest checksum
+[init] PASS D01: file API rejects bad paths, missing rights and bad buffers
+[init] PASS D01: a written file reads back byte for byte
+[init] PASS D01: writing is a right of its own
+[init] PASS D01: a file opened for writing keeps what it holds and grows at its end
+[init] storage: a 5000-byte write with room for 2 more clusters was refused (no space left on the volume): the file kept its 1000 bytes and the volume its 124807 free clusters; without the limit it went through, and removing the file gave back every cluster (124809 free)
+[init] PASS D02: a write the volume has no room for is refused whole, and the file and the volume are as they were
+[init] storage: a device error on a growing write's first device write, in the middle of claiming its clusters, and on an overwrite's data write was reported (input/output error) each time; the file kept its 600 bytes, no cluster was lost, and the next write went through
+[init] PASS D02: a device error is reported, never as success, and the file keeps what it held
+[init] storage: a document was replaced by its staged version with one sector write; a commit whose write failed (input/output error) left the old version and 1 lost cluster, which a repair gave back; a document held open was not replaced (resource busy)
+[init] PASS D02: a document is replaced through staging and one committing write: the old version or the new, never a mix
+[init] storage: a file held open was neither removed nor emptied (resource busy); once let go it was removed and its 6 cluster(s) came back (124809 free)
+[init] PASS D02: a removed file is gone and its space comes back; a file held open is not removed or emptied
+[init] PASS D01: the volume remembers across a reboot
+
+## Stress: setiap pass
+[init] storage: a 5000-byte write with room for 2 more clusters was refused (no space left on the volume): the file kept its 1000 bytes and the volume its 124890 free clusters; without the limit it went through, and removing the file gave back every cluster (124892 free)
+[stress] pass 1: ok; 143/143 tests (1 skipped) in 80.1 s; frames_free=2089718 frames_free_min=0 heap_used=23136 heap_used_peak=56688 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=80278
+[init] storage: a 5000-byte write with room for 2 more clusters was refused (no space left on the volume): the file kept its 1000 bytes and the volume its 124813 free clusters; without the limit it went through, and removing the file gave back every cluster (124815 free)
+[stress] pass 2: ok; 143/143 tests (1 skipped) in 56.1 s; frames_free=2089718 frames_free_min=0 heap_used=23136 heap_used_peak=56688 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=136351
+[stress] done: 2 passes in 2.3 min, 286 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56688 bytes
+
+## Setiap mesin: disk penuh, kesalahan perangkat, staging, hapus
+lab                      4/4 uji D02 lulus; 
+q35-1cpu-2g              4/4 uji D02 lulus; 
+i440fx                   4/4 uji D02 lulus; 
+cpu-max                  4/4 uji D02 lulus; 
+virtio-transitional      4/4 uji D02 lulus; 
+virtio-small-queue       4/4 uji D02 lulus; 
+no-disk                  dilewati (no disk on this machine)
+sata-data                4/4 uji D02 lulus; 
+nvme-data                4/4 uji D02 lulus; NVMe 00:02.0 namespace 1 (64 MiB) holds the data volume (the whole disk)
+installed-disk           4/4 uji D02 lulus; 
+e1000                    4/4 uji D02 lulus; 
+e1000e                   4/4 uji D02 lulus; 
+rtl8139-only             4/4 uji D02 lulus; 
+no-vga                   4/4 uji D02 lulus; 
+vmware-vga               4/4 uji D02 lulus; 
+usb                      4/4 uji D02 lulus; 
+arm64-acceptance         4/4 uji D02 lulus; 
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== a write that runs out of room keeps the clusters it claimed
+[init] FAIL D02: a write the volume has no room for is refused whole, and the file and the volume are as they were: the refused write kept clusters: 124953 free before, 124951 after, 0 lost
+=== a full volume is reported as out of memory
+[init] FAIL D02: a write the volume has no room for is refused whole, and the file and the volume are as they were: a write with no room for it gave Err(NoMemory)
+=== a failed data write is reported as written
+[init] FAIL D02: a device error is reported, never as success, and the file keeps what it held: a write whose data write, overwriting what is there failed gave Ok(600)
+=== the commit is written before the staging entry is deleted
+[init] FAIL D02: a document is replaced through staging and one committing write: the old version or the new, never a mix: a failed commit changed the document
+[init] FAIL D02: a removed file is gone and its space comes back; a file held open is not removed or emptied: the volume has 1 cross-linked cluster(s)
+=== a file held open can be removed
+[init] FAIL D02: a removed file is gone and its space comes back; a file held open is not removed or emptied: a file held open: remove gave Ok(()), create gave Ok(Ok(()))
+=== a device failure is reported as a bad address
+[init] FAIL D02: a device error is reported, never as success, and the file keeps what it held: a write whose first device write failed gave Err(Fault)
+[init] FAIL D02: a document is replaced through staging and one committing write: the old version or the new, never a mix: a commit whose write failed gave Err(Fault)
+=== a file held open can be emptied
+[init] FAIL D02: a removed file is gone and its space comes back; a file held open is not removed or emptied: a file held open: remove gave Err(Busy), create gave Ok(Ok(()))

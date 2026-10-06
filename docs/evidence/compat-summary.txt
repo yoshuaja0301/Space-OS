@@ -1,0 +1,217 @@
+# cargo xtask compat — matriks kompatibilitas (ADR-0010)
+
+Sesi verifikasi 2026-10-06, QEMU 8.2.2 / OVMF 4M. Image yang sama untuk semua mesin;
+baris cpu: CPU yang dinyalakan kernel (ADR-0024) dan hasil uji paralel K02; baris jam: counter
+yang dipakai kernel untuk waktu (ADR-0029); baris status: status boot tertinggi (B04, ADR-0032).
+16 konfigurasi, semuanya boot dan lulus (exit QEMU 33). Baris blok: disk dan volume data (ADR-0025). Baris tcp berasal dari rekaman
+pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari ADR-0017, I01 dari ADR-0018.
+
+== lab
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 12 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:54345 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== q35-1cpu-2g
+   init : ALL TESTS PASSED (142/142, 2 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : one processor 
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 2 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:54685 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== i440fx
+   init : ALL TESTS PASSED (123/123, 21 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : virtio-blk 00:03.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:03.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 62 connections, 59 closed cleanly, 2 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:64909 <- 10.0.2.101:7)
+   entr : entropy: none
+   tls  : dilewati (no entropy source)
+   i01  : dilewati bersama TLS
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== cpu-max
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:49159 <- 10.0.2.101:7)
+   entr : entropy: RDRAND
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== virtio-transitional
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 5 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:62926 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== virtio-small-queue
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 2 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:49469 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== no-disk
+   init : ALL TESTS PASSED (86/86, 58 skipped)
+   stat : user-space alive (OS not usable: cannot read files: listing /spaceos: not found)
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 4 ms
+   blok : no data volume; file system unavailable
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : dilewati (no disk, which holds the lab authority's certificate)
+   i01  : dilewati bersama TLS
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 3/4 uji desktop lulus, sisanya dilewati (no framebuffer or no disk on this machine)
+== sata-data
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : AHCI 00:1f.2 port 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from AHCI 00:1f.2 port 1 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:51019 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== nvme-data
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : NVMe 00:02.0 namespace 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from NVMe 00:02.0 namespace 1 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:55941 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== installed-disk
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : AHCI 00:1f.2 port 0 (130 MiB) holds the data volume (GPT partition 2); FAT32 mounted from AHCI 00:1f.2 port 0 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:54128 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== e1000
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 3 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : e1000: 00:04.0 (device 100e) ready, mac 52:54:00:12:34:56, link up
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:60608 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== e1000e
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : e1000: 00:04.0 (device 10d3) ready, mac 52:54:00:12:34:56, link up
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:62365 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== rtl8139-only
+   init : ALL TESTS PASSED (108/108, 36 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: no device present
+   tcp  : tidak ada kartu yang didukung; uji NET dilewati
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : dilewati (no network device)
+   i01  : dilewati bersama TLS
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== no-vga
+   init : ALL TESTS PASSED (137/137, 7 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 4 ms
+   blok : virtio-blk 00:01.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:01.0 
+   net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:57711 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: none usable; serial console only
+   desk : dilewati (no framebuffer on this machine)
+== vmware-vga
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:52476 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== usb
+   init : ALL TESTS PASSED (143/143, 1 skipped)
+   stat : AI ready
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:55954 <- 10.0.2.101:7)
+   entr : entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   usb  : 00:05.0: 2 device(s) on its ports, 1 keyboard(s)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus

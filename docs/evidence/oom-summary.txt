@@ -1,0 +1,108 @@
+# Model rusak dan kehabisan memori (A02, ADR-0034) — sesi verifikasi 2026-10-06
+
+Diambil dari build/logs (cargo xtask test, compat, arm64). Log lengkap: acceptance.log.
+
+## Acceptance (x86-64, 8 GiB, 4 vCPU)
+[init] --- A02: a damaged model is refused in a session, for what is wrong with it, and the session answers on
+[ai] the session named the model file /spaceos/bitflip.slm
+[init] A02: /spaceos/bitflip.slm refused before a single step: a20bcbf9bf011b47868c does not match the manifest
+[ai] the session named the model file /spaceos/badmagic.slm
+[init] A02: /spaceos/badmagic.slm refused before a single step: model rejected: not a SpaceLM model
+[init] PASS A02: a damaged model is refused in a session, for what is wrong with it, and the session answers on
+[init] --- A02: a worker that runs out of its memory is refused, dies alone, and the session answers on
+[worker] job 'oom' starting
+[worker] job 'oom' took 428 KiB, then the kernel said: quota exceeded
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+out of memory after 428 KiB
+[init] PASS A02: a worker that runs out of its memory is refused, dies alone, and the session answers on
+[init] --- A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
+[worker] job 'hog' starting
+[worker] job 'hog' starting
+[worker] job 'hog' starting
+[worker] job 'hog' took 232004 KiB, then the kernel said: quota exceeded
+[worker] job 'hog' took 4029068 KiB, then the kernel said: out of memory
+[worker] job 'hog' took 4080672 KiB, then the kernel said: out of memory
+[init] A02: 3 worker(s) took 8162 MiB in 28216 ms and left 0 frames free; the session answered, a new program was refused, and all 2089638 frames came back
+[init] PASS A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
+[shell] session open, ABI v0; the session holds 63 pages
+
+## Setiap mesin: worker yang mengambil seluruh memori
+cpu-max                  3 worker(s) took 8162 MiB in 28043 ms and left 0 frames free; the session answered, a new program was refused, and all 2089641 frames came back
+e1000                    3 worker(s) took 8162 MiB in 28053 ms and left 0 frames free; the session answered, a new program was refused, and all 2089639 frames came back
+e1000e                   3 worker(s) took 8162 MiB in 27879 ms and left 0 frames free; the session answered, a new program was refused, and all 2089639 frames came back
+i440fx                   2 worker(s) took 4067 MiB in 25474 ms and left 0 frames free; the session answered, a new program was refused, and all 1041218 frames came back
+installed-disk           3 worker(s) took 8162 MiB in 27594 ms and left 0 frames free; the session answered, a new program was refused, and all 2089649 frames came back
+lab                      3 worker(s) took 8162 MiB in 27372 ms and left 0 frames free; the session answered, a new program was refused, and all 2089639 frames came back
+no-disk                  3 worker(s) took 8162 MiB in 18296 ms and left 0 frames free; the session answered, a new program was refused, and all 2089649 frames came back
+no-vga                   3 worker(s) took 8162 MiB in 26696 ms and left 0 frames free; the session answered, a new program was refused, and all 2089641 frames came back
+nvme-data                3 worker(s) took 8162 MiB in 27880 ms and left 0 frames free; the session answered, a new program was refused, and all 2089635 frames came back
+q35-1cpu-2g              1 worker(s) took 2019 MiB in 13140 ms and left 0 frames free; the session answered, a new program was refused, and all 516995 frames came back
+rtl8139-only             3 worker(s) took 8162 MiB in 20135 ms and left 0 frames free; the session answered, a new program was refused, and all 2089673 frames came back
+sata-data                3 worker(s) took 8162 MiB in 28117 ms and left 0 frames free; the session answered, a new program was refused, and all 2089640 frames came back
+usb                      3 worker(s) took 8162 MiB in 28646 ms and left 0 frames free; the session answered, a new program was refused, and all 2089625 frames came back
+virtio-small-queue       3 worker(s) took 8162 MiB in 27806 ms and left 0 frames free; the session answered, a new program was refused, and all 2089645 frames came back
+virtio-transitional      3 worker(s) took 8162 MiB in 28120 ms and left 0 frames free; the session answered, a new program was refused, and all 2089639 frames came back
+vmware-vga               3 worker(s) took 8162 MiB in 27869 ms and left 0 frames free; the session answered, a new program was refused, and all 2089639 frames came back
+arm64-acceptance         2 worker(s) took 4068 MiB in 19665 ms and left 0 frames free; the session answered, a new program was refused, and all 1041642 frames came back
+
+## Stress: titik terendah frame bebas nol menurut rancangan, frame setelah setiap putaran tetap
+[stress] pass 1: ok; 143/143 tests (1 skipped) in 80.1 s; frames_free=2089718 frames_free_min=0 heap_used=23136 heap_used_peak=56688 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=80278
+[stress] pass 2: ok; 143/143 tests (1 skipped) in 56.1 s; frames_free=2089718 frames_free_min=0 heap_used=23136 heap_used_peak=56688 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=136351
+[stress] done: 2 passes in 2.3 min, 286 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56688 bytes
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== the runtime does not compare the model's digest with the manifest
+   FAIL boot 1/1 in 64.9s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - QEMU exit code Some(35), expected 33
+     - missing marker "[init] PASS A02: a damaged model is refused in a session"
+     - missing marker "[init] ALL TESTS PASSED"
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] FAIL A02: a damaged model is refused in a session, for what is wrong with it, and the session answers on: /spaceos/bitflip.slm: exit code 1, 128 tokens, report "token 4 is 216, baseline says 237"; expected 1, none, and 'does not match the manifest'
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+[init] A02: 3 worker(s) took 8162 MiB in 19919 ms and left 0 frames free; the session answered, a new program was refused, and all 2089642 frames came back
+=== a run refused before its first step does not tell the session why
+   FAIL boot 1/1 in 58.5s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - QEMU exit code Some(35), expected 33
+     - missing marker "[init] PASS A02: a damaged model is refused in a session"
+     - missing marker "[init] ALL TESTS PASSED"
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] FAIL A02: a damaged model is refused in a session, for what is wrong with it, and the session answers on: /spaceos/bitflip.slm: exit code 1, 0 tokens, report ""; expected 1, none, and 'does not match the manifest'
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+[init] A02: 3 worker(s) took 8162 MiB in 20781 ms and left 0 frames free; the session answered, a new program was refused, and all 2089642 frames came back
+=== the session maps its heap on its first allocation, not when it starts
+   FAIL boot 1/1 in 57.9s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - QEMU exit code Some(35), expected 33
+     - missing marker "[init] PASS A02: workers that take every free frame are refused"
+     - missing marker "[init] ALL TESTS PASSED"
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] A02: /spaceos/bitflip.slm refused before a single step: a20bcbf9bf011b47868c does not match the manifest
+[init] A02: /spaceos/badmagic.slm refused before a single step: model rejected: not a SpaceLM model
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+[user] panic: panicked at /rustc/e408947bfd200af42db322daf0fadfe7e26d3bd1/library/alloc/src/alloc.rs:566:9:
+[init] FAIL A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back: listing with no memory left: Err(PeerClosed)
+=== the kernel assumes a frame is always there for a user mapping
+   FAIL boot 1/1 in 46.7s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - QEMU exit code Some(127), expected 33
+     - missing marker "[init] PASS A02: workers that take every free frame are refused"
+     - missing marker "[init] ALL TESTS PASSED"
+     - missing marker "[shell] input was lost; the line was discarded"
+     - unexpected marker "KERNEL PANIC"
+[init] A02: /spaceos/bitflip.slm refused before a single step: a20bcbf9bf011b47868c does not match the manifest
+[init] A02: /spaceos/badmagic.slm refused before a single step: model rejected: not a SpaceLM model
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+!!! KERNEL PANIC !!!
+=== a refused mapping keeps the frames it had taken
+   FAIL boot 1/1 in 58.0s, log: /home/user/Space-OS/build/logs/acceptance.log
+     - QEMU exit code Some(35), expected 33
+     - missing marker "[init] PASS A02: workers that take every free frame are refused"
+     - missing marker "[init] ALL TESTS PASSED"
+     - unexpected marker "[init] FAIL"
+     - unexpected marker "TESTS FAILED"
+[init] A02: /spaceos/bitflip.slm refused before a single step: a20bcbf9bf011b47868c does not match the manifest
+[init] A02: /spaceos/badmagic.slm refused before a single step: model rejected: not a SpaceLM model
+[user] panic: panicked at user/tests/uiworker/src/main.rs:65:17:
+[init] FAIL A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back: 2089722 frames free and 20928 kernel heap bytes in use before the workers, 2077509 and 20928 after
+=== restored:  15 files changed, 419 insertions(+), 40 deletions(-)

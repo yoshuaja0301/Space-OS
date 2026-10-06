@@ -1,0 +1,16 @@
+[package]
+name = "hello"
+description = "Test: prints and exits 0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "hello"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

@@ -1,0 +1,90 @@
+# TLS dan entropi (ADR-0017) — ringkasan sesi verifikasi 2026-10-06
+
+Diambil dari build/logs/acceptance.log dan acceptance.lab.log skenario acceptance (profil
+lab ADR-0003), keluaran cargo xtask build, dan matriks compat. Log lengkap: acceptance.log.
+
+## Gerbang build: instruksi FP/SIMD hanya di tempatnya (ADR-0031)
+== FP/SIMD instructions: the kernel 7 (saving and loading a thread's state), `fault` 8, `fpu` 91, none in the other 28 programs (853224 instructions decoded)
+
+## Kernel
+[kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
+[kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
+[kernel] rtc: 1791300599 s since the Unix epoch (UTC)
+
+## Uji K03 v0.2: register FP/SIMD milik setiap thread (ADR-0031), SYS_RANDOM
+[kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
+[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 533 checks in 400 ms
+[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 528 checks in 400 ms
+[fpu] pattern 4: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 508 checks in 400 ms
+[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 534 checks in 400 ms
+[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 528 checks in 400 ms
+[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 536 checks in 400 ms
+[init] PASS K03: FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps
+[fpu] fresh: x87, MXCSR and XMM0-15 in the initial state
+[init] PASS K03: a new process starts with every FP/SIMD register in its initial state
+[init] SKIP K01: an unmasked SSE exception kills only the process (SIMD floating point) (QEMU TCG never raises #XM: it sets the MXCSR flag and carries on)
+[init] PASS K01: an unmasked x87 exception kills only the process (x87 floating point)
+[init] entropy: available
+[init] PASS K02: random: requests are checked, and refused outright without a source
+[init] random: 4096 bytes, chi-square 270 over 255 degrees of freedom, 16390 of 32768 bits set
+[init] PASS K02: random: 4 KiB look like noise, and no draw repeats
+[kernel] pid 18 'bin/fault' killed (x87 floating-point exception, addr 0x40023c)
+
+## Uji TLS (guest): jawaban bin/tlsprobe dan hasilnya
+[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 27 ms, handshake in 52 ms, 16384 bytes echoed intact, closed with close_notify
+[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it
+[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 37 ms, handshake in 96 ms, 16384 bytes echoed intact, closed with close_notify
+[init] PASS TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it
+[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 24 ms, handshake in 87 ms, 16384 bytes echoed intact, closed with close_notify
+[init] PASS TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it
+[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1791300608 (UNIX), but certificate is not valid after 1791214193 (86415 seconds ago)
+[init] PASS TLS: an expired certificate is refused
+[tlsprobe] refuse on port 445: err wrong-name TLS: invalid peer certificate: NotValidForNameContext { expected: DnsName("tls.lab.test"), presented: ["DnsName(\"other.lab.test\")"] }
+[init] PASS TLS: a certificate for another name is refused
+[tlsprobe] refuse on port 446: err unknown-issuer TLS: invalid peer certificate: UnknownIssuer
+[init] PASS TLS: a certificate from an unknown authority is refused
+[tlsprobe] tamper on port 447: err bad-record TLS: cannot decrypt peer's message
+[init] PASS TLS: a record altered on the way is caught
+[tlsprobe] truncate on port 448: err truncated after 24 bytes of answer: the connection ended without a TLS close_notify
+[init] PASS TLS: a connection cut short without close_notify is reported as truncated
+
+## Layanan TLS lab (server: rustls + ring di host)
+tls-echo: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+tls-echo: 16384 bytes echoed, closed with close_notify both ways
+tls-aes128: handshake complete (TLS13_AES_128_GCM_SHA256)
+tls-aes128: 16384 bytes echoed, closed with close_notify both ways
+tls-aes256: handshake complete (TLS13_AES_256_GCM_SHA384)
+tls-aes256: 16384 bytes echoed, closed with close_notify both ways
+tls-expired: the handshake ended: received fatal alert: CertificateExpired
+tls-wrongname: the handshake ended: received fatal alert: BadCertificate
+tls-untrusted: the handshake ended: received fatal alert: UnknownCA
+tls-tamper: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+tls-tamper: after 23 bytes: received fatal alert: BadRecordMac
+tls-truncate: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
+tls-truncate: answered, and left without close_notify
+
+## Kabel (pcap skenario acceptance)
+tcp: 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:56320 <- 10.0.2.101:7)
+
+## Mesin lain (cargo xtask compat)
+cpu-max      [kernel] entropy: RDRAND | [init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it
+i440fx       [kernel] entropy: none | [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no ent
+no-disk      [kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted | [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no disk, which holds the lab autho
+rtl8139-only [kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted | [init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no netwo
+
+## Gigi uji: spacetls dilemahkan satu per satu (source dipulihkan setelahnya)
+=== accept-any-certificate: xtask exit 1
+[init] FAIL TLS: an expired certificate is refused: expected an answer starting "err expired ", the probe said "ok connected (Some(TLS13_CHACHA20_POLY1305_SHA256)): the certificate was accepted"
+[init] FAIL TLS: a certificate for another name is refused: expected an answer starting "err wrong-name ", the probe said "ok connected (Some(TLS13_CHACHA20_POLY1305_SHA256)): the certificate was accepted"
+[init] FAIL TLS: a certificate from an unknown authority is refused: expected an answer starting "err unknown-issuer ", the probe said "ok connected (Some(TLS13_CHACHA20_POLY1305_SHA256)): the certificate was accepted"
+=== clock-31-days-ahead: xtask exit 1
+[init] FAIL TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it: expected an answer starting "ok TLS13_CHACHA20_POLY1305_SHA256:", the probe said "err expired TLS: invalid peer certificate: certificate 
+[init] FAIL TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it: expected an answer starting "ok TLS13_AES_128_GCM_SHA256:", the probe said "err expired TLS: invalid peer certificate: certificate expired: ver
+[init] FAIL TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it: expected an answer starting "ok TLS13_AES_256_GCM_SHA384:", the probe said "err expired TLS: invalid peer certificate: certificate expired: ver
+[init] FAIL TLS: a certificate for another name is refused: expected an answer starting "err wrong-name ", the probe said "err expired TLS: invalid peer certificate: certificate expired: verification time 1793374475 (UNIX), but certificate 
+[init] FAIL TLS: a certificate from an unknown authority is refused: expected an answer starting "err unknown-issuer ", the probe said "err expired TLS: invalid peer certificate: certificate expired: verification time 1793374476 (UNIX), but
+[init] FAIL TLS: a record altered on the way is caught: expected an answer starting "err bad-record ", the probe said "err expired handshake: TLS: invalid peer certificate: certificate expired: verification time 1793374476 (UNIX), but certi
+[init] FAIL TLS: a connection cut short without close_notify is reported as truncated: expected an answer starting "err truncated ", the probe said "err expired handshake: TLS: invalid peer certificate: certificate expired: verification tim
+=== eof-read-as-close: xtask exit 1
+[init] FAIL TLS: a connection cut short without close_notify is reported as truncated: expected an answer starting "err truncated ", the probe said "ok the answer ended cleanly after 24 bytes"
+=== restored
