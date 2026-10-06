@@ -34,8 +34,8 @@ pub extern "C" fn space_main() -> i32 {
         "ud2" => arch::undefined_instruction(),
         "cli" => arch::privileged_instruction(),
         "int3" => arch::breakpoint(),
-        "sse" => arch::vector_instruction(),
-        "x87" => arch::float_instruction(),
+        "simd_fp" => arch::simd_fp_exception(),
+        "x87_fp" => arch::x87_fp_exception(),
         "tf_syscall" => arch::single_step_into_syscall(),
         "noncanon_rsp_syscall" | "kernel_rsp_syscall" => {
             // The kernel must never touch the user stack pointer: with it pointing at
@@ -102,18 +102,32 @@ mod arch {
         unsafe { core::arch::asm!("int3") };
     }
 
-    pub fn vector_instruction() {
-        // `pxor xmm0, xmm0`, as bytes: this target has no SSE, and the kernel
-        // keeps no vector state per thread, so the unit is off and the
-        // instruction must raise #UD instead of touching another process's XMM0.
-        // SAFETY: deliberate.
-        unsafe { core::arch::asm!(".byte 0x66, 0x0f, 0xef, 0xc0") };
+    /// Unmask SSE's divide-by-zero in MXCSR, then divide 1 by 0: #XM, which must
+    /// end this process (SIMD_FP_ERROR) and nothing else (ADR-0031).
+    pub fn simd_fp_exception() {
+        let mxcsr: u32 = 0x1F80 & !(1 << 9);
+        // SAFETY: deliberate; only this process's own MXCSR and XMM0/XMM1 change.
+        unsafe {
+            core::arch::asm!(
+                "ldmxcsr [{m}]",
+                "pxor xmm1, xmm1",
+                "movd xmm0, {one:e}",
+                "divss xmm0, xmm1",
+                m = in(reg) &mxcsr,
+                one = in(reg) 0x3F80_0000u32,
+                options(nostack, readonly)
+            )
+        };
     }
 
-    pub fn float_instruction() {
-        // `fld1`: with CR0.EM set, any x87 instruction raises #NM.
-        // SAFETY: deliberate.
-        unsafe { core::arch::asm!(".byte 0xd9, 0xe8") };
+    /// Unmask the x87 zero-divide exception, divide 1 by 0 and wait for the unit:
+    /// #MF, which must end this process (X87_FP_ERROR) and nothing else.
+    pub fn x87_fp_exception() {
+        let fcw: u16 = 0x037F & !(1 << 2);
+        // SAFETY: deliberate; only this process's own x87 state changes.
+        unsafe {
+            core::arch::asm!("fldcw [{c}]", "fld1", "fldz", "fdivp", "fwait", c = in(reg) &fcw, options(nostack, readonly))
+        };
     }
 
     pub fn single_step_into_syscall() {
@@ -183,18 +197,14 @@ mod arch {
         unsafe { core::arch::asm!("brk #0") };
     }
 
-    pub fn vector_instruction() {
-        // `eor v0.16b, v0.16b, v0.16b`, as a word: the FP/SIMD unit is trapped
-        // (CPACR_EL1.FPEN = 0), so it must stop this process (NO_FPU) instead of
-        // touching another process's V0.
-        // SAFETY: deliberate.
-        unsafe { core::arch::asm!(".inst 0x6e201c00") };
+    /// AArch64 FP exceptions do not trap unless the core implements the FPCR trap
+    /// enables, which the Cortex-A72 does not: the parent does not ask for these.
+    pub fn simd_fp_exception() {
+        println!("[fault] FP exceptions do not trap on this core");
     }
 
-    pub fn float_instruction() {
-        // `fmov d0, xzr`: the same trap.
-        // SAFETY: deliberate.
-        unsafe { core::arch::asm!(".inst 0x9e6703e0") };
+    pub fn x87_fp_exception() {
+        println!("[fault] AArch64 has no x87");
     }
 
     /// Single-stepping is a debug feature only EL1 can turn on: nothing to try

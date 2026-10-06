@@ -2,17 +2,18 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 398088 bytes, initrd 3991552 bytes, config 91 bytes
-spaceboot: kernel 3 segments, 388 KiB at phys 0x7d51d000, entry 0xffffffff8011a530
+spaceboot: kernel 402184 bytes, initrd 4038144 bytes, config 91 bytes
+spaceboot: kernel 3 segments, 392 KiB at phys 0x7d50e000, entry 0xffffffff8012828c
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 36 memory regions, initrd 3991552 bytes, cmdline 32 bytes, rsdp 0x7f77e014
+[kernel] boot info ok: 34 memory regions, initrd 4038144 bytes, cmdline 32 bytes, rsdp 0x7f77e014
 [kernel] gdt/tss loaded (IST stacks: double fault, NMI, debug, machine check)
 [kernel] idt loaded (256 vectors)
-[kernel] cpu: x87/SSE/AVX off for user space (no per-thread FPU state); RDRAND absent
-[kernel] frames: 2094323 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
+[kernel] cpu: RDRAND absent
+[kernel] frames: 2094311 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -21,10 +22,11 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spaceterm shutdown=acpi"
-[kernel] initrd: 3991552 bytes, 30 files
-[kernel]   bin/init (504792 bytes)
+[kernel] initrd: 4038144 bytes, 31 files
+[kernel]   bin/init (508888 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
+[kernel]   bin/fpu (37520 bytes)
 [kernel]   bin/abi_negative (53912 bytes)
 [kernel]   bin/ipc_echo (21064 bytes)
 [kernel]   bin/quota (25160 bytes)
@@ -34,7 +36,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/blocker (25176 bytes)
 [kernel]   bin/spacecompute (49912 bytes)
 [kernel]   bin/spaceai (74544 bytes)
-[kernel]   bin/spaceshell (49896 bytes)
+[kernel]   bin/spaceshell (53992 bytes)
 [kernel]   bin/uiworker (21064 bytes)
 [kernel]   bin/spacebroker (53936 bytes)
 [kernel]   bin/spaceagent (45776 bytes)
@@ -69,15 +71,15 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791245378 s since the Unix epoch (UTC)
+[kernel] rtc: 1791247564 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (630700 counts)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (636160 counts)
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400f3c, 25 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spaceterm
 [term] Space OS interactive session
 [kernel] entering idle loop; scheduler live
-[kernel] spawn pid 2 'bin/spaceshell': entry=0x4037fc, 28 pages mapped, quota 256 pages
+[kernel] spawn pid 2 'bin/spaceshell': entry=0x4037fc, 29 pages mapped, quota 256 pages
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0
 [shell] session: worker idle (-), commands served 1
@@ -87,5 +89,5 @@ space> quit
 [shell] session closed after 2 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 223 ms, 91 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 153 ms, 9 context switches)
 [kernel] switching off through ACPI S5

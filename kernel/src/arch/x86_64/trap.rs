@@ -90,6 +90,8 @@ fn kill_reason_for(v: u64) -> u32 {
         7 => kill_reason::NO_FPU,
         13 => kill_reason::GENERAL_PROTECTION,
         14 => kill_reason::PAGE_FAULT,
+        16 => kill_reason::X87_FP_ERROR,
+        19 => kill_reason::SIMD_FP_ERROR,
         _ => kill_reason::OTHER_EXCEPTION,
     }
 }

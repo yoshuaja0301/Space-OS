@@ -66,15 +66,21 @@ allowlist ditolak sebelum pencarian DNS atau paket apa pun. Setiap koneksi adala
 channel sendiri yang dibawa `CONNECT`; `libspace::net` membungkusnya sebagai
 `Session` dan `TcpStream`.
 
-## Entropi, unit FPU, dan TLS (ADR-0017)
+## Entropi, state FP/SIMD, dan TLS (ADR-0017, ADR-0031)
 
 `dev::entropy` mengisi `SYS_RANDOM` dari virtio-rng (transport virtio yang sama, polling)
 atau, tanpa itu, dari RDRAND; tanpa keduanya panggilan itu menjawab `NotFound` — tidak ada
-cadangan dari jam atau penghitung. `arch::cpu::init` mematikan unit FPU dan vektor untuk semua
-ring (CR0.EM; CR4.OSFXSR/OSXMMEXCPT/OSXSAVE), karena kernel tidak menyimpan state-nya per
-thread: instruksi x87 berakhir dengan kill `NO_FPU`, instruksi SSE/AVX dengan `INVALID_OPCODE`.
-`cargo xtask build` mendekode setiap instruksi kernel dan program untuk membuktikan tidak ada
-yang membutuhkan unit itu.
+cadangan dari jam atau penghitung.
+
+Register FP/SIMD milik thread yang menulisnya (ADR-0031): setiap thread user punya area state
+(`kernel/src/fpu.rs`), dan penjadwal menyimpan register thread yang ditinggalkan serta memuat
+register thread berikutnya pada setiap switch. x86-64 memakai XSAVE dengan x87, SSE dan AVX bila
+CPU punya (ukuran dari CPUID leaf 0xD), selain itu FXSAVE 512 byte; AArch64 menyimpan V0–V31,
+FPCR dan FPSR. Thread baru mulai dari state awal (FCW 0x37F, MXCSR 0x1F80, register nol).
+Exception FP yang tidak dimask membunuh prosesnya saja (`X87_FP_ERROR`, `SIMD_FP_ERROR`).
+Kernel dan program biasa tetap soft-float; `cargo xtask build` mendekode setiap instruksi dan
+menahan setiap biner pada kebijakannya: kernel hanya instruksi simpan/muat state, `bin/fpu`
+(uji K03) bebas, `bin/fault` tepat delapan instruksi exception yang disengaja, program lain nol.
 
 ```
 program ──► spacetls (pustaka) ──► rustls 0.23 (no_std, unbuffered) + penyedia RustCrypto

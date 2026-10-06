@@ -2,14 +2,15 @@ UEFI firmware (version 2024.02-2ubuntu0.10 built at 15:40:28 on Sep 23 2026)
 BdsDxe: loading Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 BdsDxe: starting Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 279616 bytes, initrd 3243520 bytes, config 94 bytes
-spaceboot: kernel 3 segments, 280 KiB at phys 0x13c3a8000, entry 0xffffffff80116008
+spaceboot: kernel 279616 bytes, initrd 3281408 bytes, config 94 bytes
+spaceboot: kernel 3 segments, 280 KiB at phys 0x13c39e000, entry 0xffffffff801239f0
 spaceboot: linear map 4096 MiB of RAM below 0x140000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 0x0 @ 0x0
 spaceboot: exiting boot services and jumping to kernel
 
 spacekernel 0.1.0: Space OS kernel booting
-[kernel] boot info ok: 22 memory regions, initrd 3243520 bytes, cmdline 35 bytes, rsdp 0x13c760018
-[kernel] frames: 1046203 usable (4086 MiB), bitmap 160 KiB at 0x40000000; reserved 5 MiB, kernel 3 MiB, acpi 0 MiB, mmio 64 MiB
+[kernel] boot info ok: 22 memory regions, initrd 3281408 bytes, cmdline 35 bytes, rsdp 0x13c760018
+[kernel] fpu: V0-V31, FPCR and FPSR per thread, 528 bytes
+[kernel] frames: 1046193 usable (4086 MiB), bitmap 160 KiB at 0x40000000; reserved 5 MiB, kernel 3 MiB, acpi 0 MiB, mmio 64 MiB
 [kernel] paging: kernel PML4 at 0x40028000; linear map 5 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -19,10 +20,11 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: none usable; serial console only
 [kernel] cmdline: "init=bin/spaceterm exit=semihosting"
-[kernel] initrd: 3243520 bytes, 30 files
-[kernel]   bin/init (405936 bytes)
+[kernel] initrd: 3281408 bytes, 31 files
+[kernel]   bin/init (410032 bytes)
 [kernel]   bin/hello (16736 bytes)
 [kernel]   bin/fault (20832 bytes)
+[kernel]   bin/fpu (29024 bytes)
 [kernel]   bin/abi_negative (41392 bytes)
 [kernel]   bin/ipc_echo (16736 bytes)
 [kernel]   bin/quota (20832 bytes)
@@ -32,7 +34,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/blocker (24928 bytes)
 [kernel]   bin/spacecompute (37296 bytes)
 [kernel]   bin/spaceai (57776 bytes)
-[kernel]   bin/spaceshell (41392 bytes)
+[kernel]   bin/spaceshell (45488 bytes)
 [kernel]   bin/uiworker (16736 bytes)
 [kernel]   bin/spacebroker (41392 bytes)
 [kernel]   bin/spaceagent (37296 bytes)
@@ -71,7 +73,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscalls: svc from EL0 (ABI v0)
 [kernel] clock: generic timer count at 62500000 Hz, 64 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791245985 s since the Unix epoch (UTC)
+[kernel] rtc: 1791248174 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: PSCI SYSTEM_OFF through HVC
 [kernel] smp: 4 CPUs online (boot CPU MPIDR 0x0; started 0x1 0x2 0x3), GICv3, AP timer 100 Hz
@@ -79,7 +81,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] init spawned as pid 1 from bin/spaceterm
 [kernel] entering idle loop; scheduler live
 [term] Space OS interactive session
-[kernel] spawn pid 2 'bin/spaceshell': entry=0x402cb8, 27 pages mapped, quota 256 pages
+[kernel] spawn pid 2 'bin/spaceshell': entry=0x402cb8, 28 pages mapped, quota 256 pages
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0
 [shell] session: worker idle (-), commands served 1
@@ -106,17 +108,17 @@ space> ls /spaceos
 [shell]   PKG                 0 dir
 space> run hang
 [kernel] spawn pid 3 'bin/uiworker': entry=0x4003b4, 19 pages mapped, quota 128 pages
+[worker] job 'hang' starting
+[worker] job 'hang' is wedged and never calls the kernel again
 [shell] started worker 'hang'
 [shell] session: worker running (hang), commands served 5
-[worker] job 'hang' starting
-space> [worker] job 'hang' is wedged and never calls the kernel again
-status
+space> status
 [shell] worker running (hang), last exit code 0, commands served 6
 space> stop
 [kernel] pid 3 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
 [shell] session: worker stopped (hang), commands served 7
-[shell] Stop: worker 'hang' was killed after 6 ms
+[shell] Stop: worker 'hang' was killed after 4 ms
 space> status
 [shell] worker stopped (hang), last exit code -1, commands served 8
 space> quit
@@ -124,4 +126,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5727 ms, 5527 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5724 ms, 5623 context switches)

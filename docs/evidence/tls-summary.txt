@@ -3,32 +3,41 @@
 Diambil dari build/logs/acceptance.log dan acceptance.lab.log skenario acceptance (profil
 lab ADR-0003), keluaran cargo xtask build, dan matriks compat. Log lengkap: acceptance.log.
 
-## Gerbang build: tidak ada instruksi FPU/vektor
-== no x87/MMX/SSE/AVX instructions in the kernel and 26 programs, besides the two `fault` runs on purpose (798729 instructions decoded)
+## Gerbang build: instruksi FP/SIMD hanya di tempatnya (ADR-0031)
+== FP/SIMD instructions: the kernel 6 (saving and loading a thread's state), `fault` 8, `fpu` 91, none in the other 25 programs (806353 instructions decoded)
 
 ## Kernel
 [kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
 [kernel] entropy: virtio-rng
-[kernel] rtc: 1791245112 s since the Unix epoch (UTC)
+[kernel] rtc: 1791247292 s since the Unix epoch (UTC)
 
-## Uji K02: unit FPU mati, SYS_RANDOM
-[init] PASS K02: an SSE instruction kills the process instead of sharing XMM registers
-[init] PASS K02: an x87 instruction kills the process (no FPU for user space)
+## Uji K03 v0.2: register FP/SIMD milik setiap thread (ADR-0031), SYS_RANDOM
+[kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
+[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 776 checks in 400 ms
+[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 758 checks in 400 ms
+[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 777 checks in 400 ms
+[fpu] pattern 4: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 798 checks in 400 ms
+[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 756 checks in 400 ms
+[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 760 checks in 400 ms
+[init] PASS K03: FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps
+[fpu] fresh: x87, MXCSR and XMM0-15 in the initial state
+[init] PASS K03: a new process starts with every FP/SIMD register in its initial state
+[init] SKIP K01: an unmasked SSE exception kills only the process (SIMD floating point) (QEMU TCG never raises #XM: it sets the MXCSR flag and carries on)
+[init] PASS K01: an unmasked x87 exception kills only the process (x87 floating point)
 [init] entropy: available
 [init] PASS K02: random: requests are checked, and refused outright without a source
-[init] random: 4096 bytes, chi-square 250 over 255 degrees of freedom, 16454 of 32768 bits set
+[init] random: 4096 bytes, chi-square 243 over 255 degrees of freedom, 16498 of 32768 bits set
 [init] PASS K02: random: 4 KiB look like noise, and no draw repeats
-[kernel] pid 11 'bin/fault' killed (invalid opcode, addr 0x400466)
-[kernel] pid 12 'bin/fault' killed (x87 instruction without an FPU, addr 0x4001bd)
+[kernel] pid 18 'bin/fault' killed (x87 floating-point exception, addr 0x40023c)
 
 ## Uji TLS (guest): jawaban bin/tlsprobe dan hasilnya
-[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 1021 ms, handshake in 56 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 1049 ms, handshake in 41 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 27 ms, handshake in 71 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 20 ms, handshake in 54 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 21 ms, handshake in 50 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 19 ms, handshake in 63 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1791245120 (UNIX), but certificate is not valid after 1791158709 (86411 seconds ago)
+[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1791247300 (UNIX), but certificate is not valid after 1791160889 (86411 seconds ago)
 [init] PASS TLS: an expired certificate is refused
 [tlsprobe] refuse on port 445: err wrong-name TLS: invalid peer certificate: NotValidForNameContext { expected: DnsName("tls.lab.test"), presented: ["DnsName(\"other.lab.test\")"] }
 [init] PASS TLS: a certificate for another name is refused

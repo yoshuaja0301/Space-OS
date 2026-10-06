@@ -21,6 +21,7 @@ mod clock;
 mod cmdline;
 mod dev;
 mod fb;
+mod fpu;
 mod fs;
 mod initrd;
 mod input;

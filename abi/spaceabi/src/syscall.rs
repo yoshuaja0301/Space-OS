@@ -238,9 +238,15 @@ pub mod kill_reason {
     pub const DEBUG: u32 = 7;
     /// `int3` raised in ring 3.
     pub const BREAKPOINT: u32 = 8;
-    /// An x87 instruction (`#NM`): user space has no floating-point unit, since the
-    /// kernel keeps no FPU state per thread.
+    /// `#NM`: an FP/SIMD instruction while the unit is unavailable. Since ADR-0031
+    /// every thread has its own FP/SIMD state, so this is no longer expected.
     pub const NO_FPU: u32 = 9;
+    /// `#MF`: an unmasked x87 floating-point exception (the program unmasked it in
+    /// its control word).
+    pub const X87_FP_ERROR: u32 = 10;
+    /// `#XM`: an unmasked SSE/AVX floating-point exception (the program unmasked it
+    /// in MXCSR).
+    pub const SIMD_FP_ERROR: u32 = 11;
 
     pub const fn name(r: u32) -> &'static str {
         match r {
@@ -253,7 +259,9 @@ pub mod kill_reason {
             SIGNAL => "killed",
             DEBUG => "debug trap",
             BREAKPOINT => "breakpoint",
-            NO_FPU => "x87 instruction without an FPU",
+            NO_FPU => "FP/SIMD instruction without the unit",
+            X87_FP_ERROR => "x87 floating-point exception",
+            SIMD_FP_ERROR => "SIMD floating-point exception",
             _ => "unknown",
         }
     }

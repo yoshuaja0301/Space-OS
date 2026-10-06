@@ -132,6 +132,36 @@ fn fault_case_any(mode: &str, reasons: &[u32]) -> Result<(), String> {
     if reasons.iter().any(|&r| st.is_killed_by(r)) { Ok(()) } else { expect_killed(mode, st, reasons[0]) }
 }
 
+/// Running on QEMU's TCG emulator: its hypervisor leaf says "TCGTCGTCGTCG".
+fn qemu_tcg() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use core::arch::x86_64::__cpuid;
+        if __cpuid(1).ecx & (1 << 31) == 0 {
+            return false;
+        }
+        let l = __cpuid(0x4000_0000);
+        let mut id = [0u8; 12];
+        id[..4].copy_from_slice(&l.ebx.to_le_bytes());
+        id[4..8].copy_from_slice(&l.ecx.to_le_bytes());
+        id[8..].copy_from_slice(&l.edx.to_le_bytes());
+        &id == b"TCGTCGTCGTCG"
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
+    }
+}
+
+/// Start `bin/fpu` in `mode`: the process and the channel its mode went down.
+fn spawn_fpu(mode: &str) -> Result<(Handle, Handle), String> {
+    let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
+    let p = sys::spawn(ROOT, "bin/fpu", CHILD_QUOTA, Some(theirs))
+        .map_err(|e| alloc::format!("spawn fpu: {e}"))?;
+    sys::send(mine, mode.as_bytes(), None).map_err(|e| alloc::format!("send mode: {e}"))?;
+    Ok((p, mine))
+}
+
 fn cycle() -> Result<(), String> {
     let (mine, theirs) = sys::channel_create().map_err(|e| alloc::format!("channel: {e}"))?;
     let p = sys::spawn(ROOT, "bin/worker", CHILD_QUOTA, Some(theirs))
@@ -822,24 +852,55 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         "int3 in ring 3 kills the process (breakpoint)"
     };
     r.run("K02", breakpoint, || fault_case("int3", kill_reason::BREAKPOINT));
-    // The kernel keeps no FPU or vector registers per thread, so the units are off:
-    // an instruction that would have used them dies instead of reading what another
-    // process left in them. On AArch64 both are the one trapped FP/SIMD unit.
-    if AARCH64 {
-        r.run("K02", "a SIMD instruction kills the process instead of sharing V registers", || {
-            fault_case("sse", kill_reason::NO_FPU)
-        });
-        r.run("K02", "an FP instruction kills the process (no FPU for user space)", || {
-            fault_case("x87", kill_reason::NO_FPU)
-        });
-    } else {
-        r.run("K02", "an SSE instruction kills the process instead of sharing XMM registers", || {
-            fault_case("sse", kill_reason::INVALID_OPCODE)
-        });
-        r.run("K02", "an x87 instruction kills the process (no FPU for user space)", || {
-            fault_case("x87", kill_reason::NO_FPU)
-        });
-    }
+    // Every thread's FP/SIMD registers are its own (ADR-0031, PRD v0.2 K03): saved
+    // and loaded on every switch, and a new process starts from the initial state.
+    r.run(
+        "K03",
+        "FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps",
+        || {
+            let mut running = Vec::new();
+            for seed in 1..=6u8 {
+                running.push(spawn_fpu(&alloc::format!("pattern {seed}"))?);
+            }
+            let mut failed = None;
+            for (seed, (p, chan)) in (1u8..).zip(running) {
+                let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+                sys::handle_close(p).ok();
+                sys::handle_close(chan).ok();
+                if failed.is_none()
+                    && let Err(e) = expect_exit(&alloc::format!("fpu pattern {seed}"), st, 0)
+                {
+                    failed = Some(e);
+                }
+            }
+            failed.map_or(Ok(()), Err)
+        },
+    );
+    r.run("K03", "a new process starts with every FP/SIMD register in its initial state", || {
+        let (p, chan) = spawn_fpu("fresh")?;
+        let st = sys::wait(p).map_err(|e| alloc::format!("wait: {e}"))?;
+        sys::handle_close(p).ok();
+        sys::handle_close(chan).ok();
+        expect_exit("fpu fresh", st, 0)
+    });
+    r.run_if(
+        !AARCH64 && !qemu_tcg(),
+        if AARCH64 {
+            "FP exceptions do not trap on a Cortex-A72 (no FPCR trap enables)"
+        } else {
+            "QEMU TCG never raises #XM: it sets the MXCSR flag and carries on"
+        },
+        "K01",
+        "an unmasked SSE exception kills only the process (SIMD floating point)",
+        || fault_case("simd_fp", kill_reason::SIMD_FP_ERROR),
+    );
+    r.run_if(
+        !AARCH64,
+        "AArch64 has no x87",
+        "K01",
+        "an unmasked x87 exception kills only the process (x87 floating point)",
+        || fault_case("x87_fp", kill_reason::X87_FP_ERROR),
+    );
     r.run_if(
         !AARCH64,
         "single-step is an EL1 debug feature: nothing to try from EL0 on AArch64",

@@ -12,12 +12,14 @@ const SCTLR_WXN: u64 = 1 << 19;
 const SCTLR_A: u64 = 1 << 1;
 /// SCTLR_EL1.SPAN: when clear, taking an exception sets PSTATE.PAN.
 const SCTLR_SPAN: u64 = 1 << 23;
+/// CPACR_EL1.FPEN = 0b11: FP/SIMD instructions trap at neither EL0 nor EL1.
+const CPACR_FPEN_ALL: u64 = 0b11 << 20;
 
-/// Trap FP/SIMD at EL1 and EL0 (`CPACR_EL1.FPEN = 0`): the kernel keeps no FP state
-/// per thread, so a process that uses the unit is stopped (`kill_reason::NO_FPU`)
-/// instead of corrupting another's registers. The kernel itself is built
-/// soft-float and never touches it. EL0 may neither mask interrupts nor maintain
-/// caches; whatever the firmware left there, those are privileged from here on.
+/// FP/SIMD for EL0 (`CPACR_EL1.FPEN = 0b11`): each thread's V registers, FPCR and
+/// FPSR are its own (`super::fpu`, ADR-0031). The kernel itself is built soft-float
+/// and touches the unit only to save and load that state. EL0 may neither mask
+/// interrupts nor maintain caches; whatever the firmware left there, those are
+/// privileged from here on.
 ///
 /// The kernel reads and writes user buffers directly, after checking them against
 /// the process's page tables (as on x86-64), so Privileged Access Never stays off:
@@ -34,10 +36,11 @@ pub fn init() {
     // bits cleared only take permissions away from EL0.
     unsafe {
         asm!(
-            "msr cpacr_el1, xzr",
-            "msr sctlr_el1, {}",
+            "msr cpacr_el1, {fpen}",
+            "msr sctlr_el1, {sctlr}",
             "isb",
-            in(reg) sctlr,
+            fpen = in(reg) CPACR_FPEN_ALL,
+            sctlr = in(reg) sctlr,
             options(nomem, nostack)
         )
     };

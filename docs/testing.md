@@ -71,7 +71,8 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | K02 | proses hello keluar 0 | `bin/hello` |
 | K02 | spawn program tak ada → `NotFound`; spawn dengan kuota 4 halaman → `Quota` | — |
 | K02 | tulis memori kernel / baca NULL / eksekusi stack NX / lompat ke alamat kernel → dibunuh `PAGE_FAULT`; `div` → `DIVIDE_ERROR`; `ud2` → `INVALID_OPCODE`; `cli` → `GENERAL_PROTECTION`; `int3` → `BREAKPOINT`; lompat ke alamat non-kanonik → `GENERAL_PROTECTION` (CPU asli) atau `PAGE_FAULT` (TCG) | `bin/fault` |
-| K02 | instruksi SSE (`pxor`) → `INVALID_OPCODE`, instruksi x87 (`fld1`) → `NO_FPU`: unit FPU/vektor dimatikan karena kernel tidak menyimpan state-nya per thread, jadi register tidak pernah dibagi antarproses (ADR-0017) | `bin/fault` |
+| K03 (v0.2) | enam `bin/fpu pattern <seed>` berjalan bersamaan: setiap register vektor (XMM0–15, YMM0–15 dengan AVX, V0–V31 di AArch64), MXCSR dan control word x87 (FPCR/FPSR) dan puncak stack x87 berisi nilai dari seed, dan selama 400 ms — berputar agar dipreempt, tidur agar menyerahkan CPU — setiap putaran memeriksa semuanya masih tepat (± 600 pemeriksaan per proses); `bin/fpu fresh` memeriksa proses baru mulai dengan state awal (FCW 0x37F, MXCSR 0x1F80, tag kosong, register nol) (ADR-0031) | `bin/fpu` |
+| K01 (v0.2) | exception x87 yang tidak dimask (`fdivp` 1/0 lalu `fwait`) → proses dibunuh `X87_FP_ERROR`, kernel lanjut; exception SSE (`divss` 1/0 dengan ZM clear) → `SIMD_FP_ERROR`, dilewati dengan alasan di QEMU TCG (TCG tidak pernah menjebak #XM) dan di AArch64 | `bin/fault` |
 | K02 | TF disetel lalu `syscall`: `#DB` mendarat di ring 0 → kernel selamat, proses dimatikan `DEBUG` | `bin/fault` |
 | K02 | `syscall` dengan `rsp` non-kanonik dan dengan `rsp` = alamat kernel → kembali normal, proses keluar 0 | `bin/fault` |
 | K02 | ELF rusak dari initrd (`fixtures/bad_entry`, `bad_magic`, `truncated`, `huge_segment`) → `NoExec`/`Quota`, tanpa crash | fixture dibuat `xtask` dari `hello` |
@@ -314,14 +315,19 @@ Kernel, bootloader dan **semua** program user dibangun untuk AArch64 dan di-boot
 
 Uji yang di AArch64 tidak punya padanan dilewati dengan alasan: pembagian dengan nol (tidak menjebak), TF/single-step (fitur debug EL1), injeksi PS/2 (keyboard USB diuji dengan `arm64-terminal-usb`). Uji SIMD/FP mengharapkan `NO_FPU` (satu unit FP/SIMD yang dijebak). Gerbang "tanpa FPU" untuk A64 memeriksa setiap word segmen executable: pemrosesan data FP/SIMD, load/store register FP/SIMD, akses FPCR/FPSR; `fault` memuat tepat dua dengan sengaja.
 
-## Gerbang build: tidak ada instruksi FPU atau vektor
+## Gerbang build: instruksi FP/SIMD hanya di tempatnya (ADR-0031)
 
 `cargo xtask build` mendekode setiap instruksi di segmen executable kernel dan semua program
-(`xtask/src/nofpu.rs`, iced-x86) dan gagal bila ada instruksi x87, MMX, SSE, AVX, AES-NI,
-PCLMUL, SHA, FXSR atau XSAVE, register vektor/FPU sebagai operand, atau byte yang bukan
-instruksi. Unit-unit itu dimatikan kernel, jadi instruksi seperti itu di kernel berarti panic
-dan di program berarti program mati. Pengecualiannya tepat dua instruksi yang disengaja di
-`bin/fault` (`fld1`, `pxor`); pemeriksa terbukti menemukan keduanya.
+(`xtask/src/nofpu.rs`, iced-x86; word A64 di AArch64) dan mencari instruksi x87, MMX, SSE, AVX,
+AES-NI, PCLMUL, SHA, FXSR atau XSAVE, register vektor/FPU sebagai operand, atau byte yang bukan
+instruksi. Setiap biner ditahan pada kebijakannya, dan build gagal bila melanggarnya: **kernel**
+hanya instruksi yang menyimpan dan memuat state thread (FXSAVE64, FXRSTOR64, XSAVE64, XRSTOR64,
+XSETBV; di AArch64 load/store register FP/SIMD dan FPCR/FPSR, tanpa aritmetika); **`bin/fpu`**
+(uji K03) berapa pun; **`bin/fault`** tepat delapan (LDMXCSR, PXOR, MOVD, DIVSS, FLDCW, FLD1,
+FLDZ, FDIVP) di x86-64 dan nol di AArch64; **setiap program lain** nol — tetap soft-float, agar
+baseline inferensi sama bit demi bit di kedua arsitektur. Baris build menyebut hitungannya:
+`the kernel 6 (saving and loading a thread's state), fault 8, fpu 91, none in the other 25
+programs`.
 
 ## Gerbang build: kontras warna desktop
 

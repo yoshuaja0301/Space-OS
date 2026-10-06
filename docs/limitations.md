@@ -133,7 +133,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - TLS 1.3 saja (ADR-0017): tanpa TLS 1.2, tanpa resumption dan 0-RTT, tanpa sertifikat klien. Server yang hanya berbicara TLS 1.2 tidak bisa dicapai.
 - **Tidak ada root CA bawaan dan belum ada trust store sistem**: setiap program menyerahkan sendiri otoritas yang dipercayanya. Di lab itu satu otoritas yang dibuat baru setiap build data disk. Tidak ada pemeriksaan pencabutan (CRL/OCSP) maupun Certificate Transparency.
 - Penyedia kripto `rustls-rustcrypto` berlabel *alpha* dan belum diaudit sebagai satu kesatuan; primitifnya crate RustCrypto yang luas dipakai. Batas record AES-GCM yang tidak diberikannya dipasang oleh `spacetls`. RSA hanya dipakai untuk verifikasi (kunci publik), jadi advisory Marvin (RUSTSEC-2023-0071) tidak berlaku.
-- Kripto berjalan **tanpa instruksi vektor**: unit FPU/SSE dimatikan karena kernel tidak menyimpan state-nya per thread. Handshake 40–70 ms di TCG; throughput dibatasi AES/ChaCha perangkat lunak dan pesan channel 255 byte.
+- Kripto berjalan **tanpa instruksi vektor**: state FP/SIMD kini milik setiap thread (ADR-0031), tetapi program biasa tetap dibangun soft-float dan gerbang build menolak instruksi vektor di dalamnya. Handshake 40–70 ms di TCG; throughput dibatasi AES/ChaCha perangkat lunak dan pesan channel 255 byte.
 - Waktu untuk memeriksa sertifikat berasal dari RTC yang dibaca sekali saat boot, tanpa sinkronisasi jaringan. Jam yang maju membuat sertifikat terlihat kedaluwarsa (gagal tertutup); jam yang mundur akan menerima sertifikat yang sudah kedaluwarsa sejak itu.
 - Tanpa virtio-rng dan tanpa RDRAND tidak ada entropi sama sekali: `SYS_RANDOM` menjawab `NotFound` dan semua yang membutuhkan kunci dilewati. Tidak ada kumpulan entropi (pool) atau DRBG di kernel; setiap permintaan diisi langsung dari perangkat.
 
@@ -155,6 +155,13 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Pembagian dengan nol tidak menjebak di AArch64 dan single-step tidak bisa diminta dari EL0: dua uji K02 itu dilewati dengan alasan.
 - DMA dianggap koheren dengan cache (benar untuk PCIe di `virt`); SoC yang DMA-nya tidak men-snoop cache butuh pemeliharaan cache yang belum ada. Penghalang `dsb sy` sebelum memberi tahu perangkat ada, tetapi di TCG tidak bisa dibuktikan perlu.
 - Overflow stack kernel tidak punya stack terpisah untuk dilaporkan (x86-64 punya IST).
+
+## State FP/SIMD (ADR-0031)
+
+- Disimpan dan dimuat **pada setiap switch** antar thread user (512–832 byte di x86-64, 528 byte di AArch64), juga untuk thread yang tidak pernah memakai unit itu; belum XSAVEOPT/XSAVEC atau pemuatan lazy.
+- Komponen XSAVE yang dinyalakan hanya x87, SSE dan AVX: AVX-512, AMX dan lainnya mati, dan instruksinya #UD.
+- Program biasa tetap soft-float; hanya `bin/fpu` (uji) dan `bin/fault` yang memakai unit itu. SIMD untuk inferensi menunggu pembuktian numerik (PRD v0.2 §12).
+- #XM (exception SSE/AVX yang tidak dimask) tidak teruji di QEMU TCG, yang menyetel flag MXCSR tanpa menjebak; di AArch64 exception FP tidak menjebak sama sekali (Cortex-A72 tanpa trap enable FPCR).
 
 ## USB (ADR-0030)
 

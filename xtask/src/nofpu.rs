@@ -1,13 +1,20 @@
-//! No x87, MMX, SSE or AVX instruction anywhere the machine runs our code
-//! (ADR-0017), and on AArch64 no FP/SIMD instruction (ADR-0028).
+//! FP/SIMD instructions only where they belong (ADR-0031): x87, MMX, SSE and AVX on
+//! x86-64, FP/SIMD on AArch64.
 //!
-//! The kernel keeps no floating-point or vector state per thread and switches those
-//! units off (CR0.EM set; CR4.OSFXSR, OSXMMEXCPT and OSXSAVE clear), so such an
-//! instruction faults: in a program it kills the program, in the kernel it is a
-//! panic. Both targets are soft-float, so the compiler never picks one, and the
-//! cryptography is forced onto its software paths -- this check makes sure nothing
-//! brought one in anyway (an assembly block, a library that detects the CPU at run
-//! time), by decoding every instruction of every executable segment.
+//! Every thread's FP/SIMD registers are its own now, but the kernel and every
+//! ordinary program are still built soft-float: the kernel because nothing may touch
+//! a thread's registers except their save and load on a switch, the programs because
+//! the inference baseline is bit for bit the same on both architectures in software
+//! FP. This check makes sure nothing brought such an instruction in anyway (an
+//! assembly block, a library that detects the CPU at run time), by decoding every
+//! instruction of every executable segment, and holds each binary to its policy:
+//!
+//! - the kernel: only the instructions that save and load a thread's state
+//!   (FXSAVE/FXRSTOR/XSAVE/XRSTOR/XSETBV; on AArch64 FP/SIMD register loads and
+//!   stores and FPCR/FPSR access, never arithmetic);
+//! - `fpu`, the K03 test of that state: any;
+//! - `fault`: exactly the instructions it runs to raise FP exceptions on purpose;
+//! - every other program: none.
 
 use iced_x86::{Decoder, DecoderOptions, Formatter, GasFormatter, Instruction, OpKind, Register};
 use spaceabi::elf::Elf;
@@ -63,17 +70,80 @@ fn forbidden(i: &Instruction) -> Option<String> {
     None
 }
 
-/// Programs that use the switched-off units on purpose, and exactly how many such
-/// instructions each contains: `fault` runs one x87 and one SSE instruction to prove
-/// the kernel stops the program rather than crashing (K02).
-const ON_PURPOSE: &[(&str, usize)] = &[("fault", 2)];
+/// What a binary may contain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Policy {
+    /// Not one FP/SIMD instruction.
+    None,
+    /// Exactly this many.
+    Exactly(usize),
+    /// As many as it likes: the test of FP/SIMD state.
+    Any,
+    /// Only saving and loading a thread's state.
+    StateOnly,
+}
+
+/// x86-64: `fault` raises an SSE exception (LDMXCSR, PXOR, MOVD, DIVSS) and an x87
+/// one (FLDCW, FLD1, FLDZ, FDIVP; the FWAIT after them is no FPU instruction to the
+/// decoder) on purpose.
+fn policy_x86(name: &str) -> Policy {
+    match name {
+        "spacekernel" => Policy::StateOnly,
+        "fpu" => Policy::Any,
+        "fault" => Policy::Exactly(8),
+        _ => Policy::None,
+    }
+}
+
+/// AArch64: FP exceptions do not trap there, so `fault` has none.
+fn policy_a64(name: &str) -> Policy {
+    match name {
+        "spacekernel" => Policy::StateOnly,
+        "fpu" => Policy::Any,
+        _ => Policy::None,
+    }
+}
+
+/// The x86-64 instructions that save and load FP/SIMD state, and nothing else.
+fn state_instruction(i: &Instruction) -> bool {
+    use iced_x86::Mnemonic::{Fxrstor64, Fxsave64, Xrstor64, Xsave64, Xsetbv};
+    matches!(i.mnemonic(), Fxsave64 | Fxrstor64 | Xsave64 | Xrstor64 | Xsetbv)
+}
+
+/// What a binary turned out to contain, for the build's summary line.
+pub struct Found {
+    pub decoded: usize,
+    pub fp: usize,
+}
+
+fn judge(name: &str, policy: Policy, found: &[String], disallowed: &[String]) -> Result<(), String> {
+    let shown = |v: &[String]| v.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
+    match policy {
+        Policy::Any => Ok(()),
+        Policy::StateOnly if disallowed.is_empty() => Ok(()),
+        Policy::StateOnly => Err(format!(
+            "{name}: {} FP/SIMD instruction(s) besides saving and loading a thread's state: {}",
+            disallowed.len(),
+            shown(disallowed)
+        )),
+        Policy::None if found.is_empty() => Ok(()),
+        Policy::Exactly(n) if found.len() == n => Ok(()),
+        Policy::None | Policy::Exactly(_) => Err(format!(
+            "{name}: {} FP/SIMD instruction(s), expected {}: {}",
+            found.len(),
+            if let Policy::Exactly(n) = policy { n } else { 0 },
+            shown(found)
+        )),
+    }
+}
 
 /// Decode every executable segment of `image`: how many instructions there are,
 /// and each one that needs the switched-off units (or is no instruction at all).
-fn scan(image: &[u8]) -> Result<(usize, Vec<String>), String> {
+fn scan(image: &[u8]) -> Result<(usize, Vec<String>, Vec<String>), String> {
     let elf = Elf::parse(image).map_err(|e| format!("not an executable: {e:?}"))?;
     let mut count = 0;
     let mut found = Vec::new();
+    let mut not_state = Vec::new();
     let mut fmt = GasFormatter::new();
     for seg in elf.load_segments() {
         let seg = seg.map_err(|e| format!("{e:?}"))?;
@@ -89,34 +159,33 @@ fn scan(image: &[u8]) -> Result<(usize, Vec<String>), String> {
             if let Some(why) = why {
                 let mut text = String::new();
                 fmt.format(&i, &mut text);
-                found.push(format!("{:#x}: {text} ({why})", i.ip()));
+                let line = format!("{:#x}: {text} ({why})", i.ip());
+                if i.is_invalid() || !state_instruction(&i) {
+                    not_state.push(line.clone());
+                }
+                found.push(line);
             }
         }
     }
-    Ok((count, found))
+    Ok((count, found, not_state))
 }
 
-/// Check the executable `name`: returns how many instructions it has.
-pub fn check(name: &str, image: &[u8]) -> Result<usize, String> {
-    let (count, found) = scan(image).map_err(|e| format!("{name}: {e}"))?;
-    let expected = ON_PURPOSE.iter().find(|(p, _)| *p == name).map_or(0, |(_, n)| *n);
-    if found.len() == expected {
-        return Ok(count);
-    }
-    let shown = found.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
-    Err(format!(
-        "{name}: {} instruction(s) that need the FPU or vector units, which are off (expected {expected}): {shown}",
-        found.len()
-    ))
+/// Check the executable `name` against its policy.
+pub fn check(name: &str, image: &[u8]) -> Result<Found, String> {
+    let (decoded, found, not_state) = scan(image).map_err(|e| format!("{name}: {e}"))?;
+    judge(name, policy_x86(name), &found, &not_state)?;
+    Ok(Found { decoded, fp: found.len() })
 }
+
+const A64_DATA_PROCESSING: &str = "FP/SIMD data processing";
 
 /// The FP/SIMD instructions of an AArch64 word, if it is one: the scalar FP and
 /// Advanced SIMD data-processing group, FP/SIMD register loads and stores, and
-/// reads or writes of FPCR and FPSR. With `CPACR_EL1.FPEN = 0` each of them traps.
+/// reads or writes of FPCR and FPSR.
 fn a64_forbidden(w: u32) -> Option<&'static str> {
     // op0 (bits 28:25) = x111: data processing, scalar FP and Advanced SIMD.
     if (w >> 25) & 0b0111 == 0b0111 {
-        return Some("FP/SIMD data processing");
+        return Some(A64_DATA_PROCESSING);
     }
     // op0 = x1x0: loads and stores; bit 26 (V) set means FP/SIMD registers.
     if w & (1 << 27) != 0 && w & (1 << 25) == 0 && w & (1 << 26) != 0 {
@@ -130,11 +199,12 @@ fn a64_forbidden(w: u32) -> Option<&'static str> {
 }
 
 /// [`check`] for an AArch64 executable: every word of every executable segment.
-pub fn check_a64(name: &str, image: &[u8]) -> Result<usize, String> {
+pub fn check_a64(name: &str, image: &[u8]) -> Result<Found, String> {
     let elf = Elf::parse_for(image, spaceabi::elf::EM_AARCH64)
         .map_err(|e| format!("{name}: not an AArch64 executable: {e:?}"))?;
     let mut count = 0;
     let mut found = Vec::new();
+    let mut not_state = Vec::new();
     for seg in elf.load_segments() {
         let seg = seg.map_err(|e| format!("{name}: {e:?}"))?;
         if !seg.executable() {
@@ -144,17 +214,16 @@ pub fn check_a64(name: &str, image: &[u8]) -> Result<usize, String> {
             let w = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
             count += 1;
             if let Some(why) = a64_forbidden(w) {
-                found.push(format!("{:#x}: {w:#010x} ({why})", seg.vaddr + 4 * i as u64));
+                let line = format!("{:#x}: {w:#010x} ({why})", seg.vaddr + 4 * i as u64);
+                // Saving and loading state moves registers to and from memory and
+                // reads or writes FPCR/FPSR; it never computes.
+                if why == A64_DATA_PROCESSING {
+                    not_state.push(line.clone());
+                }
+                found.push(line);
             }
         }
     }
-    let expected = ON_PURPOSE.iter().find(|(p, _)| *p == name).map_or(0, |(_, n)| *n);
-    if found.len() == expected {
-        return Ok(count);
-    }
-    let shown = found.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
-    Err(format!(
-        "{name}: {} FP/SIMD instruction(s), and the unit is trapped (expected {expected}): {shown}",
-        found.len()
-    ))
+    judge(name, policy_a64(name), &found, &not_state)?;
+    Ok(Found { decoded: count, fp: found.len() })
 }

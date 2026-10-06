@@ -32,6 +32,7 @@ use spaceabi::error::Error;
 use crate::arch;
 use crate::arch::context;
 use crate::arch::percpu::{self, MAX_CPUS};
+use crate::fpu::FpuArea;
 use crate::mm::kstack::KernelStack;
 use crate::proc::Process;
 use crate::sync::SpinLock;
@@ -69,6 +70,9 @@ pub struct Thread {
     /// Changed only under the scheduler lock.
     on_cpu: AtomicBool,
     pub user_entry: (u64, u64),
+    /// FP/SIMD registers while the thread is off the CPU (`crate::fpu`); none for
+    /// idle threads, which run only kernel code.
+    fpu: Option<FpuArea>,
 }
 
 // SAFETY: `saved_rsp` is written by the CPU switching away from the thread and read
@@ -80,6 +84,7 @@ static NEXT_TID: AtomicU64 = AtomicU64::new(1);
 
 impl Thread {
     pub fn new_user(process: Arc<Process>, rip: u64, rsp: u64) -> Result<Arc<Thread>, Error> {
+        let fpu = FpuArea::new()?;
         let ks = KernelStack::new()?;
         let top = ks.top;
         // SAFETY: `top` is the top of a freshly mapped kernel stack.
@@ -93,6 +98,7 @@ impl Thread {
             state: AtomicU8::new(ThreadState::Ready as u8),
             on_cpu: AtomicBool::new(false),
             user_entry: (rip, rsp),
+            fpu: Some(fpu),
         }))
     }
 
@@ -107,6 +113,7 @@ impl Thread {
             state: AtomicU8::new(ThreadState::Running as u8),
             on_cpu: AtomicBool::new(true),
             user_entry: (0, 0),
+            fpu: None,
         })
     }
 
@@ -280,6 +287,8 @@ pub fn schedule() {
     let next_rsp: u64;
     let next_top: u64;
     let next_cr3;
+    let prev_fpu: Option<*const FpuArea>;
+    let next_fpu: Option<*const FpuArea>;
     {
         // SAFETY: this CPU's slot, interrupts disabled.
         let prev = unsafe { (*me.current.get()).clone() }.expect("no current thread");
@@ -317,6 +326,8 @@ pub fn schedule() {
         next_rsp = unsafe { *next.saved_rsp.get() };
         next_top = next.kstack_top;
         next_cr3 = next.process.as_ref().map(|p| p.cr3);
+        prev_fpu = prev.fpu.as_ref().map(|a| a as *const FpuArea);
+        next_fpu = next.fpu.as_ref().map(|a| a as *const FpuArea);
         // SAFETY: this CPU's slot, interrupts disabled.
         unsafe {
             *me.quantum_left.get() = quantum_for(cpu);
@@ -332,6 +343,19 @@ pub fn schedule() {
     }
     if next_top != 0 {
         arch::set_kernel_stack(next_top);
+    }
+    // The leaving thread's FP/SIMD registers to its area, the next one's back
+    // (ADR-0031). The kernel uses none of them between here and user mode, so the
+    // next thread's are loaded before its stack is.
+    // SAFETY: both threads are kept alive by this CPU's slot; this CPU is leaving
+    // `prev` (it is queued again only after the switch) and `next` is on no CPU.
+    unsafe {
+        if let Some(a) = prev_fpu {
+            (*a).save();
+        }
+        if let Some(a) = next_fpu {
+            (*a).restore();
+        }
     }
     // SAFETY: both stacks were prepared by this module; interrupts are disabled.
     unsafe { context::switch_to(prev_slot, next_rsp) };

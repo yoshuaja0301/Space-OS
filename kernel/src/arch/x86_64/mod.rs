@@ -3,6 +3,7 @@ pub mod apic;
 pub mod clock;
 pub mod context;
 pub mod cpu;
+pub mod fpu;
 pub mod gdt;
 pub mod idt;
 pub mod mmu;

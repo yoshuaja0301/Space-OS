@@ -9,6 +9,7 @@ pub mod clock;
 pub mod context;
 pub mod cpu;
 pub mod exceptions;
+pub mod fpu;
 pub mod gic;
 pub mod mmu;
 pub mod pci;
@@ -49,6 +50,7 @@ pub fn init_cpu() {
     percpu::init_boot_cpu();
     exceptions::init();
     cpu::init();
+    fpu::log();
     mmu::disable_lower_half();
 }
 

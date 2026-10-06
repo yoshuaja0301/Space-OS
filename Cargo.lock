@@ -589,6 +589,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fpu"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "fscommon"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

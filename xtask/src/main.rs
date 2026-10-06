@@ -32,6 +32,7 @@ const USER_PROGRAMS: &[&str] = &[
     "init",
     "hello",
     "fault",
+    "fpu",
     "abi_negative",
     "ipc_echo",
     "quota",
@@ -174,31 +175,31 @@ fn build_arch(arch: Arch, profile_release: bool) -> Result<Built, String> {
             .map(|p| (p.to_string(), r.join(format!("target/user/{guest}/{dir}/{p}"))))
             .collect(),
     };
-    // The kernel runs with the FPU and vector units off: an image that could reach
-    // one of their instructions is not built at all.
+    // FP/SIMD instructions only where they belong (ADR-0031): an image that breaks
+    // its binary's policy is not built at all.
     let mut total = 0;
+    let mut fp = std::collections::BTreeMap::new();
     for (name, path) in [("spacekernel", &built.kernel_elf)]
         .into_iter()
         .chain(built.user_bins.iter().map(|(n, p)| (n.as_str(), p)))
     {
         let elf = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-        total += match arch {
+        let found = match arch {
             Arch::X86_64 => nofpu::check(name, &elf)?,
             Arch::Aarch64 => nofpu::check_a64(name, &elf)?,
         };
+        total += found.decoded;
+        if found.fp > 0 {
+            fp.insert(name.to_string(), found.fp);
+        }
     }
-    match arch {
-        Arch::X86_64 => println!(
-            "== no x87/MMX/SSE/AVX instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
-             ({total} instructions decoded)",
-            built.user_bins.len()
-        ),
-        Arch::Aarch64 => println!(
-            "== no FP/SIMD instructions in the kernel and {} programs, besides the two `fault` runs on purpose \
-             ({total} instructions decoded)",
-            built.user_bins.len()
-        ),
-    }
+    let kernel = fp.remove("spacekernel").unwrap_or(0);
+    let named = fp.iter().map(|(n, c)| format!("`{n}` {c}")).collect::<Vec<_>>().join(", ");
+    println!(
+        "== FP/SIMD instructions: the kernel {kernel} (saving and loading a thread's state), {named}, \
+         none in the other {} programs ({total} instructions decoded)",
+        built.user_bins.len() - fp.len()
+    );
     Ok(built)
 }
 
@@ -1110,8 +1111,12 @@ const MACHINES: &[Machine] = &[
         // No entropy device, but `-cpu max` has RDRAND: the fallback source.
         rng_device: "",
         extra: &[],
-        // TLS keys come from RDRAND here.
+        // TLS keys come from RDRAND here, and the FP/SIMD state takes the XSAVE path
+        // with AVX (ADR-0031).
         must_contain: &[
+            "[kernel] fpu: x87 and SSE and AVX per thread through XSAVE",
+            "YMM0-15 (AVX), MXCSR, the x87 control word and the x87 stack held through",
+            "[fpu] fresh: x87, MXCSR and YMM0-15 (AVX) in the initial state",
             "[kernel] entropy: RDRAND",
             "[init] entropy: available",
             "[init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact",
@@ -2154,6 +2159,11 @@ const SCENARIOS: &[Scenario] = &[
             "[kernel] rtc:",
             // Time from a counter, not from counting ticks (ADR-0029).
             "[kernel] clock: ACPI PM timer at 3579545 Hz",
+            // Each thread's FP/SIMD registers are its own (ADR-0031).
+            "[kernel] fpu: x87 and SSE",
+            "[init] PASS K03: FP/SIMD registers are each process's own",
+            "[init] PASS K03: a new process starts with every FP/SIMD register in its initial state",
+            "[init] PASS K01: an unmasked x87 exception kills only the process (x87 floating point)",
             "[init] PASS NET: ARP: the gateway answers who-has 10.0.2.2",
             "[init] PASS NET: ICMP echo to the gateway comes back intact",
             "[init] PASS NET: a frame arriving while the receiver sleeps wakes it",
@@ -2794,7 +2804,9 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[kernel] entropy: virtio-rng",
             "[init] PASS K02: write to kernel memory kills the process (page fault)",
             "[init] PASS K02: executing the NX stack kills the process (page fault)",
-            "[init] PASS K02: a SIMD instruction kills the process instead of sharing V registers",
+            "[kernel] fpu: V0-V31, FPCR and FPSR per thread",
+            "[init] PASS K03: FP/SIMD registers are each process's own",
+            "[init] PASS K03: a new process starts with every FP/SIMD register in its initial state",
             "[init] PASS K02: privileged instruction at EL0 kills the process (masking interrupts)",
             "[init] PASS D01: model file read from the guest disk matches the manifest checksum",
             "[init] PASS A01: native inference: a small model generates 128 tokens matching the pinned baseline",

@@ -360,7 +360,7 @@ extern "C" fn ap_entry(cpu: u64) -> ! {
     unsafe { gdt::init_ap(cpu, ist) };
     super::idt::load();
     paging::activate_kernel();
-    super::cpu::fpu_off();
+    super::fpu::init_cpu(false);
     super::syscall::init_cpu(cpu);
     apic::init_ap();
     crate::sched::init_ap(AP_STACK[cpu].load(Ordering::Relaxed));

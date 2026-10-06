@@ -20,7 +20,7 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0014](0014-package-format-and-rollback.md) | Format paket, autentikasi HMAC, dan rollback | Diterima |
 | [0015](0015-writable-storage.md) | Penyimpanan yang bisa ditulis: hak terpisah, FAT32 tulis, durabilitas | Diterima; alasan "ESP bukan virtio" digantikan 0025 |
 | [0016](0016-network-stack.md) | Jaringan: kernel memindahkan frame, TCP/IP di user space, tujuan sebagai kapabilitas | Diterima |
-| [0017](0017-tls.md) | TLS: pustaka yang di-port, kunci dari sumber entropi kernel, kepercayaan hanya dari yang diberikan | Diterima |
+| [0017](0017-tls.md) | TLS: pustaka yang di-port, kunci dari sumber entropi kernel, kepercayaan hanya dari yang diberikan | Diterima; keputusan 2 (unit FPU dimatikan) digantikan 0031 |
 | [0018](0018-cloud-adapter.md) | Adapter cloud: satu program memegang kredensial, jaringan ke satu alamat, dan tool hanya lewat broker | Diterima |
 | [0019](0019-stability-run.md) | Uji stabilitas: seluruh suite berulang dalam satu boot, pembunuhan acak, dan memori yang harus kembali tepat | Diterima |
 | [0020](0020-desktop.md) | Desktop: layar sebagai lease, jendela sebagai memori klien, dan manajemen jendela dari keyboard | Diterima |
@@ -34,3 +34,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0028](0028-aarch64.md) | AArch64: kernel yang sama di mesin ARM | Diterima |
 | [0029](0029-clock.md) | Waktu dari counter (timer ACPI PM, generic timer), bukan dari hitungan tick | Diterima |
 | [0030](0030-usb-keyboard.md) | USB: pengendali xHCI dan keyboard boot protocol, di x86-64 dan AArch64 | Diterima |
+| [0031](0031-fpu-state.md) | Register FP/SIMD milik thread yang menulisnya: disimpan dan dimuat pada setiap switch (PRD v0.2 K03) | Diterima |
