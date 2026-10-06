@@ -1,4 +1,5 @@
-//! Per-process capability table (ADR-0004).
+//! Per-process capability table (ADR-0004, ADR-0033: a handle names a slot and
+//! the generation of it, so a closed handle stays dead after its slot is reused).
 
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
@@ -106,8 +107,32 @@ impl HandleEntry {
     }
 }
 
+/// One slot of a process's table: what it holds now, and which generation of the
+/// slot that is.
+struct Slot {
+    generation: u32,
+    entry: Option<HandleEntry>,
+}
+
+/// A handle names a slot and the generation the slot was in when the handle was
+/// made (PRD v0.2 K04, §8.3 "harus tahan reuse yang salah"): the index in the low
+/// bits, the generation above it. Emptying a slot moves it to the next generation,
+/// so a handle that was closed, or moved to another process, stays dead after its
+/// slot holds something else -- it names a generation that no longer exists.
+const INDEX_BITS: u32 = 8;
+const INDEX_MASK: u32 = (1 << INDEX_BITS) - 1;
+/// Generations cycle below the one that would turn `handle::INVALID` (all ones) into
+/// a handle someone could be given.
+const GENERATIONS: u32 = u32::MAX >> INDEX_BITS;
+
+const _: () = assert!(MAX_HANDLES == 1 << INDEX_BITS);
+
+fn handle_of(index: usize, generation: u32) -> Handle {
+    (generation << INDEX_BITS) | index as u32
+}
+
 pub struct HandleTable {
-    slots: Vec<Option<HandleEntry>>,
+    slots: Vec<Slot>,
 }
 
 impl HandleTable {
@@ -116,36 +141,50 @@ impl HandleTable {
     }
 
     pub fn insert(&mut self, entry: HandleEntry) -> Result<Handle, Error> {
-        if let Some(i) = self.slots.iter().position(Option::is_none) {
-            self.slots[i] = Some(entry);
-            return Ok(i as Handle);
+        if let Some(i) = self.slots.iter().position(|s| s.entry.is_none()) {
+            self.slots[i].entry = Some(entry);
+            return Ok(handle_of(i, self.slots[i].generation));
         }
         if self.slots.len() >= MAX_HANDLES {
             return Err(Error::TooManyHandles);
         }
         self.slots.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        self.slots.push(Some(entry));
-        Ok((self.slots.len() - 1) as Handle)
+        self.slots.push(Slot { generation: 0, entry: Some(entry) });
+        Ok(handle_of(self.slots.len() - 1, 0))
     }
 
+    /// Put `entry` in slot `index` of a new table (the bootstrap handle): its
+    /// generation is 0, so the handle is the index itself.
     pub fn insert_at(&mut self, index: usize, entry: HandleEntry) {
         while self.slots.len() <= index {
-            self.slots.push(None);
+            self.slots.push(Slot { generation: 0, entry: None });
         }
-        self.slots[index] = Some(entry);
+        self.slots[index].entry = Some(entry);
     }
 
     /// True when `insert` can still succeed (a free slot, or room to grow).
     pub fn has_free_slot(&self) -> bool {
-        self.slots.len() < MAX_HANDLES || self.slots.iter().any(Option::is_none)
+        self.slots.len() < MAX_HANDLES || self.slots.iter().any(|s| s.entry.is_none())
+    }
+
+    /// The slot `h` names, if it is still in the generation `h` was made in.
+    fn slot(&self, h: Handle) -> Option<usize> {
+        let index = (h & INDEX_MASK) as usize;
+        let s = self.slots.get(index)?;
+        (s.generation == h >> INDEX_BITS && s.entry.is_some()).then_some(index)
     }
 
     pub fn get(&self, h: Handle) -> Result<&HandleEntry, Error> {
-        self.slots.get(h as usize).and_then(Option::as_ref).ok_or(Error::BadHandle)
+        let i = self.slot(h).ok_or(Error::BadHandle)?;
+        self.slots[i].entry.as_ref().ok_or(Error::BadHandle)
     }
 
+    /// Empty the slot `h` names; the slot moves on to its next generation.
     pub fn take(&mut self, h: Handle) -> Result<HandleEntry, Error> {
-        self.slots.get_mut(h as usize).and_then(Option::take).ok_or(Error::BadHandle)
+        let i = self.slot(h).ok_or(Error::BadHandle)?;
+        let s = &mut self.slots[i];
+        s.generation = (s.generation + 1) % GENERATIONS;
+        s.entry.take().ok_or(Error::BadHandle)
     }
 
     pub fn clear(&mut self) {

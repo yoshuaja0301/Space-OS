@@ -1,16 +1,23 @@
 //! Capability handles.
 //!
-//! A handle is a per-process index into the kernel handle table. Every entry
-//! pairs a kernel object with a set of *rights*; rights can only be reduced
-//! (see `SYS_HANDLE_DUP`), never widened, and the kernel checks them on every use.
+//! A handle names a slot in the process's kernel handle table and the generation
+//! that slot was in when the handle was made (ADR-0033): the slot index in the low
+//! 8 bits, the generation above them. Emptying a slot -- a close, or a handle moved
+//! to another process -- moves the slot on to its next generation, so a handle
+//! that is gone stays gone even after its slot holds something else. Handle values
+//! are opaque: not small, not consecutive, never an index into anything of the
+//! program's. Every entry pairs a kernel object with a set of *rights*; rights can
+//! only be reduced (see `SYS_HANDLE_DUP`), never widened, and the kernel checks
+//! them on every use.
 
 pub type Handle = u32;
 
 /// Never a valid handle; used for "no handle" arguments.
 pub const INVALID: Handle = u32::MAX;
 
-/// Handle 0 is the bootstrap handle installed by the spawner
-/// (for `init` this is the root capability, for children the channel passed by the parent).
+/// Handle 0 is the bootstrap handle installed by the spawner (slot 0, generation 0;
+/// for `init` this is the root capability, for children the channel passed by the
+/// parent).
 pub const BOOTSTRAP: Handle = 0;
 
 /// Maximum number of handles per process.

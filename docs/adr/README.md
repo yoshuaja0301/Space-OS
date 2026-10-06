@@ -35,4 +35,5 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0029](0029-clock.md) | Waktu dari counter (timer ACPI PM, generic timer), bukan dari hitungan tick | Diterima |
 | [0030](0030-usb-keyboard.md) | USB: pengendali xHCI dan keyboard boot protocol, di x86-64 dan AArch64 | Diterima |
 | [0031](0031-fpu-state.md) | Register FP/SIMD milik thread yang menulisnya: disimpan dan dimuat pada setiap switch (PRD v0.2 K03) | Diterima |
+| [0033](0033-handle-generations.md) | Handle membawa generasi slotnya: handle yang sudah ditutup tetap mati setelah slotnya dipakai lagi (PRD v0.2 K04) | Diterima |
 | [0032](0032-bootinfo-v3-boot-states.md) | Serah terima yang diperiksa (BootInfo v3: ukuran, flags, reservasi, digest boot image, entropi, boot slot) dan empat status boot yang dapat dibedakan (PRD v0.2 B02, B04) | Diterima |

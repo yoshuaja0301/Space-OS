@@ -3,8 +3,8 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 422664 bytes, initrd 4050432 bytes, config 74 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d506000, entry 0xffffffff80128a8c
-spaceboot: boot image 4050432 bytes, sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d513000, entry 0xffffffff80100000
+spaceboot: boot image 4050432 bytes, sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -16,14 +16,14 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
 [kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 15 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d506000..0x7d56d000 (412 KiB): kernel image
-[kernel]   reserved 0x7d129000..0x7d506000 (3956 KiB): boot image
+[kernel]   reserved 0x7d513000..0x7d57a000 (412 KiB): kernel image
+[kernel]   reserved 0x7d136000..0x7d513000 (3956 KiB): boot image
 [kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): command line
-[kernel]   reserved 0x7d119000..0x7d129000 (64 KiB): boot stack
-[kernel]   reserved 0x7d118000..0x7d119000 (4 KiB): boot info
-[kernel]   reserved 0x7d108000..0x7d118000 (64 KiB): memory map
-[kernel]   reserved 0x7d0e2000..0x7d0fa000 (96 KiB): page tables
-[kernel] boot image: sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49 as the bootloader measured it
+[kernel]   reserved 0x7d126000..0x7d136000 (64 KiB): boot stack
+[kernel]   reserved 0x7d125000..0x7d126000 (4 KiB): boot info
+[kernel]   reserved 0x7d115000..0x7d125000 (64 KiB): memory map
+[kernel]   reserved 0x7d0ef000..0x7d107000 (96 KiB): page tables
+[kernel] boot image: sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
 [kernel] frames: 2094303 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
@@ -84,25 +84,25 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791261096 s since the Unix epoch (UTC)
+[kernel] rtc: 1791262758 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] selftest=kfault: touching an unmapped kernel address on purpose
 
 !!! CPU EXCEPTION IN KERNEL MODE: page fault !!!
   vector=14 (page fault) error=0x0 cr2=0xfffff000dead0000
-  rip=0xffffffff801107ad cs=0x8 rflags=0x46 rsp=0xffffa0000000ee40 ss=0x10
+  rip=0xffffffff801021d6 cs=0x8 rflags=0x46 rsp=0xffffa0000000fe10 ss=0x10
   rax=0xfffff000dead0000 rbx=0x0000000000000008 rcx=0xffff8000803e801c rdx=0x0000000000000320
-  rsi=0x0000000000000031 rdi=0xffffffff80140e79 rbp=0xffffa0000000fff0 r8 =0xffffffff80140e79
-  r9 =0x0000000000000500 r10=0x0000000000000000 r11=0x0000000000000006 r12=0xffffffff80152038
-  r13=0x0000000000000000 r14=0xffff80007d118000 r15=0xffffa0000000ff30
+  rsi=0x0000000000000031 rdi=0xffffffff801404c1 rbp=0xffffa0000000fff0 r8 =0xffffffff801404c1
+  r9 =0x0000000000000500 r10=0x0000000000000000 r11=0x0000000000000006 r12=0xffffffff80164810
+  r13=0x0000000000000000 r14=0x0000000000000060 r15=0xffffa0000000ff98
 
 !!! KERNEL PANIC !!!
 at kernel/src/arch/x86_64/trap.rs:214:5
 message: unhandled kernel-mode page fault (vector 14)
 current: idle on cpu 0
 backtrace (frame pointers):
-  #00 0xffffffff8013bc8c
-  #01 0xffffffff80135393
-  #02 0xffffffff8011b20f
-  #03 0xffffffff80116dc8
+  #00 0xffffffff8013c01c
+  #01 0xffffffff8010ef3e
+  #02 0xffffffff80127174
+  #03 0xffffffff80105b78
 spacekernel: halted after panic (uptime 0 ms)

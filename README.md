@@ -50,7 +50,7 @@ Semua yang berjalan di guest adalah kode Space OS; tidak ada Linux, libc, atau i
 
 ```bash
 sudo apt install qemu-system-x86 ovmf     # Ubuntu 24.04; rustup memasang toolchain+target otomatis
-cargo xtask test                           # build semua target, buat image, 31 skenario boot di QEMU
+cargo xtask test                           # build semua target, buat image, 32 skenario boot di QEMU
 cargo xtask compat                         # image yang sama di 16 konfigurasi mesin (ADR-0010)
 cargo xtask unit                           # uji unit host (codec DNS, tata letak pesan, server DNS lab)
 cargo xtask run                            # boot acceptance, serial di terminal (Ctrl-A X keluar)
@@ -88,6 +88,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 28 ms
 [init] PASS B04: a session says the OS is usable exactly when it can read files and run and stop programs
 [ai] model verified: sha256 a1955def6c7b4e8e...
+[status] AI ready: the model is verified and loaded on the CPU backend and answered after 366 ms
 [ai] generated 128 tokens offline, all matching the pinned baseline
 [init] desktop: agent: worker 'hang' stopped; Stop has nothing to stop; 11 commands served (30 ms after Stop was pressed)
 [init] PASS U01: the desktop, terminal, file manager and Stop keep working while inference workers crash

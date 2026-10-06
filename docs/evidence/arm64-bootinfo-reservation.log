@@ -4,8 +4,8 @@ BdsDxe: starting Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 296000 bytes, initrd 3285504 bytes, config 116 bytes
 spaceboot: bootinfo_fault=reservation: handing the kernel two reservations over the same pages (a test of the kernel's checks; never on a real boot)
-spaceboot: kernel 3 segments, 296 KiB at phys 0x13c394000, entry 0xffffffff8010cc2c
-spaceboot: boot image 3285504 bytes, sha256 a4fb408b27346217f722aa9ebf3b4edfb902749b4fb33d49db997311b8bb6f52
+spaceboot: kernel 3 segments, 296 KiB at phys 0x13c394000, entry 0xffffffff8010ca7c
+spaceboot: boot image 3285504 bytes, sha256 3b81c014fabdb0b2e5c27a9e7b56d9b6297c239336b29089a8bdd098d5c86bd6
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 4096 MiB of RAM below 0x140000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 0x0 @ 0x0
 spaceboot: exiting boot services and jumping to kernel
@@ -18,9 +18,8 @@ spacekernel 0.1.0: Space OS kernel booting
 at kernel/src/bootinfo.rs:26:5
 message: BootInfo rejected: reservation (entry 1) = 0x13c394000: overlaps another reservation
 backtrace (frame pointers):
-  #00 0xffffffff80134d34
-  #01 0xffffffff80108a74
-  #02 0xffffffff80108908
-  #03 0xffffffff801158c4
-  #04 0xffffffff8010cc40
+  #00 0xffffffff80134970
+  #01 0xffffffff8010a0a8
+  #02 0xffffffff801045f4
+  #03 0xffffffff8010ca90
 spacekernel: halted after panic (uptime 0 ms)

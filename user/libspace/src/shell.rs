@@ -29,13 +29,22 @@ pub fn check_usable(root: Handle) -> Result<bool, Error> {
             return Err(e);
         }
     };
-    let result = sys::handle_dup(root, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP)
-        .and_then(|narrow| Session::open(mine, narrow))
-        .and_then(|s| {
-            let usable = s.check();
-            s.quit().ok();
-            usable
-        });
+    let result = match sys::handle_dup(root, rights::SPAWN | rights::FS | rights::TRANSFER | rights::DUP) {
+        Ok(narrow) => match Session::open(mine, narrow) {
+            Ok(s) => {
+                let usable = s.check();
+                s.quit().ok();
+                usable
+            }
+            Err(e) => {
+                // Still ours unless the shell took it; closing a handle that went is
+                // refused, never another object (ADR-0033).
+                sys::handle_close(narrow).ok();
+                Err(e)
+            }
+        },
+        Err(e) => Err(e),
+    };
     // A shell that does not go after QUIT is stopped: a check must not linger.
     let until = sys::ticks_ms() + 1000;
     while sys::wait_nonblocking(shell).is_err() && sys::ticks_ms() < until {

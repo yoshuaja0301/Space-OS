@@ -4,8 +4,8 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 422664 bytes, initrd 4050432 bytes, config 99 bytes
 spaceboot: bootinfo_fault=reservation: handing the kernel two reservations over the same pages (a test of the kernel's checks; never on a real boot)
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d503000, entry 0xffffffff80128a8c
-spaceboot: boot image 4050432 bytes, sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d506000, entry 0xffffffff80100000
+spaceboot: boot image 4050432 bytes, sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -19,11 +19,11 @@ spacekernel 0.1.0: Space OS kernel booting
 
 !!! KERNEL PANIC !!!
 at kernel/src/bootinfo.rs:26:5
-message: BootInfo rejected: reservation (entry 1) = 0x7d503000: overlaps another reservation
+message: BootInfo rejected: reservation (entry 1) = 0x7d506000: overlaps another reservation
 backtrace (frame pointers):
-  #00 0xffffffff8013bc8c
-  #01 0xffffffff80132ff7
-  #02 0xffffffff80132ca3
-  #03 0xffffffff80116cfe
-  #04 0xffffffff80128a98
+  #00 0xffffffff8013c01c
+  #01 0xffffffff80117f57
+  #02 0xffffffff80117c07
+  #03 0xffffffff80105aae
+  #04 0xffffffff8010000c
 spacekernel: halted after panic (uptime 0 ms)

@@ -20,6 +20,15 @@ pub mod backend {
     pub const CPU: u32 = 1;
     pub const GPU: u32 = 2;
     pub const NPU: u32 = 3;
+
+    pub fn name(backend: u32) -> &'static str {
+        match backend {
+            CPU => "CPU",
+            GPU => "GPU",
+            NPU => "NPU",
+            _ => "unknown",
+        }
+    }
 }
 
 /// Request kinds.

@@ -38,8 +38,17 @@ pub fn boot_entropy_mixed() -> bool {
     BOOT_SEED.lock().is_some()
 }
 
+/// `entropy=boot-only` on the command line, a test switch: the device and RDRAND
+/// are ignored, so the firmware's bytes are all there is -- and, their quality not
+/// being assumed, that is no source at all.
+fn boot_only() -> bool {
+    crate::cmdline::get("entropy") == Some("boot-only")
+}
+
 pub fn describe() -> &'static str {
-    if virtio_rng::present() {
+    if boot_only() {
+        "none"
+    } else if virtio_rng::present() {
         "virtio-rng"
     } else if cpu::rdrand64().is_some() {
         "RDRAND"
@@ -65,6 +74,9 @@ fn mix_boot_entropy(out: &mut [u8]) {
 
 /// Fill all of `out`, or fail with `NotFound` when no source is available.
 pub fn fill(out: &mut [u8]) -> Result<(), Error> {
+    if boot_only() {
+        return Err(Error::NotFound);
+    }
     let mut at = 0;
     let mut empty_reads = 0;
     while at < out.len() && virtio_rng::present() {

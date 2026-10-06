@@ -103,6 +103,7 @@ tanpa volume harus mengatakan tidak usable. Harness melaporkan status tertinggi 
 |---|---|
 | Serah terima normal diterima | `[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, …` (acceptance; AArch64 26 region), tujuh baris `reserved …: kernel image / boot image / command line / boot stack / boot info / memory map / page tables` (page table 96 KiB untuk 8 GiB), `boot image: sha256 … as the bootloader measured it`, `boot slot: normal; boots are not counted`, `boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source` |
 | Setiap kerusakan ditolak dengan field dan aturannya | 15 skenario `bootinfo-*` (x86-64) dan `arm64-bootinfo-reservation`: masing-masing berakhir di `kernel alive` dengan pesannya sendiri, misalnya `kernel_image = 0x7d56d000: not inside the kernel image's reservation`, `initrd: the boot image hashes to 9f93…, not to the 6093… the bootloader measured`, `memory map start (entry 1) = 0x0: out of order, or overlapping the entry before it` |
+| Entropi firmware tidak pernah dihitung | skenario `entropy-boot-only` (kernel mengabaikan virtio-rng dan RDRAND): `spaceboot: entropy: 32 bytes from the firmware's RNG protocol`, `[kernel] entropy: none; boot entropy from the firmware mixed in, not counted`, `[init] entropy: none; everything that needs keys will be skipped`, TLS dilewati dengan alasan |
 | Validator di host | 11 uji `boot::tests`: setiap aturan punya kerusakan yang memicunya tepat; 200 000 kerusakan acak (struktur dan memory map) tidak pernah membuat validator panic (overflow check menyala), dan setiap struktur yang lolos diperiksa ulang secara independen terhadap janji yang dipegang kernel |
 | Empat status dapat dibedakan | `init-missing-diagnosis`, `panic-diagnosis` dan `bootinfo-*` berakhir di `kernel alive`; `init-exit-diagnosis` (program yang hanya menyapa) dan recovery di `user-space alive`; `terminal`, `boot-count` di `OS usable` (`read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 33 ms`); `acceptance`, `desktop`, `stress`, AArch64 di `AI ready`; mesin compat `no-disk` di `user-space alive` dengan `OS not usable: cannot read files: …` |
 
@@ -117,6 +118,7 @@ tanpa volume harus mengatakan tidak usable. Harness melaporkan status tertinggi 
 | Kernel tidak membandingkan digest boot image | `bootinfo-initrd_hash` gagal dengan cara yang sama: digest yang dibalik satu byte tidak menghentikan apa pun |
 | Kernel mengaku `user-space alive` sebelum proses mana pun berjalan | `init-missing-diagnosis` gagal: `the boot ended at "user-space alive", expected "kernel alive" (B04)` |
 | Sesi mengaku `OS usable` tanpa membaca berkas | compat `no-disk` gagal: `[init] FAIL B04` (sesi mengaku usable tanpa sistem berkas) dan `the boot ended at "OS usable", expected "user-space alive"` |
+| `SYS_RANDOM` menjawab dari entropi firmware saat hanya itu yang ada | `entropy-boot-only` gagal: `unexpected marker "[init] entropy: available"`, `unexpected marker "[init] PASS TLS"` -- kunci TLS dibuat dari 32 byte yang kualitasnya tidak diketahui |
 
 ## Konsekuensi
 
@@ -128,10 +130,11 @@ tanpa volume harus mengatakan tidak usable. Harness melaporkan status tertinggi 
   menghentikannya setelah log mengatakan berhenti.
 - Reservasi belum dipakai untuk mereklamasi apa pun: boot stack, memory map dan identity map tetap
   milik kernel selamanya.
-- Entropi firmware hanya dicampur; kernel belum punya CSPRNG sendiri. Bahwa ia tidak pernah
-  dihitung sebagai sumber baru dijamin oleh urutan kodenya (perangkat dulu, campuran sesudahnya),
-  belum oleh uji: OVMF di QEMU hanya punya protokol RNG bila ada perangkat virtio-rng, dan kernel
-  lalu memakai perangkat itu sendiri (`i440fx` dan `cpu-max`: `the firmware has no RNG protocol`).
+- Entropi firmware hanya dicampur; kernel belum punya CSPRNG sendiri. OVMF di QEMU hanya punya
+  protokol RNG bila ada perangkat virtio-rng, dan kernel lalu memakai perangkat itu sendiri
+  (`i440fx` dan `cpu-max`: `the firmware has no RNG protocol`); karena itu "tidak pernah dihitung"
+  dibuktikan dengan sakelar uji `entropy=boot-only`, yang membuat kernel mengabaikan perangkat dan
+  RDRAND.
 - B03 tetap dibuktikan oleh mesin `no-disk`: root task dan semua program berasal dari boot image di
   RAM, tanpa driver disk yang menemukan perangkat; status boot di mesin itu berhenti di
   `user-space alive` karena tidak ada berkas untuk dibaca.

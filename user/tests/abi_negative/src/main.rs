@@ -213,6 +213,42 @@ pub extern "C" fn space_main() -> i32 {
     check("handle_info on closed handle", sys::handle_info(a), Error::BadHandle);
     check("double close", sys::handle_close(a), Error::BadHandle);
 
+    // A closed handle stays dead after its slot holds something else (PRD v0.2
+    // K04). `p` is closed, then `q` is duplicated until a duplicate lands in `p`'s
+    // slot (slots are reused lowest first). A table that named slots by their index
+    // alone would hand out `p`'s very number again, and every use of the old number
+    // would reach the new object.
+    let (p, q) = sys::channel_create().expect("channel p/q");
+    sys::handle_close(p).expect("close p");
+    let mut dups = [handle::INVALID; 64];
+    let mut reused = None;
+    for slot in dups.iter_mut() {
+        let Ok(h) = sys::handle_dup(q, rights::CHANNEL_ALL) else { break };
+        *slot = h;
+        if h & 0xFF == p & 0xFF {
+            reused = Some(h);
+            break;
+        }
+    }
+    match reused {
+        Some(h) if h != p => println!("[abi]   ok   {p:#x}'s slot was reused as {h:#x}, a different handle"),
+        Some(h) => {
+            println!("[abi]   FAIL {p:#x}'s slot was reused under the same number {h:#x}");
+            unsafe { FAILS += 1 };
+        }
+        None => {
+            println!("[abi]   FAIL {p:#x}'s slot was not reused within {} handles", dups.len());
+            unsafe { FAILS += 1 };
+        }
+    }
+    check("handle_info on a closed handle whose slot was reused", sys::handle_info(p), Error::BadHandle);
+    check("send on a closed handle whose slot was reused", sys::send(p, b"stale", None), Error::BadHandle);
+    check("close of a closed handle whose slot was reused", sys::handle_close(p), Error::BadHandle);
+    for h in dups.iter().filter(|&&h| h != handle::INVALID) {
+        sys::handle_close(*h).expect("close dup");
+    }
+    sys::handle_close(q).expect("close q");
+
     // Root-only calls with a random handle number.
     let none: Handle = 77;
     check("shutdown without root", sys::shutdown(none, 0), Error::BadHandle);

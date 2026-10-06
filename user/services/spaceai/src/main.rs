@@ -571,7 +571,8 @@ fn run(root: Handle, compute_channel: Handle, watch: &Watch) -> Result<Ended, St
                 // The last of the boot's states (PRD v0.2 §7.4): the model is
                 // verified, loaded, and has answered. Never a condition of the boot.
                 println!(
-                    "[status] AI ready: the model is verified and loaded on the {backend} backend and answered after {ttft} ms"
+                    "[status] AI ready: the model is verified and loaded on the {} backend and answered after {ttft} ms",
+                    libspace::spaceabi::compute::backend::name(backend)
                 );
             }
             if expect.get(produced.len()) == Some(&best) {

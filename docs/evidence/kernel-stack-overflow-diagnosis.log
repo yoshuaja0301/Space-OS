@@ -3,8 +3,8 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 422664 bytes, initrd 4050432 bytes, config 73 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d503000, entry 0xffffffff80128a8c
-spaceboot: boot image 4050432 bytes, sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d506000, entry 0xffffffff80100000
+spaceboot: boot image 4050432 bytes, sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -15,15 +15,15 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 14 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d503000..0x7d56a000 (412 KiB): kernel image
-[kernel]   reserved 0x7d126000..0x7d503000 (3956 KiB): boot image
-[kernel]   reserved 0x7e74f000..0x7e750000 (4 KiB): command line
-[kernel]   reserved 0x7d116000..0x7d126000 (64 KiB): boot stack
-[kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): boot info
-[kernel]   reserved 0x7d106000..0x7d116000 (64 KiB): memory map
-[kernel]   reserved 0x7d0e0000..0x7d0f8000 (96 KiB): page tables
-[kernel] boot image: sha256 9f93593a3f46cc002c3a6817bf0aeb411aff6f84d5855a5eeaeba1986b96cb49 as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 39 memory regions, 7 reservations, initrd 4050432 bytes, cmdline 14 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d506000..0x7d56d000 (412 KiB): kernel image
+[kernel]   reserved 0x7d129000..0x7d506000 (3956 KiB): boot image
+[kernel]   reserved 0x7e748000..0x7e749000 (4 KiB): command line
+[kernel]   reserved 0x7d119000..0x7d129000 (64 KiB): boot stack
+[kernel]   reserved 0x7d118000..0x7d119000 (4 KiB): boot info
+[kernel]   reserved 0x7d108000..0x7d118000 (64 KiB): memory map
+[kernel]   reserved 0x7d0e2000..0x7d0fa000 (96 KiB): page tables
+[kernel] boot image: sha256 2624579eb1fb7a74aeee0bac8e64843f388df5635df1c3925893ffe9345416b2 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
 [kernel] frames: 2094303 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
@@ -84,24 +84,24 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791261101 s since the Unix epoch (UTC)
+[kernel] rtc: 1791262763 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] selftest=stack: recursing on a guarded kernel stack until the guard page triggers a double fault
 
 !!! CPU EXCEPTION IN KERNEL MODE: double fault !!!
   vector=8 (double fault) error=0x0 cr2=0x0
-  rip=0xffffffff80118900 cs=0x8 rflags=0x46 rsp=0xffffa00000017ff0 ss=0x10
+  rip=0xffffffff8010ba80 cs=0x8 rflags=0x46 rsp=0xffffa00000017ff0 ss=0x10
   rax=0x0000000000000047 rbx=0x000000000000001e rcx=0x0000000000000000 rdx=0x0000000000000200
   rsi=0xffffa000000181f0 rdi=0xffffa00000017ff0 rbp=0xffffa00000018400 r8 =0x0000000000000000
-  r9 =0x0000000000000001 r10=0x000000000000a000 r11=0x0000000000000007 r12=0xffffa0000000ff30
-  r13=0x0000000000000000 r14=0xffffa00000017ff0 r15=0x00000000001fe489
+  r9 =0x0000000000000001 r10=0x000000000000a000 r11=0x0000000000000007 r12=0xffffffff80164810
+  r13=0x0000000000000000 r14=0xffffa00000017ff0 r15=0xffffa0000000ff98
 
 !!! KERNEL PANIC !!!
 at kernel/src/arch/x86_64/trap.rs:214:5
 message: unhandled kernel-mode double fault (vector 8)
 current: idle on cpu 0
 backtrace (frame pointers):
-  #00 0xffffffff8013bc8c
-  #01 0xffffffff80135393
-  #02 0xffffffff8011b20f
+  #00 0xffffffff8013c01c
+  #01 0xffffffff8010ef3e
+  #02 0xffffffff80127174
 spacekernel: halted after panic (uptime 0 ms)

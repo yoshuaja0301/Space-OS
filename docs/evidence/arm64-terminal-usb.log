@@ -3,8 +3,8 @@ BdsDxe: loading Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 BdsDxe: starting Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x1,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 296000 bytes, initrd 3285504 bytes, config 94 bytes
-spaceboot: kernel 3 segments, 296 KiB at phys 0x13c394000, entry 0xffffffff8010cc2c
-spaceboot: boot image 3285504 bytes, sha256 a4fb408b27346217f722aa9ebf3b4edfb902749b4fb33d49db997311b8bb6f52
+spaceboot: kernel 3 segments, 296 KiB at phys 0x13c394000, entry 0xffffffff8010ca7c
+spaceboot: boot image 3285504 bytes, sha256 3b81c014fabdb0b2e5c27a9e7b56d9b6297c239336b29089a8bdd098d5c86bd6
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 4096 MiB of RAM below 0x140000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 0x0 @ 0x0
 spaceboot: exiting boot services and jumping to kernel
@@ -20,7 +20,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   reserved 0x13cb41000..0x13cb42000 (4 KiB): boot info
 [kernel]   reserved 0x13c051000..0x13c061000 (64 KiB): memory map
 [kernel]   reserved 0x13c037000..0x13c043000 (48 KiB): page tables
-[kernel] boot image: sha256 a4fb408b27346217f722aa9ebf3b4edfb902749b4fb33d49db997311b8bb6f52 as the bootloader measured it
+[kernel] boot image: sha256 3b81c014fabdb0b2e5c27a9e7b56d9b6297c239336b29089a8bdd098d5c86bd6 as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
 [kernel] frames: 1046188 usable (4086 MiB), bitmap 160 KiB at 0x40000000; reserved 5 MiB, kernel 3 MiB, acpi 0 MiB, mmio 64 MiB
@@ -86,7 +86,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscalls: svc from EL0 (ABI v0)
 [kernel] clock: generic timer count at 62500000 Hz, 64 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791262004 s since the Unix epoch (UTC)
+[kernel] rtc: 1791263680 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: PSCI SYSTEM_OFF through HVC
 [kernel] smp: 4 CPUs online (boot CPU MPIDR 0x0; started 0x1 0x2 0x3), GICv3, AP timer 100 Hz
@@ -108,7 +108,7 @@ space> [kernel] spawn pid 3 'bin/uiworker': entry=0x4003b4, 19 pages mapped, quo
 [worker] job 'hang' starting
 [worker] job 'hang' is wedged and never calls the kernel again
 [kernel] pid 4 'bin/uiworker' killed (killed, addr 0x0)
-[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 28 ms
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 20 ms
 helpp 
 [shell] commands: help, status, ls [path], run <infer|ok|crash|hang|slow>, stop, quit
 space> status
@@ -141,7 +141,7 @@ space> stop
 [kernel] pid 5 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
 [shell] session: worker stopped (hang), commands served 8
-[shell] Stop: worker 'hang' was killed after 7 ms
+[shell] Stop: worker 'hang' was killed after 9 ms
 space> status
 [shell] worker stopped (hang), last exit code -1, commands served 9
 space> quit
@@ -149,4 +149,4 @@ space> quit
 [shell] session closed after 10 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5776 ms, 5601 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5719 ms, 5543 context switches)

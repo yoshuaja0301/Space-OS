@@ -2055,9 +2055,8 @@ fn expected_state(scenario: &str) -> Option<&'static str> {
         // the model.
         "terminal" | "terminal-serial" | "terminal-usb" | "boot-count" | "acpi-poweroff"
         | "arm64-terminal-usb" => "OS usable",
-        "acceptance" | "stress" | "storage-reboot" | "desktop" | "arm64-acceptance" | "arm64-poweroff" => {
-            "AI ready"
-        }
+        "acceptance" | "stress" | "storage-reboot" | "desktop" | "entropy-boot-only" | "arm64-acceptance"
+        | "arm64-poweroff" => "AI ready",
         _ => return None,
     })
 }
@@ -2730,6 +2729,41 @@ const SCENARIOS: &[Scenario] = &[
         ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
         lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "entropy-boot-only",
+        machine: &LAB,
+        // The firmware's random bytes are all this boot has: the kernel is told to
+        // ignore the virtio device and RDRAND (`entropy=boot-only`, a test switch).
+        // Their quality is not assumed (ADR-0032): they are mixed into what a source
+        // gives and never stand in for one, so nothing that needs keys may run.
+        cmdline: "init=bin/init entropy=boot-only",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: &[
+            "spaceboot: entropy: 32 bytes from the firmware's RNG protocol",
+            "[kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source",
+            "[kernel] entropy: none; boot entropy from the firmware mixed in, not counted",
+            "[init] entropy: none",
+            "[init] SKIP TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it (no entropy source)",
+            "[init] ALL TESTS PASSED",
+        ],
+        must_contain_extra: &[],
+        must_not_contain: &[
+            "KERNEL PANIC",
+            "[init] FAIL",
+            "TESTS FAILED",
+            "[init] PASS TLS",
+            "[init] entropy: available",
+        ],
+        runs: 1,
+        typing: Typing::None,
+        final_boot_markers: &[],
+        type_lines: &[],
+        ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: LAB_FORBIDDEN,
     },
     // The hand-over damaged on purpose, one field at a time (B02, ADR-0032): the
     // kernel names the field, its value and the rule, and goes no further.
