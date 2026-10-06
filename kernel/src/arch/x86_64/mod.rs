@@ -53,12 +53,16 @@ pub fn init_platform(_bi: &BootInfo, tick_hz: u32) {
     // Before the mask comes off IRQ 1: a byte the firmware left in the 8042 holds
     // the line high, and an edge-triggered PIC never delivers an interrupt for a
     // line that was already high.
-    ps2::init();
+    let keyboard = ps2::init();
     pic::init();
-    println!(
-        "[kernel] console input: keyboard (IRQ1){}",
-        if serial::init_input() { " and COM2 serial (IRQ3)" } else { "; no COM2 UART" }
-    );
+    // USB keyboards say so themselves (`dev::xhci`).
+    let input = match (keyboard, serial::init_input()) {
+        (true, true) => "keyboard (IRQ1) and COM2 serial (IRQ3)",
+        (true, false) => "keyboard (IRQ1); no COM2 UART",
+        (false, true) => "COM2 serial (IRQ3); no PS/2 controller",
+        (false, false) => "no PS/2 controller; no COM2 UART",
+    };
+    println!("[kernel] console input: {input}");
     pit::init(tick_hz);
     syscall::init();
 }

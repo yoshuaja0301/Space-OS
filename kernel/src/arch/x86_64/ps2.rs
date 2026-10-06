@@ -34,11 +34,20 @@ const DRAIN_LIMIT: usize = 64;
 /// the edge that delivers the first interrupt, so the keyboard would be deaf for the
 /// whole boot with nothing to show for it. OVMF uses the PS/2 keyboard for its own
 /// console, so assuming it left nothing behind is an assumption, not a fact.
-pub fn init() {
+///
+/// Returns false when there is no controller at all, as on many PCs whose only
+/// keyboard is a USB one: nothing answers at the status port, which reads as all
+/// ones.
+pub fn init() -> bool {
+    // SAFETY: reading the 8042 status port has no side effects.
+    if unsafe { Port::<u8>::new(STATUS).read() } == 0xFF {
+        return false;
+    }
     let left = drain();
     if left > 0 {
         println!("[kernel] ps/2: dropped {left} byte(s) the firmware left in the controller");
     }
+    true
 }
 
 /// Read bytes until the output buffer is empty. Returns how many were taken.

@@ -1035,6 +1035,23 @@ const ARM64_VIRT: Machine = Machine {
     data_disk: DataDisk::Whole,
 };
 
+/// The lab machine with its keyboard on USB alone (ADR-0030): no 8042 at all, and a
+/// `qemu-xhci` with a USB keyboard on it -- the keys the harness presses can only
+/// arrive through the xHCI driver and the HID decoder.
+const LAB_USB: Machine = Machine {
+    name: "lab-usb",
+    machine: "q35,accel=tcg,i8042=off",
+    extra: &["-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0"],
+    ..LAB
+};
+
+/// The AArch64 machine with a USB keyboard: `virt` has no other keyboard.
+const ARM64_VIRT_USB: Machine = Machine {
+    name: "arm64-virt-usb",
+    extra: &["-device", "qemu-xhci,id=xhci", "-device", "usb-kbd,bus=xhci.0"],
+    ..ARM64_VIRT
+};
+
 /// The network card most machines get: modern-only virtio-net with no option ROM
 /// (the firmware's own driver is enough, and nothing here boots from the network).
 const VIRTIO_NET: &str = "virtio-net-pci,netdev=spacenet,disable-legacy=on,romfile=";
@@ -1329,6 +1346,34 @@ const MACHINES: &[Machine] = &[
         rng_device: VIRTIO_RNG,
         extra: &["-vga", "vmware"],
         must_contain: &["[kernel] framebuffer:", "[init] ALL TESTS PASSED"],
+        data_disk: DataDisk::Whole,
+    },
+    Machine {
+        name: "usb",
+        arch: Arch::X86_64,
+        machine: "q35,accel=tcg",
+        cpu: "qemu64",
+        smp: "4",
+        memory: "8G",
+        block_device: "virtio-blk-pci,drive=spacedata,disable-legacy=on",
+        net_device: VIRTIO_NET,
+        rng_device: VIRTIO_RNG,
+        // An xHCI controller with a keyboard and a tablet on it (ADR-0030): the
+        // keyboard is configured, the tablet -- not a boot keyboard -- is addressed
+        // and left alone, and the whole suite runs beside them.
+        extra: &[
+            "-device",
+            "qemu-xhci,id=xhci",
+            "-device",
+            "usb-kbd,bus=xhci.0",
+            "-device",
+            "usb-tablet,bus=xhci.0",
+        ],
+        must_contain: &[
+            "keyboard 0627:0001 ready -- boot protocol",
+            "is not a boot keyboard; left unconfigured",
+            "2 device(s) on its ports, 1 keyboard(s)",
+        ],
         data_disk: DataDisk::Whole,
     },
 ];
@@ -1928,6 +1973,8 @@ fn key_name(ch: char) -> Result<String, String> {
 
 struct Scenario {
     name: &'static str,
+    /// The machine it boots on.
+    machine: &'static Machine,
     cmdline: &'static str,
     /// Lines `spaceos.cfg` gets after `cmdline=`: the recovery settings of ADR-0027.
     boot_cfg: &'static str,
@@ -2087,6 +2134,7 @@ const LAB_FORBIDDEN: &[&str] = &[
 const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "acceptance",
+        machine: &LAB,
         // The default, said out loud: the K02 test reads the line back and checks
         // that the program it names is the one running.
         cmdline: "init=bin/init",
@@ -2178,6 +2226,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "stress",
+        machine: &LAB,
         // The stability run in short (ADR-0019): the whole suite twice in one boot, a
         // round of random kills after each pass -- the network service among them,
         // mid-transfer -- and the machine's memory back where the first pass left it,
@@ -2207,6 +2256,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "panic-diagnosis",
+        machine: &LAB,
         cmdline: "selftest=panic",
         boot_cfg: "",
         disk_files: &[],
@@ -2229,6 +2279,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "kernel-fault-diagnosis",
+        machine: &LAB,
         cmdline: "selftest=kfault",
         boot_cfg: "",
         disk_files: &[],
@@ -2250,6 +2301,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "kernel-stack-overflow-diagnosis",
+        machine: &LAB,
         cmdline: "selftest=stack",
         boot_cfg: "",
         disk_files: &[],
@@ -2267,6 +2319,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "storage-reboot",
+        machine: &LAB,
         cmdline: "",
         boot_cfg: "",
         disk_files: &[],
@@ -2293,6 +2346,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "init-exit-diagnosis",
+        machine: &LAB,
         // A first process that ends without asking for shutdown leaves nothing to
         // schedule. That must read as a diagnosis, not as a hang.
         cmdline: "init=bin/hello",
@@ -2316,6 +2370,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "init-missing-diagnosis",
+        machine: &LAB,
         // A misspelled init names the program that actually failed.
         cmdline: "init=bin/not_a_program",
         boot_cfg: "",
@@ -2334,6 +2389,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "terminal",
+        machine: &LAB,
         // The same image, booted into a session instead of the acceptance run, and
         // driven from the emulated keyboard: scan codes, IRQ 1, the kernel decoder.
         cmdline: "init=bin/spaceterm",
@@ -2355,6 +2411,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "desktop",
+        machine: &LAB,
         // The image booted into the desktop (ADR-0020) and driven from the emulated
         // keyboard: windows opened, used, moved, resized, minimized, moved between
         // workspaces and closed, an inference worker crashing and another stopped --
@@ -2409,6 +2466,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "terminal-serial",
+        machine: &LAB,
         // The same session over a serial console: COM2, IRQ 3. A headless machine
         // has no keyboard, and this is the path it uses.
         cmdline: "init=bin/spaceterm",
@@ -2428,6 +2486,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "recovery-key",
+        machine: &LAB,
         // The operator presses R at the boot menu (ADR-0027): the bootloader starts
         // the recovery console instead of the normal command line, and the console
         // checks the volume and answers without a model, a network or AI.
@@ -2461,6 +2520,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "recovery-auto",
+        machine: &LAB,
         // Three boots in a row that never came up, as the bootloader counts them on
         // the data volume: the fourth goes to recovery by itself, says why, and
         // `boot normal` puts the count back.
@@ -2501,6 +2561,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "boot-count",
+        machine: &LAB,
         // Boot counting on, starting from two boots that did not come up. Each boot
         // of the terminal comes up and clears the count, so the second starts from
         // zero: a system that comes up is never sent to recovery.
@@ -2525,6 +2586,7 @@ const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "acpi-poweroff",
+        machine: &LAB,
         // The path a PC takes when the session asks to shut down: no debug-exit
         // device (`shutdown=acpi` skips it), so the kernel switches the machine off
         // through ACPI S5 from the FADT and the DSDT's \_S5 -- and QEMU, switched off,
@@ -2544,6 +2606,32 @@ const SCENARIOS: &[Scenario] = &[
         typing: Typing::Serial,
         final_boot_markers: &[],
         type_lines: &["quit"],
+        ready_marker: TERMINAL_READY,
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "terminal-usb",
+        machine: &LAB_USB,
+        // The session typed at on a USB keyboard (ADR-0030): the machine has no
+        // 8042 and no second UART, so every key the harness presses went through
+        // the xHCI controller, the keyboard's interrupt endpoint, the HID decoder and
+        // the same scan-code decoder as PS/2.
+        cmdline: "init=bin/spaceterm",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: TERMINAL_MARKERS,
+        must_contain_extra: &[
+            "[kernel] console input: no PS/2 controller; no COM2 UART",
+            "keyboard 0627:0001 ready -- boot protocol",
+            "[kernel] xhci: ",
+        ],
+        must_not_contain: &["KERNEL PANIC", "unknown command", "transfer failed"],
+        runs: 1,
+        typing: Typing::Keyboard,
+        final_boot_markers: &[],
+        type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
         ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
         lab_must_not_contain: &[],
@@ -2629,7 +2717,7 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
                 logs.join(format!("{}-boot{run_index}.log", s.name))
             };
             let run = run_qemu_capture_typing(
-                &LAB,
+                s.machine,
                 &image,
                 &scenario_data,
                 &log_path,
@@ -2683,6 +2771,7 @@ fn cmd_test(release: bool, only: Option<&str>) -> Result<(), String> {
 const ARM64_SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "arm64-acceptance",
+        machine: &ARM64_VIRT,
         cmdline: "init=bin/init exit=semihosting",
         boot_cfg: "",
         disk_files: &[],
@@ -2725,6 +2814,7 @@ const ARM64_SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "arm64-poweroff",
+        machine: &ARM64_VIRT,
         // The way a machine without QEMU's help goes off: `shutdown=acpi` keeps the
         // kernel from ending the run through semihosting, so the shutdown at the end
         // of the suite switches the machine off through PSCI -- and QEMU, switched
@@ -2745,6 +2835,26 @@ const ARM64_SCENARIOS: &[Scenario] = &[
         final_boot_markers: &[],
         type_lines: &[],
         ready_marker: "",
+        lab_must_contain: &[],
+        lab_must_not_contain: &[],
+    },
+    Scenario {
+        name: "arm64-terminal-usb",
+        machine: &ARM64_VIRT_USB,
+        // A keyboard on AArch64 (ADR-0030): `virt` has no PS/2, so the session is
+        // typed at on a USB keyboard -- the same driver and decoder as on x86-64.
+        cmdline: "init=bin/spaceterm exit=semihosting",
+        boot_cfg: "",
+        disk_files: &[],
+        expect_exit: EXIT_SUCCESS,
+        must_contain: TERMINAL_MARKERS,
+        must_contain_extra: &["keyboard 0627:0001 ready -- boot protocol", "[kernel] xhci: "],
+        must_not_contain: &["KERNEL PANIC", "unknown command", "transfer failed"],
+        runs: 1,
+        typing: Typing::Keyboard,
+        final_boot_markers: &[],
+        type_lines: &["helpp\u{8}", "status", "ls /spaceos", "run hang", "status", "stop", "status", "quit"],
+        ready_marker: TERMINAL_READY,
         lab_must_contain: &[],
         lab_must_not_contain: &[],
     },
@@ -2772,10 +2882,10 @@ fn cmd_arm64(release: bool, only: Option<&str>) -> Result<(), String> {
         // second scenario starts from the same disk as the first.
         let scenario_data = root().join(format!("build/data-{}.img", s.name));
         fs::copy(&data_image, &scenario_data).map_err(|e| format!("copy the data disk: {e}"))?;
-        println!("== scenario {} on {} (cmdline {:?})", s.name, ARM64_VIRT.name, s.cmdline);
+        println!("== scenario {} on {} (cmdline {:?})", s.name, s.machine.name, s.cmdline);
         let log_path = logs.join(format!("{}.log", s.name));
         let run = boot_watched(
-            &ARM64_VIRT,
+            s.machine,
             &image,
             &scenario_data,
             &log_path,

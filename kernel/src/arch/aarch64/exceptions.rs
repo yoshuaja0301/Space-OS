@@ -272,9 +272,11 @@ fn handle_irq() {
         gic::end(intid);
         // The network device is polled from the boot CPU's tick: a frame that
         // arrived since the last tick wakes its waiters here, before the tick
-        // decides who runs next.
+        // decides who runs next. So are the USB controllers: a key pressed since
+        // then is queued here.
         if super::percpu::index() == 0 {
             crate::dev::nic::poll_tick();
+            crate::dev::xhci::poll_tick();
         }
         sched::timer_tick();
     } else if Some(intid) == serial::input_intid() {

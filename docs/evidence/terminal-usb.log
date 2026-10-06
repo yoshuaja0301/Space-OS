@@ -3,7 +3,7 @@ BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
 spaceboot: kernel 398088 bytes, initrd 3991552 bytes, config 77 bytes
-spaceboot: kernel 3 segments, 388 KiB at phys 0x7d52a000, entry 0xffffffff8011a530
+spaceboot: kernel 3 segments, 388 KiB at phys 0x7d4f6000, entry 0xffffffff8011a530
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
 
@@ -52,7 +52,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   fixtures/bad_magic (21064 bytes)
 [kernel]   fixtures/truncated (600 bytes)
 [kernel]   fixtures/huge_segment (21064 bytes)
-[kernel] pci: 8 functions present
+[kernel] pci: 9 functions present
 [kernel] virtio-blk: pci 00:02.0 queue size 16 (max 256), 8 data pages/request, writable with flush, status 0xf
 [kernel] virtio-blk: ready, 64 MiB (131072 sectors)
 [kernel] ahci: 00:1f.2 port 0: "QEMU HARDDISK", 64 MiB, AHCI 1.0
@@ -61,18 +61,21 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
 [kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
 [kernel] entropy: virtio-rng
+[kernel] xhci: 00:05.0: xHCI 1.0, 8 ports, 32 slots, 32-byte contexts
+[kernel] usb: 00:05.0 port 5 (high speed): keyboard 0627:0001 ready -- boot protocol, interface 0, endpoint 0x81, 8-byte reports every 8000 us
+[kernel] xhci: 00:05.0: 1 device(s) on its ports, 1 keyboard(s)
 [kernel] vfs: FAT32 mounted from virtio-blk 00:02.0 (512 byte clusters, 64 MiB volume)
 [kernel] vfs: volume is writable
 [kernel] pic remapped to vectors 32..47
-[kernel] console input: keyboard (IRQ1) and COM2 serial (IRQ3)
+[kernel] console input: no PS/2 controller; no COM2 UART
 [kernel] pit: 1000 Hz (divisor 1193)
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum
-[kernel] rtc: 1791245346 s since the Unix epoch (UTC)
+[kernel] rtc: 1791245383 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (621720 counts)
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (621530 counts)
 [kernel] spawn pid 1 'bin/spaceterm': entry=0x400f3c, 25 pages mapped, quota 2048 pages
 [kernel] init spawned as pid 1 from bin/spaceterm
 [term] Space OS interactive session
@@ -114,7 +117,7 @@ space> stop
 [kernel] pid 3 'bin/uiworker' killed (killed, addr 0x0)
 [shell] worker 'hang' ended: stopped
 [shell] session: worker stopped (hang), commands served 7
-[shell] Stop: worker 'hang' was killed after 17 ms
+[shell] Stop: worker 'hang' was killed after 24 ms
 space> status
 [shell] worker stopped (hang), last exit code -1, commands served 8
 space> quit
@@ -122,4 +125,4 @@ space> quit
 [shell] session closed after 9 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 3642 ms, 3447 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 5822 ms, 5254 context switches)

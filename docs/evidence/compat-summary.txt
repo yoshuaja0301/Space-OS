@@ -3,7 +3,7 @@
 Sesi verifikasi 2026-10-05, QEMU 8.2.2 / OVMF 4M. Image yang sama untuk semua mesin;
 baris cpu: CPU yang dinyalakan kernel (ADR-0024) dan hasil uji paralel K02; baris jam: counter
 yang dipakai kernel untuk waktu (ADR-0029).
-15 konfigurasi, semuanya boot dan lulus (exit QEMU 33). Baris blok: disk dan volume data (ADR-0025). Baris tcp berasal dari rekaman
+16 konfigurasi, semuanya boot dan lulus (exit QEMU 33). Baris blok: disk dan volume data (ADR-0025). Baris tcp berasal dari rekaman
 pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari ADR-0017, I01 dari ADR-0018.
 
 == lab
@@ -12,7 +12,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
@@ -33,7 +33,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == i440fx
    init : ALL TESTS PASSED (97/97, 20 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 2 CPUs online ; 2 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : virtio-blk 00:03.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:03.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 62 connections, 59 closed cleanly, 2 reset, 0 segment(s) the peer sent again
@@ -45,7 +45,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == cpu-max
    init : ALL TESTS PASSED (117/117, 0 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -60,7 +60,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 2 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
@@ -69,7 +69,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == virtio-small-queue
    init : ALL TESTS PASSED (117/117, 0 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -105,7 +105,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == nvme-data
    init : ALL TESTS PASSED (117/117, 0 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : NVMe 00:02.0 namespace 1 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from NVMe 00:02.0 namespace 1 
    net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -117,7 +117,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == installed-disk
    init : ALL TESTS PASSED (117/117, 0 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : AHCI 00:1f.2 port 0 (130 MiB) holds the data volume (GPT partition 2); FAT32 mounted from AHCI 00:1f.2 port 0 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -129,10 +129,10 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == e1000
    init : ALL TESTS PASSED (117/117, 0 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
    blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
    net  : e1000: 00:04.0 (device 100e) ready, mac 52:54:00:12:34:56, link up
-   tcp  : 110 connections, 104 closed cleanly, 5 reset, 1 segment(s) the peer sent again
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
@@ -165,7 +165,7 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
 == no-vga
    init : ALL TESTS PASSED (111/111, 6 skipped)
    jam  : ACPI PM timer at 3579545 Hz, 24 bits
-   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 1 ms
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 0 ms
    blok : virtio-blk 00:01.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:01.0 
    net  : virtio-net: pci 00:03.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
    tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
@@ -184,5 +184,18 @@ pcap setiap boot yang diperiksa harness (ADR-0016); baris entropi dan TLS dari A
    entr : entropy: virtio-rng
    tls  : 8/8 lulus
    i01  : 11/11 lulus (penyedia tiruan)
+   fb   : framebuffer: 1280x800 (BGRX), text console 182x50
+   desk : 4/4 uji desktop lulus
+== usb
+   init : ALL TESTS PASSED (117/117, 0 skipped)
+   jam  : ACPI PM timer at 3579545 Hz, 24 bits
+   cpu  : 4 CPUs online ; 4 CPUs; 200 turns through shared memory, no system call, in 2 ms
+   blok : virtio-blk 00:02.0 (64 MiB) holds the data volume (the whole disk); FAT32 mounted from virtio-blk 00:02.0 
+   net  : virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
+   tcp  : 110 connections, 104 closed cleanly, 5 reset, 0 segment(s) the peer sent again
+   entr : entropy: virtio-rng
+   tls  : 8/8 lulus
+   i01  : 11/11 lulus (penyedia tiruan)
+   usb  : 00:05.0: 2 device(s) on its ports, 1 keyboard(s)
    fb   : framebuffer: 1280x800 (BGRX), text console 182x50
    desk : 4/4 uji desktop lulus

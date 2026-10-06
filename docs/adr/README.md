@@ -33,3 +33,4 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0027](0027-recovery-install.md) | Recovery yang dipilih bootloader, hitungan boot, dan satu disk untuk dipasang | Diterima |
 | [0028](0028-aarch64.md) | AArch64: kernel yang sama di mesin ARM | Diterima |
 | [0029](0029-clock.md) | Waktu dari counter (timer ACPI PM, generic timer), bukan dari hitungan tick | Diterima |
+| [0030](0030-usb-keyboard.md) | USB: pengendali xHCI dan keyboard boot protocol, di x86-64 dan AArch64 | Diterima |

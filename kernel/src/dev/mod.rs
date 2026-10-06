@@ -5,7 +5,8 @@
 //! from (requirement D01, ADR-0025); polled network drivers -- VirtIO and Intel
 //! e1000 -- that move Ethernet frames for the user-space network service, behind
 //! one lease (the transport the cloud adapter of I01 needs, ADR-0026); and an
-//! entropy source for keys (virtio-rng, else RDRAND).
+//! entropy source for keys (virtio-rng, else RDRAND); and USB keyboards on xHCI
+//! controllers (ADR-0030).
 //! Drivers live in the kernel for the MVP; moving them to user space with scoped
 //! MMIO/IRQ capabilities is Developer Preview work (see docs/adr/0007).
 
@@ -14,6 +15,7 @@ pub mod block;
 pub mod dma;
 pub mod e1000;
 pub mod entropy;
+pub mod hid;
 pub mod nic;
 pub mod nvme;
 pub mod pci;
@@ -22,6 +24,7 @@ pub mod virtio_blk;
 pub mod virtio_net;
 pub mod virtio_rng;
 pub mod wait;
+pub mod xhci;
 
 pub fn init() {
     pci::init();
@@ -33,4 +36,6 @@ pub fn init() {
     nic::init();
     virtio_rng::init();
     crate::println!("[kernel] entropy: {}", entropy::describe());
+    // USB keyboards (ADR-0030).
+    xhci::init();
 }

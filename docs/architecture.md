@@ -148,7 +148,7 @@ klien ──Ask/Event──► bin/spacecloud ──sesi (api.cloud.test:443)─
   lewat pesan `OPEN` — permintaan, bukan kapabilitas.
 
 ```
-keyboard ─IRQ1─► kernel (decoder) ─SYS_INPUT_READ─► bin/spacedesk ──KEY──► aplikasi yang fokus
+keyboard ─IRQ1 / xHCI─► kernel (decoder) ─SYS_INPUT_READ─► bin/spacedesk ──KEY──► aplikasi yang fokus
                                                        │  ▲ CREATE/PRESENT (handle memori jendela, dibaca saja)
 framebuffer ◄─lease (SYS_DISPLAY_OPEN, hak DISPLAY)────┘  └── bin/deskapps: terminal | files | agent
                                                                     └─ sesi spaceshell ─► worker
@@ -156,8 +156,12 @@ framebuffer ◄─lease (SYS_DISPLAY_OPEN, hak DISPLAY)────┘  └─�
 
 ## Masukan konsol
 
-Keyboard PS/2 (IRQ 1, scan code set 1) dan UART kedua COM2 (IRQ 3) mengisi satu
-ring buffer 256 byte di kernel. `SYS_CONSOLE_READ` menyerahkannya ke user space di
+Keyboard PS/2 (IRQ 1, scan code set 1), keyboard USB (ADR-0030) dan UART kedua COM2
+(IRQ 3) mengisi satu ring buffer 256 byte di kernel. Keyboard USB ada di pengendali
+xHCI yang dilihat dari tick CPU boot (tanpa interrupt): laporan boot protocol delapan
+byte dibandingkan dengan yang sebelumnya, dan setiap tombol yang ditekan atau dilepas
+menjadi scan code set 1 yang akan dikirim keyboard PS/2, lalu melewati decoder yang
+sama — modifier, event desktop dan byte terminal tidak bisa berbeda antara keduanya. `SYS_CONSOLE_READ` menyerahkannya ke user space di
 balik hak root `CONSOLE` dan **tidak pernah memblokir**. Kernel tidak melakukan
 echo dan tidak mengenal baris; sesi yang menentukan semantik terminal. COM1 tetap
 khusus keluaran log, termasuk dari handler panic.

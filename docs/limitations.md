@@ -51,7 +51,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - `spaceshell` mengawasi **satu** worker; belum ada tabel job atau penjadwalan beberapa job paralel.
 - Stop kooperatif (ADR-0021) diperiksa `spaceai` sebelum setiap operasi compute, tetapi tidak selama pemuatan model (baca + SHA-256): Stop pada saat itu baru terlihat sesudahnya, dan bila pemuatan belum selesai dalam 1 detik, worker dibunuh. Job uji selalu dibunuh.
 - Loop sesi memakai polling 2 ms. Waktu ADR-0011 ditulis belum ada multi-wait; sekarang ada (`SYS_WAIT_ANY`, ADR-0016), tetapi `spaceshell` belum dipindahkan ke sana.
-- Masukan datang dari keyboard PS/2 (scan code set 1, tata letak US) dan COM2. Setiap tombol menjadi *event* untuk desktop (`SYS_INPUT_READ`), tetapi aliran **byte** untuk terminal hanya berisi karakter cetak, Enter, Backspace, Tab dan Esc (plus Enter dan `/` keypad): panah, F1–F12, Home/End tidak mengetik apa pun, dan tekanan dengan Ctrl/Alt/Super juga tidak — jadi tidak ada Ctrl+C sebagai byte `0x03`. Caps Lock, Num Lock dan lampu keyboard tidak ditangani. Shift palsu yang menyertai tombol panah dibuang; kalau didekode, keyboard akan tersangkut huruf besar.
+- Masukan datang dari keyboard PS/2 (scan code set 1, tata letak US), keyboard USB (laporan boot protocol yang diterjemahkan ke scan code yang sama, ADR-0030) dan COM2. Setiap tombol menjadi *event* untuk desktop (`SYS_INPUT_READ`), tetapi aliran **byte** untuk terminal hanya berisi karakter cetak, Enter, Backspace, Tab dan Esc (plus Enter dan `/` keypad): panah, F1–F12, Home/End tidak mengetik apa pun, dan tekanan dengan Ctrl/Alt/Super juga tidak — jadi tidak ada Ctrl+C sebagai byte `0x03`. Caps Lock, Num Lock dan lampu keyboard tidak ditangani. Shift palsu yang menyertai tombol panah dibuang; kalau didekode, keyboard akan tersangkut huruf besar.
 - Line editor sesi hanya mengenal karakter cetak dan backspace; tidak ada riwayat perintah atau penyuntingan di tengah baris.
 - Ring masukan konsol berisi 256 byte dan membuang yang paling tua saat penuh. Kehilangan itu tidak didiamkan: pembacaan berikutnya mendapat `DataLoss` sebelum byte yang selamat, sekali per episode, dan `spaceshell` membuang baris yang sedang diketik. Yang tidak ada adalah kendali aliran — tidak ada cara memberi tahu pengirim agar berhenti, jadi tempelan yang lebih cepat dari pembacanya tetap kehilangan byte, hanya saja dengan suara. Satu interupsi COM2 juga hanya mengambil 4096 byte; lebih dari itu menjeda interupsinya sampai pembacaan konsol berikutnya, jadi masukan tertunda, bukan hilang selamanya.
 - Masukan konsol adalah **satu antrean global**, bukan milik satu proses: pembacaan bersifat merusak, jadi dua proses yang sama-sama memegang hak `CONSOLE` akan saling memakan ketikan. Modelnya adalah satu sesi memiliki konsol; belum ada pemilik konsol yang ditegakkan kernel.
@@ -59,7 +59,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 
 ## Desktop (ADR-0020)
 
-- **Hanya keyboard.** Belum ada mouse atau pointer apa pun (PS/2 mouse, virtio-input, USB HID); jendela dipindah dan diubah
+- **Hanya keyboard.** Belum ada mouse atau pointer apa pun (PS/2 mouse, virtio-input, USB HID mouse/tablet); jendela dipindah dan diubah
   ukurannya dengan pintasan, 32 px per langkah.
 - **Hanya framebuffer UEFI (GOP)** yang ditinggalkan firmware, pada resolusi pilihan firmware (1280×800 di QEMU). Belum ada
   virtio-gpu, ganti mode, atau lebih dari satu layar. Mesin tanpa GOP tidak bisa menjalankan desktop (`display_open` →
@@ -151,14 +151,23 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - IRQ perangkat (konsol PL011) hanya ke CPU boot; CPU lain dihentikan saat panic dengan SGI biasa, jadi CPU yang memegang spinlock dengan interrupt dimask berhenti setelah melepasnya (tanpa pseudo-NMI).
 - Model memori ARM lebih lemah dari x86: penjadwal menyerahkan thread antar-CPU hanya lewat spinlock, tetapi TCG di host x86 tidak memperlihatkan pengurutan ulang yang hanya terjadi di perangkat keras ARM.
 - Firmware harus berjalan di EL1 dan memakai indeks `MAIR_EL1` EDK2 (0 Device-nGnRnE, 3 write-back); firmware di EL2 — umum di papan fisik — ditolak bootloader dengan pesan. Hanya GICv3 (bukan GICv2).
-- Belum ada keyboard (tanpa PS/2; virtio-input dan USB belum ditulis) dan belum ada framebuffer di `virt` (`ramfb`/virtio-gpu belum): desktop dan uji keyboard dilewati. Masukan konsol hanya lewat UART PL011.
+- Keyboard hanya lewat USB (xHCI, ADR-0030; `virt` tidak punya PS/2), dan belum ada framebuffer di `virt` (`ramfb`/virtio-gpu belum): desktop dilewati, dan uji injeksi PS/2 di suite penerimaan tidak punya padanan (keyboard USB diuji dengan skenario `arm64-terminal-usb` yang mengetik sungguhan). Masukan konsol juga lewat UART PL011.
 - Pembagian dengan nol tidak menjebak di AArch64 dan single-step tidak bisa diminta dari EL0: dua uji K02 itu dilewati dengan alasan.
 - DMA dianggap koheren dengan cache (benar untuk PCIe di `virt`); SoC yang DMA-nya tidak men-snoop cache butuh pemeliharaan cache yang belum ada. Penghalang `dsb sy` sebelum memberi tahu perangkat ada, tetapi di TCG tidak bisa dibuktikan perlu.
 - Overflow stack kernel tidak punya stack terpisah untuk dilaporkan (x86-64 punya IST).
 
+## USB (ADR-0030)
+
+- Hanya pengendali **xHCI** (paling banyak empat) dan hanya **keyboard boot protocol**; perangkat lain (tablet, mouse, penyimpanan, hub) diberi alamat, dicatat dengan VID:PID, lalu dibiarkan. Belum ada EHCI/OHCI/UHCI (PC sebelum sekitar 2012) dan belum ada perutean port USB 2 dari EHCI ke xHCI di chipset Intel seri 7.
+- **Belum ada hub**: perangkat di belakang hub — termasuk hub di monitor atau dock, dan keyboard internal laptop yang tersambung lewat hub internal — tidak terlihat.
+- **Belum ada hot-plug**: hanya perangkat yang tersambung saat boot yang dipakai; yang dicolok kemudian dilaporkan sekali dan dibiarkan, dan keyboard yang dicabut lalu dicolok lagi baru kembali di boot berikutnya.
+- Tanpa key repeat (keyboard USB tidak mengulang sendiri), tanpa lampu Caps Lock/Num Lock, tanpa tombol Pause; tata letak US seperti PS/2.
+- Polling: event ring dilihat setiap tick 1 ms di CPU boot, tanpa interrupt/MSI. Endpoint yang gagal (stall, transaction error) tidak dipulihkan: keyboard itu berhenti dan semua tombolnya dilepas.
+- Hanya diuji di QEMU (`qemu-xhci` + `usb-kbd`/`usb-tablet`, x86-64 dan AArch64), belum di pengendali fisik.
+
 ## Belum ada (tahap berikutnya)
 
-- VirtIO input dan virtio-gpu, mouse (sisa tahap 3): masukan hanya keyboard PS/2 dan COM2, layar hanya framebuffer UEFI.
+- VirtIO input dan virtio-gpu, mouse (sisa tahap 3): masukan hanya keyboard (PS/2 atau USB) dan COM2, layar hanya framebuffer UEFI.
 - Space Guard sebagai layanan, tanda tangan kunci publik untuk paket, adapter cloud terhadap penyedia sungguhan (5A).
 - GPU (6).
 

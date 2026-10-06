@@ -5,44 +5,44 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 
 ## Driver dan lease (kernel)
 [kernel] virtio-net: pci 00:04.0 mac 52:54:00:12:34:56 (from device), 32 receive and 32 transmit buffers, link up, status 0xf
-[kernel] rtc: 1791240680 s since the Unix epoch (UTC)
+[kernel] rtc: 1791245112 s since the Unix epoch (UTC)
 
 ## Uji NET
 [init] network: a network card is present
 [init] PASS NET: the network lease needs the NET right and is exclusive
 [init] network: mac 52:54:00:12:34:56, link up, mtu 1500
 [init] PASS NET: the device reports its address, link and frame size
-[init] network: 10.0.2.2 is at 52:55:0a:00:02:02 (2 ms)
+[init] network: 10.0.2.2 is at 52:55:0a:00:02:02 (1 ms)
 [init] PASS NET: ARP: the gateway answers who-has 10.0.2.2
 [init] network: echo 1 (32 byte payload) back in 1 ms
-[init] network: echo 2 (512 byte payload) back in 1 ms
-[init] network: echo 3 (1472 byte payload) back in 0 ms
+[init] network: echo 2 (512 byte payload) back in 0 ms
+[init] network: echo 3 (1472 byte payload) back in 1 ms
 [init] network: 5 frames received, 5 sent, 0 dropped
 [init] PASS NET: ICMP echo to the gateway comes back intact
-[init] network: asleep 300 ms; the frame left 299 ms into the sleep and woke the receiver 1 ms later
+[init] network: asleep 303 ms; the frame left 300 ms into the sleep and woke the receiver 3 ms later
 [init] PASS NET: a frame arriving while the receiver sleeps wakes it
 [init] PASS NET: malformed transmit and receive requests are refused
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 15 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 16 ms
 [init] PASS NET: the network service gets an address by DHCP and describes it
-[init] network: echo.lab.test is 10.0.2.101 (25 ms)
-[init] network: alias.lab.test is 10.0.2.101 (11 ms)
-[init] network: ECHO.Lab.Test is 10.0.2.101 (9 ms)
+[init] network: echo.lab.test is 10.0.2.101 (29 ms)
+[init] network: alias.lab.test is 10.0.2.101 (10 ms)
+[init] network: ECHO.Lab.Test is 10.0.2.101 (10 ms)
 [init] PASS NET: names resolve through the lab DNS server; unknown names do not
-[init] network: 65536 bytes to the echo service and back in 1030 ms
+[init] network: 65536 bytes to the echo service and back in 1032 ms
 [init] PASS NET: 64 KiB go to the echo service and come back intact over TCP
 [init] network: 4 refusals counted (0 -> 4); no frame sent meanwhile
 [init] PASS NET: destinations off the allowlist are refused before a frame leaves
 [init] network: blackhole.lab.test:80 gave Err(TimedOut) after 503 ms
 [init] PASS NET: a connection nobody answers times out
-[init] network: closed.lab.test:8 gave Err(Refused) after 14 ms
+[init] network: closed.lab.test:8 gave Err(Refused) after 15 ms
 [init] PASS NET: a port nobody listens on refuses the connection
-[init] network: the resetting service answered Err(Reset) after 302 ms
+[init] network: the resetting service answered Err(Reset) after 303 ms
 [init] PASS NET: a connection the peer resets is reported as reset
 [init] network: read 2056 bytes of a stream that keeps coming, then closed it
 [init] PASS NET: closing a connection the peer is still sending on resets it, so the peer stops
-[init] network connections: frames free 2089615 -> 2089615, heap used 18568 -> 18568, live processes 2
+[init] network connections: frames free 2089610 -> 2089610, heap used 18568 -> 18568, live processes 2
 [init] PASS NET: 20 connections open and close without leaking kernel memory
-[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 12 ms
+[init] network service: 10.0.2.15/24 via 0.0.0.0, DNS 0.0.0.0, configured in 13 ms
 [init] PASS NET: killing the service fails its clients and frees the device; a new one serves and quits
 
 ## Layanan spacenet (baris pertama instans pertama, lalu penutupan instans kedua)
@@ -58,54 +58,54 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
 [net] session 1: allow blackhole.lab.test, port 80
 [net] session 1: allow closed.lab.test, port 8
 [net] session 1: allow nosuch.lab.test, any port
-[net] DNS: alias.lab.test is 10.0.2.101 (7 ms)
+[net] DNS: alias.lab.test is 10.0.2.101 (8 ms)
 [net] DNS: ECHO.Lab.Test is 10.0.2.101 (8 ms)
 [net] DNS: nosuch.lab.test: not found
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1011 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 1010 ms
 [net] session 1: echo.lab.test:7 closed: 65536 bytes out, 65536 in
 [net] session 1: refused to connect to api.cloud.test port 80: not on its allowlist
 [net] session 1: refused to connect to echo.lab.test port 8: not on its allowlist
 [net] session 1: refused to connect to 10.0.2.101 port 7: not on its allowlist
 [net] session 1: refused to look up api.cloud.test: not on its allowlist
-[net] DNS: blackhole.lab.test is 10.0.2.77 (8 ms)
+[net] DNS: blackhole.lab.test is 10.0.2.77 (9 ms)
 [net] session 1: blackhole.lab.test:80: timed out after 500 ms
 [net] DNS: closed.lab.test is 10.0.2.101 (10 ms)
 [net] session 1: closed.lab.test:8: connection refused after 12 ms
-[net] DNS: reset.lab.test is 10.0.2.102 (8 ms)
-[net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1010 ms
-[net] session 1: reset.lab.test:9: connection reset after 1318 ms
+[net] DNS: reset.lab.test is 10.0.2.102 (9 ms)
+[net] session 1: connected to reset.lab.test:9 (10.0.2.102) in 1012 ms
+[net] session 1: reset.lab.test:9: connection reset after 1323 ms
 [net] DNS: chargen.lab.test is 10.0.2.101 (9 ms)
-[net] session 1: connected to chargen.lab.test:19 (10.0.2.101) in 12 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 15 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 17 ms
+[net] session 1: connected to chargen.lab.test:19 (10.0.2.101) in 10 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 14 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 15 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 17 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 11 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 12 ms
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
-[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 13 ms
 [net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 10 ms
+[net] session 1: connected to echo.lab.test:7 (10.0.2.101) in 16 ms
 [net] session 30 opened; nothing is allowed yet
 [net] session 30: allow tls.lab.test, port 443
-[net] DNS: tls.lab.test is 10.0.2.103 (10 ms)
-[net] session 30: connected to tls.lab.test:443 (10.0.2.103) in 1013 ms
-[net] session 30: tls.lab.test:443 closed: 17043 bytes out, 17186 in
+[net] DNS: tls.lab.test is 10.0.2.103 (8 ms)
+[net] session 30: connected to tls.lab.test:443 (10.0.2.103) in 1011 ms
+[net] session 30: tls.lab.test:443 closed: 17043 bytes out, 17339 in
 [net] session 30 closed: 1 opened, 0 refused, 1 resolved
 [net] session 32 opened; nothing is allowed yet
 [net] session 32: allow tls.lab.test, port 449
-[net] DNS: tls.lab.test is 10.0.2.103 (11 ms)
-[net] session 32: connected to tls.lab.test:449 (10.0.2.103) in 13 ms
-[net] session 32: tls.lab.test:449 closed: 17043 bytes out, 17229 in
+[net] DNS: tls.lab.test is 10.0.2.103 (15 ms)
+[net] session 32: connected to tls.lab.test:449 (10.0.2.103) in 19 ms
+[net] session 32: tls.lab.test:449 closed: 17043 bytes out, 17340 in
 [net] session 32 closed: 1 opened, 0 refused, 1 resolved
 [net] session 34 opened; nothing is allowed yet
+[net] session 34: allow tls.lab.test, port 450
+[net] DNS: tls.lab.test is 10.0.2.103 (10 ms)
+[net] session 34: connected to tls.lab.test:450 (10.0.2.103) in 18 ms
+[net] session 34: tls.lab.test:450 closed: 17059 bytes out, 17290 in
+[net] session 34 closed: 1 opened, 0 refused, 1 resolved
 
 ## Layanan lab (xtask lab), jumlah per baris
      28 dns: echo.lab.test: 1 record(s)
@@ -138,7 +138,7 @@ acceptance (profil lab ADR-0003). Log lengkap: acceptance.log di direktori ini.
       1 cloud: lab-tool: tool_result for toolu_lab_1: 119 bytes
       1 cloud: lab-tool: no read_file tool was offered
       1 cloud: lab-tool: asked to read /spaceos/ws/input.txt
-      1 cloud: lab-stall: the client closed the connection after 1428 ms
+      1 cloud: lab-stall: the client closed the connection after 1433 ms
       1 cloud: lab-runaway: the client closed the connection after 2 rounds (800 tokens reported, max_tokens 100)
       1 cloud: lab-overloaded: attempt 3 answered 529
       1 cloud: lab-overloaded: attempt 2 answered 529

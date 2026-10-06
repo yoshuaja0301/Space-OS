@@ -218,8 +218,10 @@ fn handle_irq(frame: &mut TrapFrame) {
         IRQ_TIMER => {
             pic::eoi(irq);
             // The network device is polled: a frame that arrived since the last tick
-            // wakes its waiters here, before the tick decides who runs next.
+            // wakes its waiters here, before the tick decides who runs next. So are
+            // the USB controllers: a key pressed since then is queued here.
             crate::dev::nic::poll_tick();
+            crate::dev::xhci::poll_tick();
             sched::timer_tick();
         }
         IRQ_KEYBOARD => {
