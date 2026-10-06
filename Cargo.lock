@@ -1611,6 +1611,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacetask"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
+]
+
+[[package]]
 name = "spaceterm"
 version = "0.1.0"
 dependencies = [
@@ -1708,6 +1716,14 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "taskworker"
+version = "0.1.0"
+dependencies = [
+ "libspace",
+ "spaceabi",
 ]
 
 [[package]]

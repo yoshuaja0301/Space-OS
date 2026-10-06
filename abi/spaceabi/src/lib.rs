@@ -18,6 +18,7 @@
 //!   answers).
 //! * [`input`]   – keyboard events (`SYS_INPUT_READ`).
 //! * [`desk`]    – the desktop contract (windows, their buffers, input, automation).
+//! * [`task`]    – the Task Service contract (tasks, their states and journal).
 //!
 //! It is `no_std`, allocation free, and must stay `#[repr(C)]`-stable: changing a
 //! layout here means bumping [`ABI_VERSION`] (see docs/adr/0004-syscall-abi-v0.md).
@@ -45,6 +46,7 @@ pub mod sha256;
 pub mod shell;
 pub mod syscall;
 pub mod tar;
+pub mod task;
 
 /// Version of the kernel <-> user ABI described by this crate.
 pub const ABI_VERSION: u32 = 0;

@@ -54,6 +54,8 @@ const USER_PROGRAMS: &[&str] = &[
     "spacecloud",
     "churn",
     "sched",
+    "spacetask",
+    "taskworker",
     "spacedesk",
     "deskapps",
     "spacerecovery",
@@ -2253,6 +2255,21 @@ const SCENARIOS: &[Scenario] = &[
             "[init] PASS A02: a worker that runs out of its memory is refused",
             "[init] PASS A02: workers that take every free frame are refused",
             "[shell] session open, ABI v0; the session holds",
+            // Tasks outlive their window, their service and the machine; what is
+            // uncertain is asked about, not retried; Stop stops (ADR-0036).
+            "[init] PASS T01: a task left running before this boot is still there",
+            "[init] PASS T01: a task outlives the session that made it",
+            "[init] PASS T01: every transition is kept with its reason, time and actor",
+            "[init] PASS T01: a record cut short by a crash is skipped",
+            "[init] PASS T01: the journal is compacted into its other file",
+            "[init] PASS T01: unfinished tasks fill the table only so far",
+            "[init] PASS T02: an effect open when the service went away needs reconciliation",
+            "[init] PASS T02: a failed attempt is retried after a doubling backoff",
+            "[init] PASS T02: a worker that gives up with an effect open",
+            "[init] PASS G02: Stop stops dispatch within 1 s",
+            "[init] PASS G02: a worker that does not stop is ended after 2 s",
+            "[init] PASS T01: a running task with an effect open is left for the next boot",
+            "[init] PASS D01: a file opened for writing keeps what it holds",
             "[kernel] cmdline: \"init=bin/init\"",
             "[init] kernel command line: \"init=bin/init\"",
             "input decoding ok",
@@ -2453,7 +2470,10 @@ const SCENARIOS: &[Scenario] = &[
         // what ran before; what must be true here is that this boot found the one the
         // previous boot left. `init` checks the arithmetic itself and fails if it is
         // off by anything.
-        final_boot_markers: &["survived the reboot, wrote"],
+        final_boot_markers: &[
+            "survived the reboot, wrote",
+            "from the previous boot was needs_reconciliation",
+        ],
         type_lines: &[],
         ready_marker: "",
         lab_must_contain: &[],
@@ -3026,6 +3046,8 @@ const ARM64_SCENARIOS: &[Scenario] = &[
             "[init] PASS NET:",
             "[init] PASS A02: workers that take every free frame are refused",
             "[init] PASS K02: service classes: an interactive round trip stays quick",
+            "[init] PASS T02: an effect open when the service went away needs reconciliation",
+            "[init] PASS G02: Stop stops dispatch within 1 s",
             "[init] ALL TESTS PASSED",
         ],
         must_contain_extra: &[],

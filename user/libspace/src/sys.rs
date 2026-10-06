@@ -252,8 +252,15 @@ pub fn fs_create(root: Handle, path: &str) -> Result<Handle, Error> {
     call(nr::FS_CREATE, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0]).map(|h| h as Handle)
 }
 
+/// Open a file that exists for writing as well as reading, keeping what it holds.
+/// Needs the root `FS | FS_WRITE` rights; `NotFound` when there is no such file.
+pub fn fs_open_write(root: Handle, path: &str) -> Result<Handle, Error> {
+    call(nr::FS_OPEN_WRITE, [root as u64, path.as_ptr() as u64, path.len() as u64, 0, 0, 0])
+        .map(|h| h as Handle)
+}
+
 /// Write `buf` at `offset`. The handle must carry the `WRITE` right, which only
-/// [`fs_create`] hands out.
+/// [`fs_create`] and [`fs_open_write`] hand out.
 pub fn fs_write(file: Handle, offset: u64, buf: &[u8]) -> Result<usize, Error> {
     call(nr::FS_WRITE, [file as u64, offset, buf.as_ptr() as u64, buf.len() as u64, 0, 0])
 }

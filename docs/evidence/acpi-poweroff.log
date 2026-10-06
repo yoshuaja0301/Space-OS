@@ -2,9 +2,9 @@ BdsDxe: failed to load Boot0001 "UEFI Non-Block Boot Device" from PciRoot(0x0)/P
 BdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
 spaceboot 0.1.0: Space OS UEFI bootloader
-spaceboot: kernel 422664 bytes, initrd 4109312 bytes, config 91 bytes
-spaceboot: kernel 3 segments, 412 KiB at phys 0x7d4f1000, entry 0xffffffff8011b01c
-spaceboot: boot image 4109312 bytes, sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503
+spaceboot: kernel 422664 bytes, initrd 4292608 bytes, config 91 bytes
+spaceboot: kernel 3 segments, 412 KiB at phys 0x7d4c5000, entry 0xffffffff80100000
+spaceboot: boot image 4292608 bytes, sha256 f217fcbabc9a75c0d1bb9eb5215ccd112201bd68757098fea866022a197d7b1d
 spaceboot: entropy: 32 bytes from the firmware's RNG protocol
 spaceboot: linear map 8196 MiB of RAM below 0x280000000 at 0xffff800000000000 (device MMIO excluded), framebuffer 1280x800 @ 0x80000000
 spaceboot: exiting boot services and jumping to kernel
@@ -15,18 +15,18 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] idt loaded (256 vectors)
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
 [kernel] cpu: RDRAND absent
-[kernel] boot info v3 accepted: 720 bytes, 43 memory regions, 7 reservations, initrd 4109312 bytes, cmdline 32 bytes, rsdp 0x7f77e014
-[kernel]   reserved 0x7d4f1000..0x7d558000 (412 KiB): kernel image
-[kernel]   reserved 0x7d105000..0x7d4f1000 (4016 KiB): boot image
-[kernel]   reserved 0x7e74e000..0x7e74f000 (4 KiB): command line
-[kernel]   reserved 0x7d0f5000..0x7d105000 (64 KiB): boot stack
-[kernel]   reserved 0x7e74c000..0x7e74d000 (4 KiB): boot info
-[kernel]   reserved 0x7d0e5000..0x7d0f5000 (64 KiB): memory map
-[kernel]   reserved 0x7d0bf000..0x7d0d7000 (96 KiB): page tables
-[kernel] boot image: sha256 ffb38a49759ace6ea1904e5ae9d1072afbbc7064b4abb9a69fa75df3d763c503 as the bootloader measured it
+[kernel] boot info v3 accepted: 720 bytes, 41 memory regions, 7 reservations, initrd 4292608 bytes, cmdline 32 bytes, rsdp 0x7f77e014
+[kernel]   reserved 0x7d4c5000..0x7d52c000 (412 KiB): kernel image
+[kernel]   reserved 0x7d0ad000..0x7d4c5000 (4192 KiB): boot image
+[kernel]   reserved 0x7e74d000..0x7e74e000 (4 KiB): command line
+[kernel]   reserved 0x7d09d000..0x7d0ad000 (64 KiB): boot stack
+[kernel]   reserved 0x7e745000..0x7e746000 (4 KiB): boot info
+[kernel]   reserved 0x7d08d000..0x7d09d000 (64 KiB): memory map
+[kernel]   reserved 0x7d067000..0x7d07f000 (96 KiB): page tables
+[kernel] boot image: sha256 f217fcbabc9a75c0d1bb9eb5215ccd112201bd68757098fea866022a197d7b1d as the bootloader measured it
 [kernel] boot slot: normal; boots are not counted
 [kernel] boot entropy: 32 bytes from the firmware's RNG protocol, mixed in and never counted as a source
-[kernel] frames: 2094288 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
+[kernel] frames: 2094244 usable (8180 MiB), bitmap 320 KiB at 0x100000; reserved 12547 MiB, kernel 4 MiB, acpi 2 MiB, mmio 4 MiB
 [kernel] paging: kernel PML4 at 0x6000; linear map 10 GiB at 0xffff800000000000; boot identity map dropped
 [kernel] heap: 16 MiB at 0xffff900000000000
 [kernel] kernel stacks: 4096 slots of 64 KiB (32 KiB mapped) at 0xffffa00000000000
@@ -35,8 +35,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] boot context moved to a guarded kernel stack (top 0xffffa00000010000)
 [kernel] framebuffer: 1280x800 (BGRX), text console 182x50
 [kernel] cmdline: "init=bin/spaceterm shutdown=acpi"
-[kernel] initrd: 4109312 bytes, 32 files
-[kernel]   bin/init (537560 bytes)
+[kernel] initrd: 4292608 bytes, 34 files
+[kernel]   bin/init (615392 bytes)
 [kernel]   bin/hello (21064 bytes)
 [kernel]   bin/fault (25168 bytes)
 [kernel]   bin/fpu (37520 bytes)
@@ -61,6 +61,8 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel]   bin/spacecloud (1184632 bytes)
 [kernel]   bin/churn (25168 bytes)
 [kernel]   bin/sched (25160 bytes)
+[kernel]   bin/spacetask (70320 bytes)
+[kernel]   bin/taskworker (33448 bytes)
 [kernel]   bin/spacedesk (119536 bytes)
 [kernel]   bin/deskapps (127728 bytes)
 [kernel]   bin/spacerecovery (58056 bytes)
@@ -85,33 +87,32 @@ spacekernel 0.1.0: Space OS kernel booting
 [kernel] syscall/sysret enabled (ABI v0)
 [kernel] clock: ACPI PM timer at 3579545 Hz, 24 bits
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes (a class waits at most 100 ms)
-[kernel] rtc: 1791283749 s since the Unix epoch (UTC)
+[kernel] rtc: 1791297805 s since the Unix epoch (UTC)
 [kernel] selftest: heap ok, frames ok, paging ok, address-space ok, input decoding ok
 [kernel] power: ACPI S5 through PM1a_CNT 0x604 (SLP_TYP 0)
-[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (624700 counts)
-[kernel] spawn pid 1 'bin/spaceterm': entry=0x40119c, 25 pages mapped, quota 2048 pages, interactive
+[kernel] smp: 4 CPUs online (boot CPU local APIC 0; started 1 2 3), xAPIC APIC mode, AP timer 100 Hz (625160 counts)
+[kernel] spawn pid 1 'bin/spaceterm': entry=0x4012d8, 25 pages mapped, quota 2048 pages, interactive
 [kernel] init spawned as pid 1 from bin/spaceterm
-[status] user-space alive: pid 1 (bin/spaceterm) made the first system call
 [kernel] entering idle loop; scheduler live
+[status] user-space alive: pid 1 (bin/spaceterm) made the first system call
 [term] Space OS interactive session
-[kernel] spawn pid 2 'bin/spaceshell': entry=0x404b1c, 31 pages mapped, quota 256 pages, interactive
+[kernel] spawn pid 2 'bin/spaceshell': entry=0x4042c0, 31 pages mapped, quota 256 pages, interactive
 [shell] Space OS session service, ABI v0
 [shell] session open, ABI v0; the session holds 63 pages
 [shell] session: worker idle (-), commands served 1
 [shell] terminal ready on the console; type 'help'
-space> [kernel] spawn pid 3 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, interactive
+space> [kernel] spawn pid 3 'bin/uiworker': entry=0x400750, 21 pages mapped, quota 128 pages, interactive
 [worker] job 'ok' starting
 [worker] job 'ok' finished (0x1df75ddf083b5b05)
 [kernel] pid 3 'bin/uiworker' exited with code 0
-[kernel] spawn pid 4 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, interactive
+[kernel] spawn pid 4 'bin/uiworker': entry=0x400750, 21 pages mapped, quota 128 pages, interactive
 [worker] job 'hang' starting
-[worker] job 'hang' is wedged and never calls the kernel again
 [kernel] pid 4 'bin/uiworker' killed (killed, addr 0x0)
-[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 58 ms
+[status] OS usable: read 512 bytes of /spaceos/MODEL.SLM, ran bin/uiworker to its end and stopped another while it ran, in 36 ms
 quit
 [shell] closing the session
 [shell] session closed after 3 commands
 [kernel] pid 2 'bin/spaceshell' exited with code 0
 [term] session ended: ExitStatus { kind: 0, code: 0, reason: 0, _pad: 0, fault_addr: 0 }
-[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 200 ms, 29 context switches)
+[kernel] shutdown requested by pid 1 'bin/spaceterm' with code 0 (uptime 210 ms, 43 context switches)
 [kernel] switching off through ACPI S5

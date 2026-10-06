@@ -14,9 +14,9 @@ Gerbang setiap milestone adalah ID requirement v0.2; statusnya per ID ada di
 | M4 OS dasar | ELF, shell, VirtIO block, filesystem baca | B04, S01, S02, D01 | B04, S01, S02, D01 terbukti (status boot, ADR-0032) |
 | M5 Runtime CPU | library minimum, compute, model parser | C01, stress resource | C01 terbukti; stress 8 jam di build final |
 | M6 Native AI | tokenizer, model fixture, inference | A01, A02 | A01 dan A02 terbukti (model rusak dan kehabisan memori, ADR-0034) |
-| M7 Persistensi | filesystem tulis, task store, update/recovery dasar | D02, W01, recovery | tulis/flush/reboot dan recovery terbukti; disk penuh, task store dan Workspace belum |
-| M8 Workspace | SpaceLink, editor, broker, Task Center, desktop | L01–L03, T01, G01, U01, E01 | SpaceLink, broker, desktop ada; editor, Task Center dan E01 belum |
-| M9 Developer Preview | adapter, SDK, paket, uji gabungan | T02, G02, U02, I01, P01 | I01, P01 terbukti; T02 belum; G02, U02 sebagian |
+| M7 Persistensi | filesystem tulis, task store, update/recovery dasar | D02, W01, recovery | tulis/flush/reboot, recovery dan task store (jurnal Task Service, ADR-0036) terbukti; disk penuh dan Workspace belum |
+| M8 Workspace | SpaceLink, editor, broker, Task Center, desktop | L01–L03, T01, G01, U01, E01 | SpaceLink, broker, desktop ada; T01 terbukti di Task Service (ADR-0036); editor, Task Center dan E01 belum |
+| M9 Developer Preview | adapter, SDK, paket, uji gabungan | T02, G02, U02, I01, P01 | I01, P01, T02 dan G02 (ADR-0036) terbukti; U02 sebagian |
 | M10 Hardware | installer dan PC referensi | H01 | blocked (tanpa perangkat keras); driver VM: SATA, NVMe, e1000, USB keyboard |
 | M11 Ekspansi | GPU compute dan port ARM64 | H02, H03 | H03 terbukti (ADR-0028); H02 blocked |
 
@@ -25,7 +25,7 @@ Gerbang setiap milestone adalah ID requirement v0.2; statusnya per ID ada di
 | Tahap | Hasil kerja PRD | Status repo |
 |---|---|---|
 | 1 Kernel boot | Bootloader UEFI, kernel, memori awal, serial dan crash log | **selesai**: `spaceboot`, `spacekernel`, frame/paging/heap, serial + framebuffer, panic dengan backtrace, 3 skenario diagnosis crash, soak 100 boot |
-| 2 User space CPU | Address space, syscall, ELF loader, IPC, allocator, scalar compute | **selesai kecuali "scalar compute"**: address space per proses, ABI v0 (20 syscall saat tahap ini; kini 41), loader ELF, channel IPC + transfer handle, allocator kernel/user, kuota. "Scalar compute" (operasi CPU untuk inferensi) ditunda ke tahap 4 karena bergantung pada kontrak Compute ABI |
+| 2 User space CPU | Address space, syscall, ELF loader, IPC, allocator, scalar compute | **selesai kecuali "scalar compute"**: address space per proses, ABI v0 (20 syscall saat tahap ini; kini 42), loader ELF, channel IPC + transfer handle, allocator kernel/user, kuota. "Scalar compute" (operasi CPU untuk inferensi) ditunda ke tahap 4 karena bergantung pada kontrak Compute ABI |
 | 3 Perangkat virtual | VirtIO block, VFS, network, input, display | **sebagian**: PCI, virtio-blk 1.0 (polling, baca dan tulis), FAT32 baca-tulis dan ABI file selesai (D01 verified), dan sejak ADR-0025 juga disk SATA (AHCI) dan NVMe; masukan konsol (keyboard PS/2 dan COM2) selesai; **network selesai** (ADR-0016): virtio-net 1.0 dan Intel e1000 (ADR-0026) di balik satu lease eksklusif, `SYS_WAIT_ANY`, jam dinding, dan TCP/IP di user space (`spacenet`) dengan allowlist per sesi; **TLS 1.3 selesai** (ADR-0017) di atas sumber entropi kernel (virtio-rng/RDRAND); **layar selesai untuk framebuffer UEFI** (ADR-0020): lease layar eksklusif yang kembali ke konsol saat pemegangnya hilang, dan event keyboard dengan modifier; virtio-gpu, virtio-input dan mouse belum |
 | 4 Compute ABI | Kontrak v0, CPU backend, handle dan quota | **selesai**: objek memori bersama di kernel, layanan `spacecompute` user-space, backend CPU, uji kontrak C01 lulus |
 | 5 Inferensi native | Model kecil, tokenizer, generation, benchmark offline | **selesai untuk model referensi**: format SpaceLM v0, validasi + checksum, runtime `spaceai`, 128 token offline cocok dengan baseline; model terlatih berlisensi belum |

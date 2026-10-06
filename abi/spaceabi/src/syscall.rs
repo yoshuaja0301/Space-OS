@@ -113,8 +113,13 @@ pub mod nr {
     /// Needs the root `CONSOLE` right; at most [`super::INPUT_READ_MAX`] per call.
     /// Never blocks: 0 means nothing happened.
     pub const INPUT_READ: usize = 40;
+    /// `fs_open_write(root_handle, path_ptr, path_len) -> file_handle` – open a file
+    /// that exists for reading and writing, keeping what it holds (a journal appends
+    /// to itself; ADR-0036). Needs root `FS | FS_WRITE`; `NotFound` when there is no
+    /// such file, `Invalid` for a directory, `Denied` on a volume that refuses writes.
+    pub const FS_OPEN_WRITE: usize = 41;
 
-    pub const COUNT: usize = 41;
+    pub const COUNT: usize = 42;
 }
 
 /// Most bytes one `SYS_RANDOM` call returns.

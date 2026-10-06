@@ -137,6 +137,7 @@ Kode keluar QEMU berasal dari `isa-debug-exit`: `(nilai << 1) | 1`; kernel menul
 | D01 | berkas tidak ada → `NotFound`; menelusuri **melewati** berkas biasa (`/spaceos/manifest.txt/anything`) → `NotFound`; `fs_open` tanpa hak `FS` → `Denied`; baca ke alamat kernel → `Fault`; baca melewati akhir berkas → 0 byte; `fs_stat` pada handle channel → `Denied` | `bin/init` |
 | D01 | berkas ditulis dalam tiga bentuk (di dalam satu cluster, melewati batas cluster sehingga harus mengalokasi, lalu ditambal di tengah) lalu dibaca ulang **byte demi byte**; ukuran dari `fs_stat` harus cocok | `bin/init` |
 | D01 | menulis adalah hak tersendiri: `FS` tanpa `FS_WRITE` → `Denied`, handle dari `fs_open` → `Denied`, nama di luar 8.3 → `Invalid`, direktori → `Invalid` | `bin/init` |
+| D01 | berkas yang dibuka untuk ditulis (`fs_open_write`, ADR-0036) menyimpan isinya dan tumbuh di ujungnya; tanpa `FS_WRITE` → `Denied`, berkas yang tidak ada → `NotFound`, direktori → `Invalid` | `bin/init` |
 | D01 | satu penghitung dibaca lalu ditulis satu lebih tinggi tiap boot; `storage-reboot` menuntut boot **kedua** menemukan angka yang ditinggalkan boot pertama (bidang `final_boot_markers` pada skenario) | `bin/init` |
 
 ### Uji U01 (sesi dan supervisi)
@@ -226,6 +227,27 @@ Gigi uji ini terbukti: dengan pemeriksaan scope naif (`path.starts_with(SCOPE)`)
 Gigi uji ini terbukti: bila daftar revokasi tidak dipisahkan dari indeks (sehingga
 `INDEX` ulang membaca kembali dokumen yang dicabut), L02 merah pada langkah
 "query after re-index".
+
+### Uji T01, T02 dan G02 (Task Service, ADR-0036)
+
+Setiap uji menjalankan `bin/spacetask` sendiri di atas jurnal yang sama di volume data, jadi yang
+ditulis satu layanan dibaca layanan berikutnya. Jurnal itu dipakai bersama uji, pass, boot dan
+skenario sebelumnya, jadi tidak ada uji yang menganggap tabel kosong.
+
+| ID | Uji | Program |
+|---|---|---|
+| T01 | pertama di setiap pass: tugas yang ditinggalkan pass atau boot sebelumnya berjalan dengan efek terbuka masih ada, `needs_reconciliation` oleh `service` dengan efek dan checkpoint-nya; user mengatakan efeknya tidak terjadi → `failed` (satu attempt). `storage-reboot` menuntut boot kedua menemukan tugas boot pertama | `bin/spacetask` |
+| T01 | tugas dibuat dan dijeda di satu sesi yang lalu ditutup; sesi berikutnya melihat judul, pemilik, workspace, state, alasan dan jumlah transisinya, melanjutkan dan membatalkannya | `bin/spacetask` |
+| T01 | dispatch (service), minta persetujuan (agent), persetujuan oleh agent → `Denied`, disetujui (user), selesai (agent), keluar dari state akhir → `Invalid`; layanan baru memberikan tugas yang sama, dan riwayatnya dibaca dari disk: rekaman pertama `create` oleh user, empat transisi dengan state, aktor dan alasan yang benar, waktu tidak mundur | `bin/spacetask` |
+| T01 | 60 byte pertama sebuah rekaman (yang menyatakan tugas berhasil) ditulis di ujung jurnal: layanan menghitungnya rusak, tugasnya tetap `queued`, dan tugas yang ditulis sesudahnya kembali setelah restart | `bin/spacetask` |
+| T01 | kompaksi pindah ke berkas lain dengan epoch berikutnya dan tugas tetap sama; setelah restart berkas yang lebih baru dipakai; berkas lain yang rekamannya tertulis tetapi slot headernya kosong (kompaksi yang terputus) diabaikan | `bin/spacetask` |
+| T01 | 64 tugas yang belum selesai mengisi tabel dan yang berikutnya `Quota`; setelah satu selesai, tugas baru mengambil tempatnya dan yang selesai itu `NotFound` | `bin/spacetask` |
+| T02 | layanan dibunuh dengan efek terbuka; setelah restart tugasnya `needs_reconciliation`: klaim `NotFound`, kembali ke antrean dan dinyatakan selesai `Invalid`; user mengatakan efeknya tidak terjadi → attempt 2 dengan kunci yang sama, efek terjadi sekali | `bin/spacetask` |
+| T02 | tiga kegagalan: klaim ditolak selama backoff 100 ms lalu 200 ms (diukur dari sebelum kegagalan dilaporkan), setelah attempt ketiga `failed` dan tidak diklaim lagi | `bin/spacetask` |
+| T02 | dengan efek terbuka: `succeeded` dan efek kedua → `Busy`, `failed` → `needs_reconciliation`; dikonfirmasi terjadi → `paused` dengan satu efek terhitung, dilanjutkan sampai selesai tanpa mengulang efeknya | `bin/spacetask` |
+| G02 | dua worker menjalankan dua dari empat tugas, klaim ketiga `WouldBlock`; Stop semuanya ≤ 1 s, klaim berikutnya `Denied`, kedua worker membatalkan tugasnya sendiri ≤ 2 s setelah Stop, dua tugas antre tetap `queued`, efek yang sudah terjadi dihitung; `RESUME` membuat klaim berjalan lagi | `bin/spacetask`, `bin/taskworker` |
+| G02 | worker yang memulai efek lalu macet tidak menjawab Stop; tugasnya tetap `running` selama 2 s, lalu worker dimatikan, dan tugasnya `needs_reconciliation`, bukan `cancelled`; dibatalkan setelahnya dengan efek yang tetap belum dikonfirmasi | `bin/spacetask`, `bin/taskworker` |
+| T01 | terakhir di setiap pass: tugas dibuat, diklaim, diberi checkpoint dan efek terbuka, lalu layanannya dibunuh seperti listrik padam | `bin/spacetask` |
 
 ### Uji P01 (paket dan rollback)
 

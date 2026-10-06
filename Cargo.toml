@@ -31,6 +31,8 @@ members = [
     "user/tests/tlsprobe",
     "user/tests/churn",
     "user/tests/sched",
+    "user/tests/taskworker",
+    "user/services/spacetask",
     "user/services/spacedesk",
     "user/services/deskapps",
     "user/services/spacerecovery",

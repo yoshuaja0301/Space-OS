@@ -117,6 +117,14 @@ kepadanya — tidak ada yang bisa mematikan mesin atau membaca statistik kernel.
   koneksi compute, dan akses baca berkas yang dipersempit sesi dari miliknya sendiri.
   Worker melapor setiap token, dan Stop memintanya berhenti di antara dua operasi
   compute sebelum sesi, setelah 1 detik, membunuhnya.
+- **`bin/spacetask`** (T01, T02, G02; ADR-0036): Task Service. Tugas hidup di sini, bukan di
+  jendela yang membuatnya: setiap perubahan ditulis ke jurnal (`/spaceos/var/tasks0.log` atau
+  `tasks1.log`, rekaman 128 byte bersegel SHA-256, berkas dengan epoch tertinggi) sebelum dijawab.
+  Operator memberinya capability `FS|FS_WRITE` dan membuka sesi yang terikat pada aktornya (user atau
+  agent). Delapan state PRD §13; dispatch lewat `CLAIM` (paling banyak dua berjalan), efek eksternal
+  dengan awal dan akhir, `needs_reconciliation` untuk efek yang tidak pasti, retry dengan backoff, Stop
+  per tugas dan Stop semuanya (dispatch berhenti, yang antre ditahan). Setelah restart, yang tadinya
+  berjalan dijeda, dibatalkan, atau menunggu rekonsiliasi -- tidak pernah dianggap selesai.
 - **`bin/spacebroker` + `bin/spaceagent`** (G01): agent lahir hanya dengan satu
   channel — `fs_open` miliknya ditolak kernel. Broker memegang satu-satunya
   kapabilitas file (`FS`), memeriksa setiap path terhadap workspace

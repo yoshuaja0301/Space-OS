@@ -26,7 +26,8 @@ ke volume itu sebelum driver melihatnya.)*
 **Menulis adalah hak tersendiri.** `FS` membaca volume; `FS_WRITE` mengubahnya. Proses
 yang dipercaya membaca tidak otomatis dipercaya menulis ulang. Handle berkas juga
 membawa izinnya sendiri: `SYS_FS_OPEN` tidak pernah memberi hak `WRITE`, jadi satu-satunya
-cara mendapat handle yang bisa ditulis adalah lewat `SYS_FS_CREATE`.
+cara mendapat handle yang bisa ditulis adalah lewat `SYS_FS_CREATE`. *(Sejak ADR-0036 juga lewat
+`SYS_FS_OPEN_WRITE`, di balik hak root yang sama, untuk berkas yang ditambah tanpa dikosongkan.)*
 
 **"Create atau kosongkan", bukan sunting di tempat.** Semua pemanggil di atas lapisan ini
 menulis berkas utuh, jadi itulah operasi yang disediakan. `SYS_FS_CREATE` membuat berkas

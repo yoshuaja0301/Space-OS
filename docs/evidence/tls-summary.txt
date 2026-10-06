@@ -4,21 +4,21 @@ Diambil dari build/logs/acceptance.log dan acceptance.lab.log skenario acceptanc
 lab ADR-0003), keluaran cargo xtask build, dan matriks compat. Log lengkap: acceptance.log.
 
 ## Gerbang build: instruksi FP/SIMD hanya di tempatnya (ADR-0031)
-== FP/SIMD instructions: the kernel 7 (saving and loading a thread's state), `fault` 8, `fpu` 91, none in the other 26 programs (820397 instructions decoded)
+== FP/SIMD instructions: the kernel 7 (saving and loading a thread's state), `fault` 8, `fpu` 91, none in the other 28 programs (849176 instructions decoded)
 
 ## Kernel
 [kernel] virtio-rng: pci 00:03.0 queue size 4, status 0xf
 [kernel] entropy: virtio-rng; boot entropy from the firmware mixed in, not counted
-[kernel] rtc: 1791283366 s since the Unix epoch (UTC)
+[kernel] rtc: 1791297334 s since the Unix epoch (UTC)
 
 ## Uji K03 v0.2: register FP/SIMD milik setiap thread (ADR-0031), SYS_RANDOM
 [kernel] fpu: x87 and SSE per thread through FXSAVE, 512 bytes
-[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 560 checks in 400 ms
-[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 600 checks in 400 ms
-[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 599 checks in 400 ms
-[fpu] pattern 4: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 612 checks in 400 ms
-[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 588 checks in 400 ms
-[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 584 checks in 400 ms
+[fpu] pattern 1: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 490 checks in 400 ms
+[fpu] pattern 2: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 470 checks in 400 ms
+[fpu] pattern 3: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 466 checks in 400 ms
+[fpu] pattern 4: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 488 checks in 400 ms
+[fpu] pattern 5: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 488 checks in 400 ms
+[fpu] pattern 6: XMM0-15, MXCSR, the x87 control word and the x87 stack held through 465 checks in 400 ms
 [init] PASS K03: FP/SIMD registers are each process's own: six processes keep their patterns through preemption and sleeps
 [fpu] fresh: x87, MXCSR and XMM0-15 in the initial state
 [init] PASS K03: a new process starts with every FP/SIMD register in its initial state
@@ -26,18 +26,18 @@ lab ADR-0003), keluaran cargo xtask build, dan matriks compat. Log lengkap: acce
 [init] PASS K01: an unmasked x87 exception kills only the process (x87 floating point)
 [init] entropy: available
 [init] PASS K02: random: requests are checked, and refused outright without a source
-[init] random: 4096 bytes, chi-square 271 over 255 degrees of freedom, 16509 of 32768 bits set
+[init] random: 4096 bytes, chi-square 255 over 255 degrees of freedom, 16499 of 32768 bits set
 [init] PASS K02: random: 4 KiB look like noise, and no draw repeats
 [kernel] pid 18 'bin/fault' killed (x87 floating-point exception, addr 0x40023c)
 
 ## Uji TLS (guest): jawaban bin/tlsprobe dan hasilnya
-[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 1024 ms, handshake in 54 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 443: ok TLS13_CHACHA20_POLY1305_SHA256: TCP in 28 ms, handshake in 67 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 22 ms, handshake in 48 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 449: ok TLS13_AES_128_GCM_SHA256: TCP in 24 ms, handshake in 72 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-128-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 24 ms, handshake in 56 ms, 16384 bytes echoed intact, closed with close_notify
+[tlsprobe] echo on port 450: ok TLS13_AES_256_GCM_SHA384: TCP in 30 ms, handshake in 69 ms, 16384 bytes echoed intact, closed with close_notify
 [init] PASS TLS: TLS 1.3 with AES-256-GCM: 16 KiB go both ways intact, and close_notify ends it
-[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1791283376 (UNIX), but certificate is not valid after 1791196961 (86415 seconds ago)
+[tlsprobe] refuse on port 444: err expired TLS: invalid peer certificate: certificate expired: verification time 1791297343 (UNIX), but certificate is not valid after 1791210928 (86415 seconds ago)
 [init] PASS TLS: an expired certificate is refused
 [tlsprobe] refuse on port 445: err wrong-name TLS: invalid peer certificate: NotValidForNameContext { expected: DnsName("tls.lab.test"), presented: ["DnsName(\"other.lab.test\")"] }
 [init] PASS TLS: a certificate for another name is refused
@@ -64,7 +64,7 @@ tls-truncate: handshake complete (TLS13_CHACHA20_POLY1305_SHA256)
 tls-truncate: answered, and left without close_notify
 
 ## Kabel (pcap skenario acceptance)
-tcp: 110 connections, 104 closed cleanly, 5 reset, 3 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:53066 <- 10.0.2.101:7)
+tcp: 110 connections, 104 closed cleanly, 5 reset, 4 segment(s) the peer sent again, 1 left behind by a killed network service (the peer's FIN came after the guest had been silent for 20+ s, with nothing left to answer it: 10.0.2.15:60064 <- 10.0.2.101:7)
 
 ## Mesin lain (cargo xtask compat)
 cpu-max      [kernel] entropy: RDRAND | [init] PASS TLS: TLS 1.3 with ChaCha20-Poly1305: 16 KiB go both ways intact, and close_notify ends it

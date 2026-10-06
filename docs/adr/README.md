@@ -35,6 +35,7 @@ PRD §2 mensyaratkan keputusan arsitektur dicatat sebelum implementasi. Format: 
 | [0029](0029-clock.md) | Waktu dari counter (timer ACPI PM, generic timer), bukan dari hitungan tick | Diterima |
 | [0030](0030-usb-keyboard.md) | USB: pengendali xHCI dan keyboard boot protocol, di x86-64 dan AArch64 | Diterima |
 | [0031](0031-fpu-state.md) | Register FP/SIMD milik thread yang menulisnya: disimpan dan dimuat pada setiap switch (PRD v0.2 K03) | Diterima |
+| [0036](0036-task-service.md) | Task Service: jurnal bersegel tulis-dulu di dua berkas berepoch, state PRD §13, efek dengan awal dan akhir, `needs_reconciliation`, retry berbatas, Stop yang menghentikan dispatch; `SYS_FS_OPEN_WRITE` (T01, T02, G02) | Diterima |
 | [0035](0035-scheduler-service-classes.md) | Kelas layanan scheduler: interactive, normal, background; anak tidak pernah lebih mendesak dari induknya; preemption lewat IPI dan giliran untuk kelas yang kelaparan (PRD v0.2 §8.2, K02) | Diterima |
 | [0034](0034-out-of-memory-and-damaged-models.md) | Kehabisan memori adalah penolakan, cadangan konsol sudah dipetakan, dan model rusak ditolak dengan alasan yang sampai ke sesi (PRD v0.2 A02) | Diterima |
 | [0033](0033-handle-generations.md) | Handle membawa generasi slotnya: handle yang sudah ditutup tetap mati setelah slotnya dipakai lagi (PRD v0.2 K04) | Diterima |

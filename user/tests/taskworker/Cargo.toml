@@ -1,0 +1,16 @@
+[package]
+name = "taskworker"
+description = "A worker for the Task Service tests: claims a task and works until it is stopped, or hangs (T02, G02)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "taskworker"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

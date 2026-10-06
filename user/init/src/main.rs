@@ -13,6 +13,7 @@ mod desktest;
 mod netcheck;
 mod nettest;
 mod stress;
+mod tasktest;
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -3472,6 +3473,22 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
             Err(Error::Denied) => {}
             other => return Err(alloc::format!("create without FS_WRITE gave {other:?}")),
         }
+        // Opening for writing needs the same two rights as creating.
+        let read_only = sys::handle_dup(ROOT, rights::FS).map_err(|e| alloc::format!("dup: {e}"))?;
+        let denied = sys::fs_open_write(read_only, "/spaceos/manifest.txt");
+        sys::handle_close(read_only).ok();
+        match denied {
+            Err(Error::Denied) => {}
+            other => return Err(alloc::format!("open for writing without FS_WRITE gave {other:?}")),
+        }
+        match sys::fs_open_write(ROOT, "/spaceos/var/nothere.dat") {
+            Err(Error::NotFound) => {}
+            other => return Err(alloc::format!("open for writing a missing file gave {other:?}")),
+        }
+        match sys::fs_open_write(ROOT, "/spaceos/var") {
+            Err(Error::Invalid) => {}
+            other => return Err(alloc::format!("open for writing a directory gave {other:?}")),
+        }
         // A handle from `fs_open` carries no WRITE right, however the file was made.
         let ro = sys::fs_open(ROOT, "/spaceos/manifest.txt").map_err(|e| alloc::format!("open: {e}"))?;
         let denied = sys::fs_write(ro, 0, b"x");
@@ -3492,6 +3509,43 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
         }
         Ok(())
     });
+
+    r.run_if(
+        disk,
+        "no disk on this machine",
+        "D01",
+        "a file opened for writing keeps what it holds and grows at its end",
+        || {
+            const PATH: &str = "/spaceos/var/append.dat";
+            let file = sys::fs_create(ROOT, PATH).map_err(|e| alloc::format!("create: {e}"))?;
+            let first = sys::fs_write(file, 0, b"first line\n");
+            sys::handle_close(file).ok();
+            first.map_err(|e| alloc::format!("write: {e}"))?;
+            // Opened again for writing: nothing is emptied, and a write at the end grows it.
+            let file = sys::fs_open_write(ROOT, PATH).map_err(|e| alloc::format!("open for writing: {e}"))?;
+            let grown = sys::fs_stat(file).and_then(|st| {
+                if st.size != 11 {
+                    return Ok(st.size);
+                }
+                sys::fs_write(file, st.size, b"second line\n")?;
+                sys::fs_stat(file).map(|st| st.size)
+            });
+            sys::handle_close(file).ok();
+            let size = grown.map_err(|e| alloc::format!("append: {e}"))?;
+            if size != 23 {
+                return Err(alloc::format!("{size} bytes after appending 12 to 11"));
+            }
+            let read = sys::fs_open(ROOT, PATH).map_err(|e| alloc::format!("open: {e}"))?;
+            let mut buf = [0u8; 32];
+            let n = sys::fs_read(read, 0, &mut buf);
+            sys::handle_close(read).ok();
+            let n = n.map_err(|e| alloc::format!("read: {e}"))?;
+            if &buf[..n] != b"first line\nsecond line\n" {
+                return Err(alloc::format!("read back {:?}", core::str::from_utf8(&buf[..n])));
+            }
+            Ok(())
+        },
+    );
 
     r.run_if(disk, "no disk on this machine", "D01", "the volume remembers across a reboot", || {
         // One counter file, read then rewritten one higher. On the first boot of a
@@ -4436,6 +4490,86 @@ fn suite(hw: Hardware, pass: u32) -> Runner {
             }
             pkg_stop(svc_ch, svc)
         },
+    );
+
+    let no_disk = "no disk on this machine";
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "a task left running before this boot is still there, and its open effect needs reconciliation",
+        || tasktest::reboot_check(pass),
+    );
+    r.run_if(disk, no_disk, "T01", "a task outlives the session that made it", tasktest::outlives_session);
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "every transition is kept with its reason, time and actor, and a restarted service gives the task back",
+        tasktest::history_and_restart,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "a record cut short by a crash is skipped, and what is written after it is kept",
+        tasktest::torn_record,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "the journal is compacted into its other file, and a compaction cut short changes nothing",
+        tasktest::compaction,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "unfinished tasks fill the table only so far, and a finished one makes room",
+        tasktest::retention,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T02",
+        "an effect open when the service went away needs reconciliation, and nothing retries it blind",
+        tasktest::uncertain_effect,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T02",
+        "a failed attempt is retried after a doubling backoff, and not past the last attempt",
+        tasktest::retry_backoff,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T02",
+        "a worker that gives up with an effect open leaves the task to reconciliation, not to a retry",
+        tasktest::failed_with_effect_open,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "G02",
+        "Stop stops dispatch within 1 s, the workers stop their tasks, queued tasks are held and done effects counted",
+        tasktest::stop_all,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "G02",
+        "a worker that does not stop is ended after 2 s, and its task is not shown as cancelled",
+        tasktest::hung_worker,
+    );
+    r.run_if(
+        disk,
+        no_disk,
+        "T01",
+        "a running task with an effect open is left for the next boot to find",
+        || tasktest::leave_probe(pass),
     );
 
     r

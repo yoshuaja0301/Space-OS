@@ -1,0 +1,16 @@
+[package]
+name = "spacetask"
+description = "Task Service: tasks that outlive their window, kept in a journal, with retry, Stop and reconciliation (T01, T02, G02)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "spacetask"
+test = false
+bench = false
+
+[dependencies]
+spaceabi.workspace = true
+libspace.workspace = true

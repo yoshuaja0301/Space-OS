@@ -93,6 +93,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> isize {
         nr::DISPLAY_OPEN => sys_display_open(a[0] as Handle),
         nr::DISPLAY_INFO => sys_display_info(a[0] as Handle, a[1]),
         nr::INPUT_READ => sys_input_read(a[0] as Handle, a[1], a[2]),
+        nr::FS_OPEN_WRITE => sys_fs_open_write(a[0] as Handle, a[1], a[2]),
         _ => Err(Error::NoSys),
     };
     arch::disable_interrupts();
@@ -152,6 +153,31 @@ fn sys_fs_create(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Er
         return Err(Error::TooManyHandles);
     }
     let node = fs::create(&path)?;
+    let entry = HandleEntry {
+        object: Object::File(Arc::new(OpenFile { node: crate::sync::SpinLock::new(node) })),
+        rights: rights::FILE_WRITABLE,
+    };
+    Ok(p.handles.lock().insert(entry)? as usize)
+}
+
+/// Open a file that exists for writing as well as reading, keeping what it holds.
+///
+/// The same two root rights as `SYS_FS_CREATE`, since the result can change the
+/// volume; what it adds is a way to change a file without emptying it first, which
+/// is what a journal needs (ADR-0036). A volume that refuses writes refuses this
+/// up front rather than handing out a writable handle that every write would fail.
+fn sys_fs_open_write(root: Handle, path_ptr: u64, path_len: u64) -> Result<usize, Error> {
+    require_root(root, rights::FS | rights::FS_WRITE)?;
+    heap::reserve(cost::HANDLE)?;
+    let path = read_user_str(path_ptr, path_len, PATH_MAX as u64)?;
+    let p = current();
+    if !p.handles.lock().has_free_slot() {
+        return Err(Error::TooManyHandles);
+    }
+    let node = fs::open(&path)?;
+    if !fs::writable() {
+        return Err(Error::Denied);
+    }
     let entry = HandleEntry {
         object: Object::File(Arc::new(OpenFile { node: crate::sync::SpinLock::new(node) })),
         rights: rights::FILE_WRITABLE,

@@ -1,0 +1,126 @@
+# Task Service (T01, T02, G02, ADR-0036) — sesi verifikasi 2026-10-06
+
+Diambil dari build/logs (cargo xtask test, compat, arm64). Log lengkap: acceptance.log.
+
+## Acceptance (x86-64): uji dan baris layanan
+[init] --- D01: a file opened for writing keeps what it holds and grows at its end
+[init] PASS D01: a file opened for writing keeps what it holds and grows at its end
+[init] --- T01: a task left running before this boot is still there, and its open effect needs reconciliation
+[task] journal /spaceos/var/tasks0.log (epoch 1): 0 record(s), 0 damaged and skipped, 0 task(s), 0 settled after a restart
+[init] tasks: no task left on this volume by an earlier boot (0 task(s) held); this pass leaves one
+[init] PASS T01: a task left running before this boot is still there, and its open effect needs reconciliation
+[init] --- T01: a task outlives the session that made it
+[task] journal /spaceos/var/tasks0.log (epoch 1): 0 record(s), 0 damaged and skipped, 0 task(s), 0 settled after a restart
+[init] tasks: task 1 'write the weekly report' outlived the session that made it: paused in the next one (the window was closed to come back later), owner user, workspace /spaceos/ws; resumed and cancelled there
+[init] PASS T01: a task outlives the session that made it
+[init] --- T01: every transition is kept with its reason, time and actor, and a restarted service gives the task back
+[task] journal /spaceos/var/tasks0.log (epoch 1): 5 record(s), 0 damaged and skipped, 1 task(s), 0 settled after a restart
+[task] journal compacted into /spaceos/var/tasks1.log (epoch 2): 5 record(s) became 3
+[task] journal /spaceos/var/tasks1.log (epoch 2): 9 record(s), 0 damaged and skipped, 2 task(s), 0 settled after a restart
+[init] tasks: task 2 after a restart: succeeded, 6 records read back from the journal; transitions: running by service (dispatched: attempt 1 of 3); waiting_approval by agent (about to delete 12 files); running by user (approved: the 12 files are duplicates); succeeded by agent (12 duplicates deleted)
+[init] PASS T01: every transition is kept with its reason, time and actor, and a restarted service gives the task back
+[init] --- T01: a record cut short by a crash is skipped, and what is written after it is kept
+[task] journal /spaceos/var/tasks1.log (epoch 2): 9 record(s), 0 damaged and skipped, 2 task(s), 0 settled after a restart
+[task] journal compacted into /spaceos/var/tasks0.log (epoch 3): 9 record(s) became 6
+[task] journal /spaceos/var/tasks0.log (epoch 3): 7 record(s), 1 damaged and skipped, 3 task(s), 0 settled after a restart
+[task] journal /spaceos/var/tasks0.log (epoch 3): 10 record(s), 1 damaged and skipped, 4 task(s), 0 settled after a restart
+[init] tasks: 60 bytes of a record at byte 1024 of /spaceos/var/tasks0.log were skipped (1 damaged record(s) seen); task 3 stayed queued, and task 4 written after the tear came back after a restart
+[init] PASS T01: a record cut short by a crash is skipped, and what is written after it is kept
+[init] --- T01: the journal is compacted into its other file, and a compaction cut short changes nothing
+[task] journal /spaceos/var/tasks0.log (epoch 3): 10 record(s), 1 damaged and skipped, 4 task(s), 0 settled after a restart
+[task] journal compacted into /spaceos/var/tasks1.log (epoch 4): 14 record(s) became 13
+[task] journal /spaceos/var/tasks1.log (epoch 4): 13 record(s), 0 damaged and skipped, 5 task(s), 0 settled after a restart
+[task] journal /spaceos/var/tasks1.log (epoch 4): 13 record(s), 0 damaged and skipped, 5 task(s), 0 settled after a restart
+[init] tasks: journal compacted from /spaceos/var/tasks0.log (1920 bytes) into /spaceos/var/tasks1.log (epoch 4, 1792 bytes) with task 5 still paused; a compaction cut short before its header was ignored
+[init] PASS T01: the journal is compacted into its other file, and a compaction cut short changes nothing
+[init] --- T01: unfinished tasks fill the table only so far, and a finished one makes room
+[task] journal /spaceos/var/tasks1.log (epoch 4): 14 record(s), 0 damaged and skipped, 5 task(s), 0 settled after a restart
+[init] tasks: 64 unfinished tasks filled the table and the next was refused (quota exceeded); when one finished, task 70 took its place (64 held)
+[init] PASS T01: unfinished tasks fill the table only so far, and a finished one makes room
+[init] --- T02: an effect open when the service went away needs reconciliation, and nothing retries it blind
+[task] journal /spaceos/var/tasks1.log (epoch 4): 150 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[task] task 71 'send the invoice to the customer' was running: now needs_reconciliation
+[task] journal /spaceos/var/tasks1.log (epoch 4): 155 record(s), 0 damaged and skipped, 64 task(s), 1 settled after a restart
+[init] tasks: task 71 was running with effect 'invoice-2026-10-mail' open when its service was killed; after the restart it was needs_reconciliation (service restarted; effect 'invoice-2026-10-mail' may or may not have happened), and nothing dispatched or retried it until the user said it never happened; attempt 2 sent it once
+[init] PASS T02: an effect open when the service went away needs reconciliation, and nothing retries it blind
+[init] --- T02: a failed attempt is retried after a doubling backoff, and not past the last attempt
+[task] journal /spaceos/var/tasks1.log (epoch 4): 162 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[init] tasks: task 72 failed three times: attempts 2 and 3 came 105 ms (backoff 100) and 202 ms (backoff 200); then it failed for good: the rate server answered 503; attempt 3 of 3, none left
+[init] PASS T02: a failed attempt is retried after a doubling backoff, and not past the last attempt
+[init] --- T02: a worker that gives up with an effect open leaves the task to reconciliation, not to a retry
+[task] journal /spaceos/var/tasks1.log (epoch 4): 170 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[init] tasks: task 73 failed with effect 'upload-photos-batch-7' open: needs_reconciliation (the connection dropped mid-upload; effect 'upload-photos-batch-7' unconfirmed); the user confirmed it, and attempt 2 finished without uploading again
+[init] PASS T02: a worker that gives up with an effect open leaves the task to reconciliation, not to a retry
+[init] --- G02: Stop stops dispatch within 1 s, the workers stop their tasks, queued tasks are held and done effects counted
+[task] journal /spaceos/var/tasks1.log (epoch 4): 181 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[init] tasks: Stop stopped dispatch in 3 ms (the next claim: denied); 2 running tasks were asked, 2 queued ones held, not cancelled; both workers stopped their tasks 34 ms after Stop, with 3 effect(s) already done and kept
+[init] PASS G02: Stop stops dispatch within 1 s, the workers stop their tasks, queued tasks are held and done effects counted
+[init] --- G02: a worker that does not stop is ended after 2 s, and its task is not shown as cancelled
+[task] journal /spaceos/var/tasks1.log (epoch 4): 214 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[init] tasks: a worker that did not stop was killed 2010 ms after Stop; its task became needs_reconciliation, not cancelled: effect 'charge-card-78' may have happened; given up, it is cancelled with that effect still unconfirmed
+[init] PASS G02: a worker that does not stop is ended after 2 s, and its task is not shown as cancelled
+[init] --- T01: a running task with an effect open is left for the next boot to find
+[task] journal /spaceos/var/tasks1.log (epoch 4): 221 record(s), 0 damaged and skipped, 64 task(s), 0 settled after a restart
+[init] tasks: task 79 left running with effect 'probe-pass-1' open for the next boot to find
+[init] PASS T01: a running task with an effect open is left for the next boot to find
+
+## Reboot: boot pertama meninggalkan tugas berjalan, boot kedua menemukannya (storage-reboot)
+== storage-reboot-boot1
+[task] task 237 'reboot probe' was running: now needs_reconciliation
+[init] tasks: task 237 from the previous boot was needs_reconciliation with effect 'probe-pass-2' open (checkpoint 'half way'): service restarted; effect 'probe-pass-2' may or may not have happened; the user said it never happened: failed
+[task] task 308 'send the invoice to the customer' was running: now needs_reconciliation
+[init] tasks: task 316 left running with effect 'probe-pass-1' open for the next boot to find
+== storage-reboot-boot2
+[task] task 316 'reboot probe' was running: now needs_reconciliation
+[init] tasks: task 316 from the previous boot was needs_reconciliation with effect 'probe-pass-1' open (checkpoint 'half way'): service restarted; effect 'probe-pass-1' may or may not have happened; the user said it never happened: failed
+[task] task 387 'send the invoice to the customer' was running: now needs_reconciliation
+[init] tasks: task 395 left running with effect 'probe-pass-1' open for the next boot to find
+
+## Stress: setiap pass menemukan tugas dari pass sebelumnya
+[init] tasks: task 79 from the previous boot was needs_reconciliation with effect 'probe-pass-1' open (checkpoint 'half way'): service restarted; effect 'probe-pass-1' may or may not have happened; the user said it never happened: failed
+[init] tasks: Stop stopped dispatch in 3 ms (the next claim: denied); 2 running tasks were asked, 2 queued ones held, not cancelled; both workers stopped their tasks 33 ms after Stop, with 3 effect(s) already done and kept
+[stress] pass 1: ok; 139/139 tests (1 skipped) in 75.7 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=75817
+[init] tasks: task 158 from the previous pass was needs_reconciliation with effect 'probe-pass-1' open (checkpoint 'half way'): service restarted; effect 'probe-pass-1' may or may not have happened; the user said it never happened: failed
+[init] tasks: Stop stopped dispatch in 3 ms (the next claim: denied); 2 running tasks were asked, 2 queued ones held, not cancelled; both workers stopped their tasks 34 ms after Stop, with 3 effect(s) already done and kept
+[stress] pass 2: ok; 139/139 tests (1 skipped) in 52.4 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=128263
+[stress] done: 2 passes in 2.1 min, 278 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
+
+## Setiap mesin: Stop dan worker yang macet
+lab                      Stop stopped dispatch in 5 ms; both workers stopped their tasks 7 ms after Stop; a worker that did not stop was killed 2014 ms after Stop
+q35-1cpu-2g              Stop stopped dispatch in 2 ms; both workers stopped their tasks 12 ms after Stop; a worker that did not stop was killed 2009 ms after Stop
+i440fx                   Stop stopped dispatch in 3 ms; both workers stopped their tasks 14 ms after Stop; a worker that did not stop was killed 2012 ms after Stop
+cpu-max                  Stop stopped dispatch in 3 ms; both workers stopped their tasks 34 ms after Stop; a worker that did not stop was killed 2008 ms after Stop
+virtio-transitional      Stop stopped dispatch in 5 ms; both workers stopped their tasks 11 ms after Stop; a worker that did not stop was killed 2014 ms after Stop
+virtio-small-queue       Stop stopped dispatch in 3 ms; both workers stopped their tasks 35 ms after Stop; a worker that did not stop was killed 2008 ms after Stop
+no-disk                  dilewati (no disk on this machine)
+sata-data                Stop stopped dispatch in 3 ms; both workers stopped their tasks 43 ms after Stop; a worker that did not stop was killed 2017 ms after Stop
+nvme-data                Stop stopped dispatch in 4 ms; both workers stopped their tasks 24 ms after Stop; a worker that did not stop was killed 2010 ms after Stop
+installed-disk           Stop stopped dispatch in 6 ms; both workers stopped their tasks 38 ms after Stop; a worker that did not stop was killed 2008 ms after Stop
+e1000                    Stop stopped dispatch in 3 ms; both workers stopped their tasks 35 ms after Stop; a worker that did not stop was killed 2008 ms after Stop
+e1000e                   Stop stopped dispatch in 3 ms; both workers stopped their tasks 35 ms after Stop; a worker that did not stop was killed 2013 ms after Stop
+rtl8139-only             Stop stopped dispatch in 4 ms; both workers stopped their tasks 7 ms after Stop; a worker that did not stop was killed 2023 ms after Stop
+no-vga                   Stop stopped dispatch in 4 ms; both workers stopped their tasks 24 ms after Stop; a worker that did not stop was killed 2020 ms after Stop
+vmware-vga               Stop stopped dispatch in 4 ms; both workers stopped their tasks 39 ms after Stop; a worker that did not stop was killed 2017 ms after Stop
+usb                      Stop stopped dispatch in 3 ms; both workers stopped their tasks 32 ms after Stop; a worker that did not stop was killed 2025 ms after Stop
+arm64-acceptance         Stop stopped dispatch in 3 ms; both workers stopped their tasks 12 ms after Stop; a worker that did not stop was killed 2028 ms after Stop
+
+## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
+=== the service assumes an effect that was open when it went away happened
+[init] FAIL T02: an effect open when the service went away needs reconciliation, and nothing retries it blind: after the restart: task 71 is succeeded (service restarted; effect 'invoice-2026-10-mail' may or may not have happened), expected needs_reconciliation
+=== a record is believed without its checksum
+[init] FAIL T01: a record cut short by a crash is skipped, and what is written after it is kept: past the tear, after a restart: get task 4: not found
+=== the answer comes before the write
+[init] FAIL T01: every transition is kept with its reason, time and actor, and a restarted service gives the task back: after a restart: get task 1: not found
+[init] FAIL T01: a record cut short by a crash is skipped, and what is written after it is kept: after the torn record: get task 1: not found
+=== a failed attempt is dispatched again at once
+[init] FAIL T02: a failed attempt is retried after a doubling backoff, and not past the last attempt: attempt 2 was dispatched 6 ms after the failure (0 claim(s) refused first); its backoff is 100 ms
+=== Stop leaves dispatch running
+[init] FAIL G02: Stop stops dispatch within 1 s, the workers stop their tasks, queued tasks are held and done effects counted: a claim after Stop: accepted, expected permission denied
+=== of two journal files, the older one is believed
+[init] FAIL T01: every transition is kept with its reason, time and actor, and a restarted service gives the task back: after a restart: get task 2: not found
+[init] FAIL T01: a record cut short by a crash is skipped, and what is written after it is kept: the service found no damaged record
+=== an agent approves its own work
+[init] FAIL T01: every transition is kept with its reason, time and actor, and a restarted service gives the task back: the agent approving itself: accepted, expected permission denied
+=== opening a file for writing empties it
+[init] FAIL D01: writing is a right of its own: open for writing a missing file gave Ok(72961)
+[init] FAIL D01: a file opened for writing keeps what it holds and grows at its end: 0 bytes after appending 12 to 11

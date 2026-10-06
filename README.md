@@ -9,8 +9,8 @@ sumber entropi kernel, objek memori
 bersama + Space Compute ABI v0, inferensi model native yang cocok dengan baseline yang dipatok,
 serta layanan Developer Preview (desktop grafis dengan terminal, file manager, Agent Center yang
 menjalankan model dengan Stop kooperatif, dan Command Center untuk pencarian SpaceLink,
-sesi terminal, tool broker, SpaceLink, paket bertanda tangan, adapter cloud) — dengan bukti uji
-otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, U01, G01, L01–L03, P01** di QEMU — suite yang sama juga
+sesi terminal, tool broker, SpaceLink, Task Service, paket bertanda tangan, adapter cloud) — dengan bukti uji
+otomatis untuk persyaratan **K01, K02, K03, D01, C01, A01, A02, U01, G01, L01–L03, T01, T02, G02, P01** di QEMU — suite yang sama juga
 lulus di **ARM64** (QEMU `virt` + AAVMF, H02) —, **I01
 terhadap penyedia cloud tiruan** di jaringan lab (belum pernah terhadap layanan sungguhan), dan uji
 stabilitas PRD §9: seluruh suite berulang dalam satu boot selama berjam-jam dengan pembunuhan acak dan
@@ -36,10 +36,11 @@ drivernya belum ditulis, dan alasannya ada di sana.
 | `spacedesk` + `deskapps` | `user/services/spacedesk`, `user/services/deskapps` | `x86_64-unknown-none` | Desktop (U01, ADR-0020): server tampilan yang memegang layar lewat lease kernel, menyusun jendela dari memori klien (dibaca saja), dock, workspace dan semua manajemen jendela dari keyboard, API otomasi; aplikasinya terminal, file manager, Agent Center (model sungguhan, progres, Stop kooperatif; ADR-0021) dan Command Center (pencarian SpaceLink dengan asal setiap hasil; ADR-0022) |
 | `spacerecovery` | `user/services/spacerecovery` | `x86_64-unknown-none` | Konsol recovery (ADR-0027): dipilih bootloader saat operator menekan R atau setelah tiga boot yang tidak naik; memeriksa model terhadap manifest, store paket, revokasi dan hitungan boot, mengosongkan berkas yang rusak, membuka sesi — tanpa model, jaringan atau AI |
 | `spaceshell` + `spaceterm` | `user/services/spaceshell`, `user/services/spaceterm` | `x86_64-unknown-none` | Sesi yang bertahan melewati worker yang crash/macet, daftar berkas, `Stop`; `spaceterm` mem-boot langsung ke sesi yang bisa diketik orang (U01) |
+| `spacetask` | `user/services/spacetask` | `x86_64-unknown-none` | Task Service: tugas yang bertahan melewati jendela, layanan dan reboot di jurnal bersegel; retry dengan backoff, efek tak pasti ke `needs_reconciliation`, Stop yang menghentikan dispatch (T01, T02, G02; ADR-0036) |
 | `spacebroker` + `spaceagent` | `user/services/*` | `x86_64-unknown-none` | Tool Broker dengan scope workspace dan audit log; agent yang lahir tanpa kapabilitas file (G01) |
 | `spacelink` | `user/services/spacelink` | `x86_64-unknown-none` | Indeks korpus, revokasi yang bertahan indeks ulang, context bundle dengan provenance (L01–L03), satu berkas yang berubah diindeks ulang tanpa full rescan (ADR-0023) |
 | `spacepkg` | `user/services/spacepkg` | `x86_64-unknown-none` | Paket terautentikasi (HMAC-SHA256), penolakan yang menyebut alasan, rollback (P01) |
-| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 126 uji penerimaan B04, K01–K04, D01, C01, A01, A02, U01, G01, L01–L03, P01, I01, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
+| `init` + uji | `user/init`, `user/tests/*` | `x86_64-unknown-none` | Proses pertama sekaligus penggerak 139 uji penerimaan B04, K01–K04, D01, C01, A01, A02, U01, G01, L01–L03, P01, I01, T01, T02, G02, jaringan (`NET`) dan `TLS`; dengan `stress=` di command line kernel, suite itu diulang dalam satu boot dengan putaran pembunuhan acak (ADR-0019) |
 | `xtask` | `xtask` | host | `cargo xtask build/run/test/compat/soak/stress/unit/ci`: image FAT (MBR+ESP), QEMU + OVMF, ketikan dan kombinasi tombol ke guest serta screenshot, layanan jaringan dan TLS lab dengan otoritas sertifikatnya, penyedia cloud tiruan, rekaman pcap yang diperiksa, pemeriksaan bahwa tidak ada instruksi FPU/vektor di image, verifikasi log dan exit code |
 
 Setiap komponen guest juga dibangun untuk `aarch64-unknown-none-softfloat` (bootloader: `aarch64-unknown-uefi`); `cargo xtask arm64` mem-boot hasilnya (ADR-0028).
@@ -112,7 +113,7 @@ spacekernel 0.1.0: Space OS kernel booting
 [init] PASS L01: the Command Center searches the index, shows where each result came from, bundles it and opens it in Files
 [init] link: /spaceos/ws/FRESH.TXT changed; re-indexed on its own in 12 ms (109 bytes read); /spaceos/ws/LATER.TXT, changed too, kept its old text until it was named
 [init] PASS L01: a changed file is re-indexed on its own, and the next search answers from the new text
-[init] ALL TESTS PASSED (126/126, 1 skipped)
+[init] ALL TESTS PASSED (139/139, 1 skipped)
 [kernel] shutdown requested by pid 1 'bin/init' with code 0 (uptime 59418 ms, 140929 context switches)
 ```
 

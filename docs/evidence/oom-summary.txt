@@ -19,36 +19,36 @@ out of memory after 428 KiB
 [worker] job 'hog' starting
 [worker] job 'hog' starting
 [worker] job 'hog' starting
-[worker] job 'hog' took 232288 KiB, then the kernel said: quota exceeded
-[worker] job 'hog' took 4029712 KiB, then the kernel said: out of memory
-[worker] job 'hog' took 4080032 KiB, then the kernel said: out of memory
-[init] A02: 3 worker(s) took 8162 MiB in 21717 ms and left 0 frames free; the session answered, a new program was refused, and all 2089709 frames came back
+[worker] job 'hog' took 232036 KiB, then the kernel said: quota exceeded
+[worker] job 'hog' took 4014564 KiB, then the kernel said: out of memory
+[worker] job 'hog' took 4095172 KiB, then the kernel said: out of memory
+[init] A02: 3 worker(s) took 8162 MiB in 27107 ms and left 0 frames free; the session answered, a new program was refused, and all 2089646 frames came back
 [init] PASS A02: workers that take every free frame are refused at the end of it, the session answers, a new program is refused, and Stop gives every frame back
 [shell] session open, ABI v0; the session holds 63 pages
 
 ## Setiap mesin: worker yang mengambil seluruh memori
-cpu-max                  3 worker(s) took 8162 MiB in 20726 ms and left 0 frames free; the session answered, a new program was refused, and all 2089712 frames came back
-e1000                    3 worker(s) took 8162 MiB in 19204 ms and left 0 frames free; the session answered, a new program was refused, and all 2089710 frames came back
-e1000e                   3 worker(s) took 8162 MiB in 19832 ms and left 0 frames free; the session answered, a new program was refused, and all 2089710 frames came back
-i440fx                   2 worker(s) took 4067 MiB in 17923 ms and left 0 frames free; the session answered, a new program was refused, and all 1041289 frames came back
-installed-disk           3 worker(s) took 8162 MiB in 19564 ms and left 0 frames free; the session answered, a new program was refused, and all 2089720 frames came back
-lab                      3 worker(s) took 8162 MiB in 20543 ms and left 0 frames free; the session answered, a new program was refused, and all 2089710 frames came back
-no-disk                  3 worker(s) took 8162 MiB in 14394 ms and left 0 frames free; the session answered, a new program was refused, and all 2089720 frames came back
-no-vga                   3 worker(s) took 8162 MiB in 19338 ms and left 0 frames free; the session answered, a new program was refused, and all 2089712 frames came back
-nvme-data                3 worker(s) took 8162 MiB in 19971 ms and left 0 frames free; the session answered, a new program was refused, and all 2089706 frames came back
-q35-1cpu-2g              1 worker(s) took 2019 MiB in 7669 ms and left 0 frames free; the session answered, a new program was refused, and all 517066 frames came back
-rtl8139-only             3 worker(s) took 8163 MiB in 13338 ms and left 0 frames free; the session answered, a new program was refused, and all 2089744 frames came back
-sata-data                3 worker(s) took 8162 MiB in 18922 ms and left 0 frames free; the session answered, a new program was refused, and all 2089711 frames came back
-usb                      3 worker(s) took 8162 MiB in 20267 ms and left 0 frames free; the session answered, a new program was refused, and all 2089696 frames came back
-virtio-small-queue       3 worker(s) took 8162 MiB in 18368 ms and left 0 frames free; the session answered, a new program was refused, and all 2089716 frames came back
-virtio-transitional      3 worker(s) took 8162 MiB in 19131 ms and left 0 frames free; the session answered, a new program was refused, and all 2089710 frames came back
-vmware-vga               3 worker(s) took 8162 MiB in 19566 ms and left 0 frames free; the session answered, a new program was refused, and all 2089710 frames came back
-arm64-acceptance         2 worker(s) took 4069 MiB in 19224 ms and left 0 frames free; the session answered, a new program was refused, and all 1041699 frames came back
+cpu-max                  3 worker(s) took 8162 MiB in 27051 ms and left 0 frames free; the session answered, a new program was refused, and all 2089649 frames came back
+e1000                    3 worker(s) took 8162 MiB in 25940 ms and left 0 frames free; the session answered, a new program was refused, and all 2089647 frames came back
+e1000e                   3 worker(s) took 8162 MiB in 26633 ms and left 0 frames free; the session answered, a new program was refused, and all 2089647 frames came back
+i440fx                   2 worker(s) took 4067 MiB in 24080 ms and left 0 frames free; the session answered, a new program was refused, and all 1041226 frames came back
+installed-disk           3 worker(s) took 8162 MiB in 26132 ms and left 0 frames free; the session answered, a new program was refused, and all 2089657 frames came back
+lab                      3 worker(s) took 8162 MiB in 26354 ms and left 0 frames free; the session answered, a new program was refused, and all 2089647 frames came back
+no-disk                  3 worker(s) took 8162 MiB in 19276 ms and left 0 frames free; the session answered, a new program was refused, and all 2089657 frames came back
+no-vga                   3 worker(s) took 8162 MiB in 27077 ms and left 0 frames free; the session answered, a new program was refused, and all 2089649 frames came back
+nvme-data                3 worker(s) took 8162 MiB in 27101 ms and left 0 frames free; the session answered, a new program was refused, and all 2089643 frames came back
+q35-1cpu-2g              1 worker(s) took 2019 MiB in 12889 ms and left 0 frames free; the session answered, a new program was refused, and all 517003 frames came back
+rtl8139-only             3 worker(s) took 8162 MiB in 24276 ms and left 0 frames free; the session answered, a new program was refused, and all 2089681 frames came back
+sata-data                3 worker(s) took 8162 MiB in 26724 ms and left 0 frames free; the session answered, a new program was refused, and all 2089648 frames came back
+usb                      3 worker(s) took 8162 MiB in 27851 ms and left 0 frames free; the session answered, a new program was refused, and all 2089633 frames came back
+virtio-small-queue       3 worker(s) took 8162 MiB in 27719 ms and left 0 frames free; the session answered, a new program was refused, and all 2089653 frames came back
+virtio-transitional      3 worker(s) took 8162 MiB in 27395 ms and left 0 frames free; the session answered, a new program was refused, and all 2089647 frames came back
+vmware-vga               3 worker(s) took 8162 MiB in 27115 ms and left 0 frames free; the session answered, a new program was refused, and all 2089647 frames came back
+arm64-acceptance         2 worker(s) took 4068 MiB in 26495 ms and left 0 frames free; the session answered, a new program was refused, and all 1041651 frames came back
 
 ## Stress: titik terendah frame bebas nol menurut rancangan, frame setelah setiap putaran tetap
-[stress] pass 1: ok; 126/126 tests (1 skipped) in 59.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=59324
-[stress] pass 2: ok; 126/126 tests (1 skipped) in 41.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=100524
-[stress] done: 2 passes in 1.7 min, 252 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
+[stress] pass 1: ok; 139/139 tests (1 skipped) in 75.7 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=75817
+[stress] pass 2: ok; 139/139 tests (1 skipped) in 52.4 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=128263
+[stress] done: 2 passes in 2.1 min, 278 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
 
 ## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
 === the runtime does not compare the model's digest with the manifest

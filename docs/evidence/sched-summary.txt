@@ -4,88 +4,88 @@ Diambil dari build/logs (cargo xtask test, compat, arm64). Log lengkap: acceptan
 
 ## Acceptance (x86-64, 4 vCPU)
 [kernel] scheduler: 1000 Hz tick, 10 ms quantum, 3 service classes (a class waits at most 100 ms)
-[kernel] spawn pid 1 'bin/init': entry=0x45f1b0, 147 pages mapped, quota 2048 pages, interactive
+[kernel] spawn pid 1 'bin/init': entry=0x469d64, 166 pages mapped, quota 2048 pages, interactive
 [init] --- K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
 [sched] background: more urgent children Denied, class 4 Invalid, a child without a class runs in the background
 [init] PASS K02: service classes: a child is never more urgent than its parent, and runs in its parent's class unless asked otherwise
 [init] --- K02: service classes: an interactive round trip stays quick while background work fills every CPU
-[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 4 ms, max 4 ms
 [init] PASS K02: service classes: an interactive round trip stays quick while background work fills every CPU
 [init] --- K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
-[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 10 ms
 [init] PASS K02: service classes: an interactive thread woken by the timer takes a CPU from background work at once
 [init] --- K02: service classes: background work still runs while interactive work fills every CPU
-[init] classes: a background program finished in 145 ms beside 8 interactive spinners on 4 CPU(s)
+[init] classes: a background program finished in 147 ms beside 8 interactive spinners on 4 CPU(s)
 [init] PASS K02: service classes: background work still runs while interactive work fills every CPU
 
 ## Sesi menjalankan pekerjaannya di kelas background
-[kernel] spawn pid 288 'bin/spaceai': entry=0x407e5c, 35 pages mapped, quota 512 pages, background
-[kernel] spawn pid 287 'bin/spacecompute': entry=0x4047ac, 28 pages mapped, quota 4096 pages, background
-[kernel] spawn pid 282 'bin/uiworker': entry=0x4005a0, 21 pages mapped, quota 128 pages, background
+[kernel] spawn pid 288 'bin/spaceai': entry=0x4068a0, 35 pages mapped, quota 512 pages, background
+[kernel] spawn pid 287 'bin/spacecompute': entry=0x4042b0, 28 pages mapped, quota 4096 pages, background
+[kernel] spawn pid 282 'bin/uiworker': entry=0x400750, 21 pages mapped, quota 128 pages, background
 
 ## Setiap mesin: pesan interaktif di samping beban background, program background di samping beban interaktif
-cpu-max                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
-                         a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
-e1000                    200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
-                         a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
-e1000e                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 3 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
-                         a background program finished in 140 ms beside 8 interactive spinners on 4 CPU(s)
-i440fx                   200 interactive round trips beside 4 background spinners on 2 CPU(s): p50 0 ms, p95 0 ms, p99 2 ms, max 4 ms
-                         100 interactive sleeps of 1-4 ms beside 4 background spinners on 2 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
-                         a background program finished in 129 ms beside 4 interactive spinners on 2 CPU(s)
-installed-disk           200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
-                         a background program finished in 131 ms beside 8 interactive spinners on 4 CPU(s)
-lab                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 0 ms
-                         a background program finished in 132 ms beside 8 interactive spinners on 4 CPU(s)
-no-disk                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
-                         a background program finished in 124 ms beside 8 interactive spinners on 4 CPU(s)
-no-vga                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
-                         a background program finished in 114 ms beside 8 interactive spinners on 4 CPU(s)
-nvme-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 4 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
-                         a background program finished in 129 ms beside 8 interactive spinners on 4 CPU(s)
-q35-1cpu-2g              200 interactive round trips beside 2 background spinners on 1 CPU(s): p50 0 ms, p95 0 ms, p99 1 ms, max 1 ms
-                         100 interactive sleeps of 1-4 ms beside 2 background spinners on 1 CPU(s): woken late by p50 0 ms, p90 1 ms, max 3 ms
-                         a background program finished in 156 ms beside 2 interactive spinners on 1 CPU(s)
-rtl8139-only             200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
-                         a background program finished in 123 ms beside 8 interactive spinners on 4 CPU(s)
-sata-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 0 ms, p99 3 ms, max 5 ms
+cpu-max                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 3 ms, max 4 ms
                          100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
-                         a background program finished in 134 ms beside 8 interactive spinners on 4 CPU(s)
-usb                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
-                         a background program finished in 141 ms beside 8 interactive spinners on 4 CPU(s)
-virtio-small-queue       200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 3 ms
+                         a background program finished in 144 ms beside 8 interactive spinners on 4 CPU(s)
+e1000                    200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 3 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+                         a background program finished in 132 ms beside 8 interactive spinners on 4 CPU(s)
+e1000e                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+                         a background program finished in 127 ms beside 8 interactive spinners on 4 CPU(s)
+i440fx                   200 interactive round trips beside 4 background spinners on 2 CPU(s): p50 0 ms, p95 1 ms, p99 3 ms, max 5 ms
+                         100 interactive sleeps of 1-4 ms beside 4 background spinners on 2 CPU(s): woken late by p50 0 ms, p90 0 ms, max 13 ms
+                         a background program finished in 126 ms beside 4 interactive spinners on 2 CPU(s)
+installed-disk           200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 3 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 125 ms beside 8 interactive spinners on 4 CPU(s)
+lab                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 3 ms, max 8 ms
                          100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 2 ms
                          a background program finished in 130 ms beside 8 interactive spinners on 4 CPU(s)
-virtio-transitional      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 0 ms, p99 1 ms, max 4 ms
-                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 23 ms
-                         a background program finished in 131 ms beside 8 interactive spinners on 4 CPU(s)
-vmware-vga               200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 4 ms
+no-disk                  200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 3 ms
                          100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 121 ms beside 8 interactive spinners on 4 CPU(s)
+no-vga                   200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 123 ms beside 8 interactive spinners on 4 CPU(s)
+nvme-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
                          a background program finished in 128 ms beside 8 interactive spinners on 4 CPU(s)
-arm64-acceptance         200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 4 ms, max 4 ms
+q35-1cpu-2g              200 interactive round trips beside 2 background spinners on 1 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+                         100 interactive sleeps of 1-4 ms beside 2 background spinners on 1 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 148 ms beside 2 interactive spinners on 1 CPU(s)
+rtl8139-only             200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 1 ms, max 4 ms
+                         a background program finished in 138 ms beside 8 interactive spinners on 4 CPU(s)
+sata-data                200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 7 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 8 ms
+                         a background program finished in 145 ms beside 8 interactive spinners on 4 CPU(s)
+usb                      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+                         a background program finished in 127 ms beside 8 interactive spinners on 4 CPU(s)
+virtio-small-queue       200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 3 ms, max 9 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 6 ms
+                         a background program finished in 134 ms beside 8 interactive spinners on 4 CPU(s)
+virtio-transitional      200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 4 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 3 ms
+                         a background program finished in 139 ms beside 8 interactive spinners on 4 CPU(s)
+vmware-vga               200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 3 ms
                          100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
                          a background program finished in 125 ms beside 8 interactive spinners on 4 CPU(s)
+arm64-acceptance         200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
+                         100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
+                         a background program finished in 119 ms beside 8 interactive spinners on 4 CPU(s)
 
 ## Stress: setiap pass
-[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 2 ms, max 2 ms
 [init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 4 ms
-[init] classes: a background program finished in 120 ms beside 8 interactive spinners on 4 CPU(s)
-[stress] pass 1: ok; 126/126 tests (1 skipped) in 59.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=59324
-[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 4 ms, max 4 ms
-[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 5 ms
-[init] classes: a background program finished in 124 ms beside 8 interactive spinners on 4 CPU(s)
-[stress] pass 2: ok; 126/126 tests (1 skipped) in 41.2 s; frames_free=2089789 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=100524
-[stress] done: 2 passes in 1.7 min, 252 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
+[init] classes: a background program finished in 125 ms beside 8 interactive spinners on 4 CPU(s)
+[stress] pass 1: ok; 139/139 tests (1 skipped) in 75.7 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=75817
+[init] classes: 200 interactive round trips beside 8 background spinners on 4 CPU(s): p50 0 ms, p95 1 ms, p99 1 ms, max 1 ms
+[init] classes: 100 interactive sleeps of 1-4 ms beside 8 background spinners on 4 CPU(s): woken late by p50 0 ms, p90 0 ms, max 1 ms
+[init] classes: a background program finished in 141 ms beside 8 interactive spinners on 4 CPU(s)
+[stress] pass 2: ok; 139/139 tests (1 skipped) in 52.4 s; frames_free=2089726 frames_free_min=0 heap_used=23072 heap_used_peak=56624 processes=1 threads=1 init_heap=0 handles=1 uptime_ms=128263
+[stress] done: 2 passes in 2.1 min, 278 tests passed, 12 processes killed at random; 0 failed pass(es), 0 leak(s); lowest free frames 0, peak kernel heap 56624 bytes
 
 ## Gigi uji: satu pelemahan per run (source dipulihkan setelahnya)
 === the run queue ignores the class: everything waits in one queue

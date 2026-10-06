@@ -27,7 +27,7 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 ## Penyimpanan
 
 - Driver blok dan FAT32 berada **di dalam kernel** (ADR-0007), bukan user-space; tanpa IOMMU, driver DMA tetap komponen tepercaya.
-- FAT32 satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3. Menulis ada (ADR-0015) tetapi terbatas: **create-atau-kosongkan dan tulis**, tanpa hapus berkas, tanpa buat direktori, tanpa nama panjang, dan **tanpa jurnal** — kehilangan daya di tengah tulisan bisa meninggalkan FAT dan entri direktori tidak sinkron. Yang bisa ditulis hanya volume data berlabel `SPACEDATA`; `block` membatasi setiap permintaan ke volume itu, jadi ESP tempat boot — di disk lain atau partisi lain — tidak terjangkau (ADR-0025).
+- FAT32 satu volume, tanpa cache blok, tanpa mount table; entri long-name dilewati sehingga berkas guest harus bernama 8.3. Menulis ada (ADR-0015) tetapi terbatas: **create-atau-kosongkan, buka-untuk-tulis (ADR-0036) dan tulis**, tanpa hapus berkas, tanpa buat direktori, tanpa nama panjang, dan **tanpa jurnal** — kehilangan daya di tengah tulisan bisa meninggalkan FAT dan entri direktori tidak sinkron. Yang bisa ditulis hanya volume data berlabel `SPACEDATA`; `block` membatasi setiap permintaan ke volume itu, jadi ESP tempat boot — di disk lain atau partisi lain — tidak terjangkau (ADR-0025).
 - VirtIO memakai polling, satu permintaan pada satu waktu, tanpa interrupt; perangkat yang macet menghasilkan error setelah batas polling, bukan hang, tetapi batas itu membekukan CPU selama beberapa saat.
 - Disk: virtio-blk, SATA lewat AHCI, dan NVMe (ADR-0025). Belum ada IDE/PATA (ESP di `i440fx` tetap tidak terlihat), USB, SCSI/virtio-scsi atau RAID; sektor harus 512 byte (disk 4Kn dan namespace NVMe berformat 4096 dilewati dengan pesan); satu perintah pada satu waktu per disk lewat buffer bounce 32 KiB; tanpa hot-plug. Tabel GPT dibaca tanpa memeriksa CRC-nya: label di boot sector yang memutuskan, dan partisi yang keluar dari disk tidak pernah dibaca.
 - Hanya perangkat virtio-blk yang menawarkan kapabilitas modern (VIRTIO_F_VERSION_1). Perangkat transisional diterima karena juga menawarkannya; perangkat legacy murni diabaikan dengan pesan, bukan crash.
@@ -175,6 +175,15 @@ Daftar ini adalah bagian wajib setiap milestone (PRD §8). "Belum ada" berarti t
 - Tanpa key repeat (keyboard USB tidak mengulang sendiri), tanpa lampu Caps Lock/Num Lock, tanpa tombol Pause; tata letak US seperti PS/2.
 - Polling: event ring dilihat setiap tick 1 ms di CPU boot, tanpa interrupt/MSI. Endpoint yang gagal (stall, transaction error) tidak dipulihkan: keyboard itu berhenti dan semua tombolnya dilepas.
 - Hanya diuji di QEMU (`qemu-xhci` + `usb-kbd`/`usb-tablet`, x86-64 dan AArch64), belum di pengendali fisik.
+
+## Task Service (ADR-0036)
+
+- Data tugas mencakup identitas (ID, pemilik, workspace, induk), eksekusi (state, attempt, efek, checkpoint) dan audit (riwayat transisi, efek). Scope (capability, tujuan jaringan, kebijakan data, kedaluwarsa) dan batas sumber daya (RAM, CPU, token, biaya) belum menjadi bagian tugas.
+- Belum ada tugas terjadwal, jadi juga belum ada kebijakan untuk jadwal yang terlewat saat offline (skip, run-once, tanya).
+- Backoff dihitung dari uptime dan tidak dicatat: setelah restart, tugas yang menunggu backoff bisa langsung diklaim.
+- Layanan tidak memiliki worker: mematikan worker yang tidak berhenti adalah tugas pengawasnya. Belum ada Task Center di desktop; kliennya kini uji `init` dan `bin/taskworker`.
+- Aktor sesi ditetapkan operator, tetapi semua sesi dengan aktor yang sama setara: belum ada pemilik per tugas yang membatasi siapa boleh memindahkannya.
+- Kompaksi meringkas riwayat tugas yang dipindahkannya menjadi transisi terakhirnya. Jurnal mengandalkan tulisan satu sektor yang atomik (rekaman 128 byte tidak pernah melintasi sektor) dan flush perangkat; di atas FAT32 tanpa jurnal, kerusakan metadata volume tetap di luar jangkauannya.
 
 ## Belum ada (tahap berikutnya)
 

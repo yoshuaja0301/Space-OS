@@ -19,6 +19,7 @@ pub mod link;
 pub mod net;
 pub mod shell;
 pub mod sys;
+pub mod task;
 
 pub use spaceabi;
 pub use spaceabi::error::Error;
